@@ -1,117 +1,136 @@
-import { useMemo } from 'react'
-import { Activity } from 'lucide-react'
-import { Label } from '@/components/ui/label'
-import { useFleet } from '@/hooks/use-fleet'
-import { regionLabel } from '@/data/regions'
-import { client } from '@/lib/provider'
-import { formatRelative } from '@/lib/format'
-import type { Proxy, ProxyStatus } from '@/lib/provider/types'
+import React, { useState } from 'react'
+import { Plus, RefreshCw, Trash2, UserPlus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
-const STATUS_META: Record<ProxyStatus, { label: string; color: string }> = {
-  healthy: { label: 'HEALTHY', color: 'var(--status-online)' },
-  failing: { label: 'FAILING', color: 'var(--status-error)' },
-  unassigned: { label: 'SPARE', color: 'var(--status-offline)' },
+type ProxyStatus = 'healthy' | 'degraded' | 'down'
+type FilterTab = 'all' | ProxyStatus
+
+interface Proxy {
+  id: string
+  ip: string
+  port: number
+  region: string
+  provider: string
+  latencyMs: number
+  status: ProxyStatus
+  assignedTo: string | null
 }
 
-function Pill({ status }: { status: ProxyStatus }) {
-  const m = STATUS_META[status]
-  return (
-    <span
-      className="label inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-elevated px-2.5 py-1"
-      style={{ color: m.color }}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color, boxShadow: `0 0 5px ${m.color}` }} />
-      {m.label}
-    </span>
-  )
+const MOCK_PROXIES: Proxy[] = [
+  { id: 'px1', ip: '104.21.45.12',  port: 8080, region: 'US-West',   provider: 'Luminati',   latencyMs: 42,  status: 'healthy',  assignedTo: 'Instagram Farm' },
+  { id: 'px2', ip: '172.67.183.90', port: 8080, region: 'US-East',   provider: 'Bright Data', latencyMs: 38,  status: 'healthy',  assignedTo: 'TikTok Farm' },
+  { id: 'px3', ip: '185.220.101.7', port: 9050, region: 'EU-DE',     provider: 'Oxylabs',    latencyMs: 98,  status: 'healthy',  assignedTo: 'Carolina' },
+  { id: 'px4', ip: '91.108.56.112', port: 3128, region: 'EU-NL',     provider: 'SmartProxy',  latencyMs: 210, status: 'degraded', assignedTo: 'Lucia' },
+  { id: 'px5', ip: '45.142.212.33', port: 8888, region: 'EU-UK',     provider: 'Oxylabs',    latencyMs: 145, status: 'healthy',  assignedTo: null },
+  { id: 'px6', ip: '103.152.114.5', port: 8080, region: 'APAC-SG',   provider: 'Bright Data', latencyMs: 320, status: 'degraded', assignedTo: 'Warmup Pool' },
+  { id: 'px7', ip: '203.77.188.10', port: 3128, region: 'APAC-JP',   provider: 'Luminati',   latencyMs: 999, status: 'down',     assignedTo: null },
+  { id: 'px8', ip: '77.247.126.95', port: 9090, region: 'US-Central', provider: 'SmartProxy',  latencyMs: 55,  status: 'healthy',  assignedTo: null },
+]
+
+const STATUS_CONFIG: Record<ProxyStatus, { dot: string; badge: string; label: string }> = {
+  healthy:  { dot: 'bg-green-500',  badge: 'text-green-400 bg-green-500/10',  label: 'Healthy' },
+  degraded: { dot: 'bg-amber-500',  badge: 'text-amber-400 bg-amber-500/10',  label: 'Degraded' },
+  down:     { dot: 'bg-red-500',    badge: 'text-red-400   bg-red-500/10',    label: 'Down' },
 }
 
-function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return <th className={`label px-4 py-2.5 font-normal text-fg-muted ${className ?? ''}`}>{children}</th>
-}
-
-function Row({ proxy, deviceName }: { proxy: Proxy; deviceName: string | null }) {
-  const pct = Math.min(100, (proxy.latency / 250) * 100)
-  return (
-    <tr className="border-b border-line transition-colors hover:bg-panel">
-      <td className="px-4 py-2.5"><Pill status={proxy.status} /></td>
-      <td className="mono px-4 py-2.5 text-[12px] text-fg-secondary">{proxy.ip}</td>
-      <td className="label px-4 py-2.5 text-fg-secondary">{regionLabel(proxy.region)}</td>
-      <td className="px-4 py-2.5 text-[12px] text-fg-secondary">{proxy.provider}</td>
-      <td className="mono px-4 py-2.5 text-[12px] text-fg-muted">{deviceName ?? '—'}</td>
-      <td className="px-4 py-2.5">
-        {proxy.status === 'failing' ? (
-          <span className="mono text-[12px] text-status-error">timeout</span>
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="h-1 w-16 overflow-hidden rounded-full bg-elevated">
-              <div className="h-full rounded-full bg-fg-muted" style={{ width: `${pct}%` }} />
-            </div>
-            <span className="mono w-12 text-[12px] tabular-nums text-fg-secondary">{proxy.latency}ms</span>
-          </div>
-        )}
-      </td>
-      <td className="mono px-4 py-2.5 text-[12px] text-fg-muted">{formatRelative(proxy.lastCheck)}</td>
-      <td className="px-4 py-2.5 text-right">
-        <button
-          type="button"
-          onClick={() => void client.testProxy(proxy.ip)}
-          className="label inline-flex items-center gap-1.5 rounded-control border border-line px-2 py-1 text-fg-secondary transition-colors hover:bg-elevated hover:text-fg"
-        >
-          <Activity size={11} /> Test
-        </button>
-      </td>
-    </tr>
-  )
-}
+const TABS: { id: FilterTab; label: string }[] = [
+  { id: 'all',      label: 'All' },
+  { id: 'healthy',  label: 'Healthy' },
+  { id: 'degraded', label: 'Degraded' },
+  { id: 'down',     label: 'Down' },
+]
 
 export function ProxiesView() {
-  const snapshot = useFleet()
-  const names = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const d of snapshot.devices) m.set(d.id, d.name)
-    return m
-  }, [snapshot.devices])
+  const [filter, setFilter] = useState<FilterTab>('all')
 
-  const counts = useMemo(() => {
-    let healthy = 0, failing = 0, spare = 0
-    for (const p of snapshot.proxies) {
-      if (p.status === 'healthy') healthy++
-      else if (p.status === 'failing') failing++
-      else spare++
-    }
-    return { healthy, failing, spare }
-  }, [snapshot.proxies])
+  const visible = filter === 'all' ? MOCK_PROXIES : MOCK_PROXIES.filter(p => p.status === filter)
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4">
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
         <div>
-          <Label className="text-fg">Proxy Pool</Label>
-          <div className="mono mt-1 text-[11px] text-fg-muted">
-            {snapshot.proxies.length} TOTAL · {counts.healthy} HEALTHY ·{' '}
-            <span className="text-status-error">{counts.failing} FAILING</span> · {counts.spare} SPARE
+          <div className="text-sm font-medium text-white/90">Proxies</div>
+          <div className="mono mt-0.5 text-[11px] text-white/40 uppercase tracking-wide">
+            {MOCK_PROXIES.filter(p => p.status === 'healthy').length} healthy · {MOCK_PROXIES.length} total
           </div>
         </div>
+        <Button variant="primary" size="sm">
+          <Plus size={14} /> Add Proxy
+        </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <table className="w-full border-collapse text-left">
-          <thead className="sticky top-0 z-10 bg-canvas">
-            <tr className="border-b border-line">
-              <Th>Status</Th>
-              <Th>IP</Th>
-              <Th>Region</Th>
-              <Th>Provider</Th>
-              <Th>Assigned</Th>
-              <Th>Latency</Th>
-              <Th>Last Check</Th>
-              <Th className="text-right" />
+
+      {/* Filter tabs */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-white/[0.06] px-6 py-2">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setFilter(tab.id)}
+            className={[
+              'px-3 py-1 rounded text-xs transition-colors',
+              filter === tab.id
+                ? 'bg-white/[0.08] text-white'
+                : 'text-white/40 hover:text-white/70',
+            ].join(' ')}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 border-b border-white/[0.06] bg-[#0a0a0f]">
+            <tr className="text-left">
+              {['IP', 'Region', 'Provider', 'Latency', 'Status', 'Assigned To', 'Actions'].map(h => (
+                <th key={h} className="mono px-4 py-3 text-[10px] font-normal uppercase tracking-widest text-white/30">
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {snapshot.proxies.map((p) => (
-              <Row key={p.ip} proxy={p} deviceName={p.assignedTo ? names.get(p.assignedTo) ?? null : null} />
-            ))}
+            {visible.map((proxy, i) => {
+              const sc = STATUS_CONFIG[proxy.status]
+              return (
+                <tr
+                  key={proxy.id}
+                  className={['border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors', i % 2 === 0 ? '' : 'bg-white/[0.01]'].join(' ')}
+                >
+                  <td className="mono px-4 py-3 text-white/80 text-xs">{proxy.ip}:{proxy.port}</td>
+                  <td className="px-4 py-3 text-white/60 text-xs">{proxy.region}</td>
+                  <td className="px-4 py-3 text-white/60 text-xs">{proxy.provider}</td>
+                  <td className="mono px-4 py-3 text-xs">
+                    <span className={proxy.latencyMs > 500 ? 'text-red-400' : proxy.latencyMs > 150 ? 'text-amber-400' : 'text-green-400'}>
+                      {proxy.latencyMs}ms
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] font-medium ${sc.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${sc.dot}`} />
+                      {sc.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-white/50 text-xs">
+                    {proxy.assignedTo ?? <span className="text-white/20">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1">
+                      <button className="rounded p-1 text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Test">
+                        <RefreshCw size={12} />
+                      </button>
+                      <button className="rounded p-1 text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors" title="Assign">
+                        <UserPlus size={12} />
+                      </button>
+                      <button className="rounded p-1 text-white/30 hover:text-red-400 hover:bg-red-500/[0.08] transition-colors" title="Remove">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
