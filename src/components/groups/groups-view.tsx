@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, ChevronRight, Plus, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -13,144 +13,98 @@ interface Group {
   name: string
   phones: PhoneEntry[]
   activeJobs: number
-  status: 'active' | 'idle' | 'paused'
-}
-
-const STATUS_DOT: Record<string, string> = {
-  online:  'bg-green-500',
-  busy:    'bg-blue-500',
-  offline: 'bg-zinc-600',
-  warning: 'bg-amber-500',
-}
-
-const GROUP_STATUS_BADGE: Record<string, string> = {
-  active: 'bg-green-500/15 text-green-400',
-  idle:   'bg-zinc-500/15 text-zinc-400',
-  paused: 'bg-amber-500/15 text-amber-400',
 }
 
 const MOCK_GROUPS: Group[] = [
-  {
-    id: 'g1', name: 'Instagram Farm', activeJobs: 3, status: 'active',
-    phones: [
-      { id: 'p1', name: 'iPhone 14 #1', status: 'online' },
-      { id: 'p2', name: 'iPhone 14 #2', status: 'busy' },
-      { id: 'p3', name: 'iPhone SE #1', status: 'online' },
-      { id: 'p4', name: 'Pixel 7 #1',   status: 'warning' },
-    ],
-  },
-  {
-    id: 'g2', name: 'TikTok Farm', activeJobs: 2, status: 'active',
-    phones: [
-      { id: 'p5', name: 'iPhone 13 #1', status: 'busy' },
-      { id: 'p6', name: 'iPhone 13 #2', status: 'busy' },
-      { id: 'p7', name: 'Pixel 6a #1',  status: 'offline' },
-    ],
-  },
-  {
-    id: 'g3', name: 'Warmup Pool', activeJobs: 0, status: 'idle',
-    phones: [
-      { id: 'p8',  name: 'iPhone SE #2', status: 'offline' },
-      { id: 'p9',  name: 'iPhone SE #3', status: 'offline' },
-      { id: 'p10', name: 'Pixel 7a #1',  status: 'online' },
-    ],
-  },
-  {
-    id: 'g4', name: 'Carolina', activeJobs: 1, status: 'active',
-    phones: [
-      { id: 'p11', name: 'iPhone 15 #1', status: 'busy' },
-      { id: 'p12', name: 'iPhone 15 #2', status: 'online' },
-    ],
-  },
-  {
-    id: 'g5', name: 'Lucia', activeJobs: 0, status: 'paused',
-    phones: [
-      { id: 'p13', name: 'iPhone 12 #1', status: 'offline' },
-      { id: 'p14', name: 'Pixel 5 #1',   status: 'offline' },
-    ],
-  },
+  { id: '1', name: 'Instagram Farm', activeJobs: 12, phones: [
+    { id: 'p1', name: 'iPhone-001', status: 'online' },
+    { id: 'p2', name: 'iPhone-002', status: 'busy' },
+    { id: 'p3', name: 'iPhone-003', status: 'online' },
+    { id: 'p4', name: 'iPhone-004', status: 'warning' },
+  ]},
+  { id: '2', name: 'TikTok Farm', activeJobs: 6, phones: [
+    { id: 'p5', name: 'iPhone-010', status: 'online' },
+    { id: 'p6', name: 'iPhone-011', status: 'online' },
+    { id: 'p7', name: 'iPhone-012', status: 'offline' },
+  ]},
+  { id: '3', name: 'Warmup Pool', activeJobs: 3, phones: [
+    { id: 'p8', name: 'iPhone-020', status: 'busy' },
+    { id: 'p9', name: 'iPhone-021', status: 'online' },
+  ]},
+  { id: '4', name: 'Carolina', activeJobs: 8, phones: [
+    { id: 'p10', name: 'iPhone-030', status: 'online' },
+    { id: 'p11', name: 'iPhone-031', status: 'online' },
+    { id: 'p12', name: 'iPhone-032', status: 'busy' },
+  ]},
+  { id: '5', name: 'Lucia', activeJobs: 5, phones: [
+    { id: 'p13', name: 'iPhone-040', status: 'online' },
+    { id: 'p14', name: 'iPhone-041', status: 'warning' },
+  ]},
 ]
 
-function GroupCard({ group }: { group: Group }) {
-  const [expanded, setExpanded] = useState(false)
-
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#111118] overflow-hidden">
-      <button
-        className="w-full flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-colors text-left"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-sm font-medium text-white/90 truncate">{group.name}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${GROUP_STATUS_BADGE[group.status]}`}>
-              {group.status}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-[11px] text-white/40">
-            <span className="flex items-center gap-1">
-              <Smartphone size={11} />
-              {group.phones.length} phones
-            </span>
-            <span>{group.activeJobs} active jobs</span>
-          </div>
-        </div>
-
-        {/* Status dots row */}
-        <div className="flex items-center gap-1 shrink-0">
-          {group.phones.slice(0, 6).map(p => (
-            <span key={p.id} className={`h-2 w-2 rounded-full ${STATUS_DOT[p.status]}`} />
-          ))}
-          {group.phones.length > 6 && (
-            <span className="text-[10px] text-white/30 ml-0.5">+{group.phones.length - 6}</span>
-          )}
-        </div>
-
-        <div className="text-white/30">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-white/[0.06] px-4 py-3">
-          <div className="grid grid-cols-1 gap-1.5">
-            {group.phones.map(phone => (
-              <div key={phone.id} className="flex items-center gap-2.5 text-sm">
-                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[phone.status]}`} />
-                <span className="text-white/60 flex-1">{phone.name}</span>
-                <span className="text-[10px] text-white/30 capitalize">{phone.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
+const statusDot: Record<string, string> = {
+  online: 'bg-emerald-500',
+  busy: 'bg-indigo-400',
+  offline: 'bg-white/20',
+  warning: 'bg-yellow-400',
 }
 
 export function GroupsView() {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  function toggle(id: string) {
+    setExpanded(prev => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+  }
+
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
-        <div>
-          <div className="text-sm font-medium text-white/90">Groups</div>
-          <div className="mono mt-0.5 text-[11px] text-white/40 uppercase tracking-wide">
-            {MOCK_GROUPS.length} groups · {MOCK_GROUPS.reduce((s, g) => s + g.phones.length, 0)} phones
-          </div>
-        </div>
-        <Button variant="primary" size="sm">
-          <Plus size={14} /> New Group
+    <div className="flex flex-col gap-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white/90">Groups</h2>
+        <Button size="sm" className="h-7 text-xs gap-1 bg-white/[0.06] hover:bg-white/[0.1] text-white/70 border-0">
+          <Plus size={12} /> New Group
         </Button>
       </div>
-
-      {/* Grid */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {MOCK_GROUPS.map(group => (
-            <GroupCard key={group.id} group={group} />
-          ))}
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {MOCK_GROUPS.map(g => {
+          const isOpen = expanded.has(g.id)
+          return (
+            <div key={g.id} className="rounded-xl border border-white/[0.06] bg-white/[0.03] overflow-hidden">
+              <button
+                onClick={() => toggle(g.id)}
+                className="w-full flex items-center justify-between p-4 hover:bg-white/[0.03] transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {isOpen ? <ChevronDown size={14} className="text-white/40" /> : <ChevronRight size={14} className="text-white/40" />}
+                  <span className="text-sm font-medium text-white/85">{g.name}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] text-white/30 flex items-center gap-1">
+                    <Smartphone size={10} /> {g.phones.length}
+                  </span>
+                  {g.activeJobs > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-400/10 text-indigo-400">
+                      {g.activeJobs} jobs
+                    </span>
+                  )}
+                </div>
+              </button>
+              {isOpen && (
+                <div className="border-t border-white/[0.04] px-4 pb-3 pt-2 flex flex-col gap-1.5">
+                  {g.phones.map(p => (
+                    <div key={p.id} className="flex items-center gap-2 text-xs text-white/50">
+                      <span className={`w-1.5 h-1.5 rounded-full ${statusDot[p.status]}`} />
+                      {p.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
