@@ -1,110 +1,154 @@
-import { useMemo } from 'react'
-import { ArrowRight, Users } from 'lucide-react'
+import React, { useState } from 'react'
+import { ChevronDown, ChevronRight, Plus, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { StatusDot } from '@/components/ui/status-dot'
-import { useFleet } from '@/hooks/use-fleet'
-import { useUIStore } from '@/state/ui-store'
-import { ALL_STATUSES, STATUS } from '@/lib/status'
-import type { Device, DeviceStatus } from '@/lib/provider/types'
 
-interface GroupSummary {
+interface PhoneEntry {
+  id: string
   name: string
-  total: number
-  counts: Record<DeviceStatus, number>
-  users: string[]
-  regions: number
-  avgBattery: number
+  status: 'online' | 'busy' | 'offline' | 'warning'
 }
 
-function summarize(devices: Device[]): GroupSummary[] {
-  const map = new Map<string, Device[]>()
-  for (const d of devices) {
-    const arr = map.get(d.group) ?? []
-    arr.push(d)
-    map.set(d.group, arr)
-  }
-  return [...map.entries()]
-    .map(([name, ds]) => {
-      const counts = { online: 0, busy: 0, warming: 0, offline: 0, error: 0 } as Record<DeviceStatus, number>
-      const users = new Set<string>()
-      const regions = new Set<string>()
-      let battery = 0
-      for (const d of ds) {
-        counts[d.status]++
-        if (d.assignedUser) users.add(d.assignedUser)
-        regions.add(d.region)
-        battery += d.battery
-      }
-      return {
-        name,
-        total: ds.length,
-        counts,
-        users: [...users],
-        regions: regions.size,
-        avgBattery: Math.round(battery / ds.length),
-      }
-    })
-    .sort((a, b) => b.total - a.total)
+interface Group {
+  id: string
+  name: string
+  phones: PhoneEntry[]
+  activeJobs: number
+  status: 'active' | 'idle' | 'paused'
 }
 
-function GroupCard({ g }: { g: GroupSummary }) {
-  const focusGroup = useUIStore((s) => s.focusGroup)
+const STATUS_DOT: Record<string, string> = {
+  online:  'bg-green-500',
+  busy:    'bg-blue-500',
+  offline: 'bg-zinc-600',
+  warning: 'bg-amber-500',
+}
+
+const GROUP_STATUS_BADGE: Record<string, string> = {
+  active: 'bg-green-500/15 text-green-400',
+  idle:   'bg-zinc-500/15 text-zinc-400',
+  paused: 'bg-amber-500/15 text-amber-400',
+}
+
+const MOCK_GROUPS: Group[] = [
+  {
+    id: 'g1', name: 'Instagram Farm', activeJobs: 3, status: 'active',
+    phones: [
+      { id: 'p1', name: 'iPhone 14 #1', status: 'online' },
+      { id: 'p2', name: 'iPhone 14 #2', status: 'busy' },
+      { id: 'p3', name: 'iPhone SE #1', status: 'online' },
+      { id: 'p4', name: 'Pixel 7 #1',   status: 'warning' },
+    ],
+  },
+  {
+    id: 'g2', name: 'TikTok Farm', activeJobs: 2, status: 'active',
+    phones: [
+      { id: 'p5', name: 'iPhone 13 #1', status: 'busy' },
+      { id: 'p6', name: 'iPhone 13 #2', status: 'busy' },
+      { id: 'p7', name: 'Pixel 6a #1',  status: 'offline' },
+    ],
+  },
+  {
+    id: 'g3', name: 'Warmup Pool', activeJobs: 0, status: 'idle',
+    phones: [
+      { id: 'p8',  name: 'iPhone SE #2', status: 'offline' },
+      { id: 'p9',  name: 'iPhone SE #3', status: 'offline' },
+      { id: 'p10', name: 'Pixel 7a #1',  status: 'online' },
+    ],
+  },
+  {
+    id: 'g4', name: 'Carolina', activeJobs: 1, status: 'active',
+    phones: [
+      { id: 'p11', name: 'iPhone 15 #1', status: 'busy' },
+      { id: 'p12', name: 'iPhone 15 #2', status: 'online' },
+    ],
+  },
+  {
+    id: 'g5', name: 'Lucia', activeJobs: 0, status: 'paused',
+    phones: [
+      { id: 'p13', name: 'iPhone 12 #1', status: 'offline' },
+      { id: 'p14', name: 'Pixel 5 #1',   status: 'offline' },
+    ],
+  },
+]
+
+function GroupCard({ group }: { group: Group }) {
+  const [expanded, setExpanded] = useState(false)
+
   return (
-    <Card ticks className="flex flex-col gap-4 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-sm font-medium text-fg">{g.name}</div>
-          <div className="mono mt-1 text-[11px] text-fg-muted">
-            {g.total} DEVICES · {g.regions} REGIONS · {g.avgBattery}% AVG
+    <div className="rounded-xl border border-white/[0.06] bg-[#111118] overflow-hidden">
+      <button
+        className="w-full flex items-center gap-4 p-4 hover:bg-white/[0.03] transition-colors text-left"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-sm font-medium text-white/90 truncate">{group.name}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide ${GROUP_STATUS_BADGE[group.status]}`}>
+              {group.status}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-white/40">
+            <span className="flex items-center gap-1">
+              <Smartphone size={11} />
+              {group.phones.length} phones
+            </span>
+            <span>{group.activeJobs} active jobs</span>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => focusGroup(g.name)}>
-          View <ArrowRight size={13} />
-        </Button>
-      </div>
 
-      {/* status breakdown */}
-      <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-line pt-4">
-        {ALL_STATUSES.filter((s) => g.counts[s] > 0).map((s) => (
-          <div key={s} className="flex items-center gap-1.5">
-            <StatusDot status={s} size={7} pulse={s !== 'offline'} />
-            <span className="mono text-[12px] text-fg">{g.counts[s]}</span>
-            <span className="label text-fg-muted">{STATUS[s].label}</span>
+        {/* Status dots row */}
+        <div className="flex items-center gap-1 shrink-0">
+          {group.phones.slice(0, 6).map(p => (
+            <span key={p.id} className={`h-2 w-2 rounded-full ${STATUS_DOT[p.status]}`} />
+          ))}
+          {group.phones.length > 6 && (
+            <span className="text-[10px] text-white/30 ml-0.5">+{group.phones.length - 6}</span>
+          )}
+        </div>
+
+        <div className="text-white/30">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-white/[0.06] px-4 py-3">
+          <div className="grid grid-cols-1 gap-1.5">
+            {group.phones.map(phone => (
+              <div key={phone.id} className="flex items-center gap-2.5 text-sm">
+                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${STATUS_DOT[phone.status]}`} />
+                <span className="text-white/60 flex-1">{phone.name}</span>
+                <span className="text-[10px] text-white/30 capitalize">{phone.status}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-
-      {/* operators */}
-      <div className="flex items-center gap-2 border-t border-line pt-3">
-        <Users size={13} className="text-fg-muted" />
-        <span className="text-[12px] text-fg-secondary">
-          {g.users.length > 0 ? g.users.join(' · ') : 'Unassigned'}
-        </span>
-      </div>
-    </Card>
+        </div>
+      )}
+    </div>
   )
 }
 
 export function GroupsView() {
-  const snapshot = useFleet()
-  const groups = useMemo(() => summarize(snapshot.devices), [snapshot.devices])
-
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4">
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/[0.06] px-6 py-4">
         <div>
-          <Label className="text-fg">Groups</Label>
-          <div className="mono mt-1 text-[11px] text-fg-muted">
-            {groups.length} GROUPS · {snapshot.devices.length} DEVICES
+          <div className="text-sm font-medium text-white/90">Groups</div>
+          <div className="mono mt-0.5 text-[11px] text-white/40 uppercase tracking-wide">
+            {MOCK_GROUPS.length} groups · {MOCK_GROUPS.reduce((s, g) => s + g.phones.length, 0)} phones
           </div>
         </div>
+        <Button variant="primary" size="sm">
+          <Plus size={14} /> New Group
+        </Button>
       </div>
+
+      {/* Grid */}
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {groups.map((g) => (
-            <GroupCard key={g.name} g={g} />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {MOCK_GROUPS.map(group => (
+            <GroupCard key={group.id} group={group} />
           ))}
         </div>
       </div>
