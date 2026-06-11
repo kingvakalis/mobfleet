@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import { type ReactNode } from 'react'
 import {
   Network, Smartphone, Layers, Shield, Zap,
   Briefcase, SlidersHorizontal, Terminal,
   type LucideIcon,
 } from 'lucide-react'
-import { type ViewId, VIEWS } from '@/lib/views'
+import { VIEWS, type ViewId } from '@/lib/views'
+import { useUIStore } from '@/state/ui-store'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
@@ -18,13 +19,13 @@ const ICON_MAP: Record<string, LucideIcon> = {
 }
 
 interface AppShellProps {
-  children: (activeView: ViewId, setView: (v: ViewId) => void) => React.ReactNode
-  defaultView?: ViewId
+  children: ReactNode
 }
 
 /** The frame: fixed left sidebar + full-bleed view stage. */
-export function AppShell({ children, defaultView = 'fleet' }: AppShellProps) {
-  const [active, setActive] = useState<ViewId>(defaultView)
+export function AppShell({ children }: AppShellProps) {
+  const view = useUIStore((s) => s.view)
+  const setView = useUIStore((s) => s.setView)
 
   return (
     <div className="flex h-full bg-[#0a0a0f]">
@@ -45,11 +46,11 @@ export function AppShell({ children, defaultView = 'fleet' }: AppShellProps) {
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {VIEWS.map((v) => {
             const Icon = ICON_MAP[v.icon] ?? Network
-            const isActive = active === v.id
+            const isActive = view === v.id
             return (
               <button
                 key={v.id}
-                onClick={() => setActive(v.id)}
+                onClick={() => setView(v.id as ViewId)}
                 className={[
                   'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
                   isActive
@@ -66,13 +67,13 @@ export function AppShell({ children, defaultView = 'fleet' }: AppShellProps) {
 
         {/* Footer */}
         <div className="border-t border-white/5 px-4 py-3">
-          <div className="mono text-[10px] text-white/25 uppercase tracking-wider">v2-merged</div>
+          <div className="mono text-[10px] text-white/25 uppercase tracking-wider">UPPED · v2</div>
         </div>
       </aside>
 
       {/* ── Main stage ──────────────────────────────────────── */}
       <main className="relative flex-1 overflow-hidden">
-        {children(active, setActive)}
+        {children}
       </main>
     </div>
   )
