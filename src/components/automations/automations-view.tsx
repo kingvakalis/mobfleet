@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import {
-  Download, Play, RefreshCw, ShieldCheck, Upload, Zap, Heart, Eye, MessageCircle,
+  Download, Play, RefreshCw, ShieldCheck, Zap, Eye, MessageCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -14,167 +14,82 @@ interface Automation {
   description: string
   icon: LucideIcon
   status: AutoStatus
+  lastRun: string
   successRate: number
   totalRuns: number
-  lastRun: string
 }
 
 const AUTOMATIONS: Automation[] = [
-  {
-    id: 'ig-warmup',
-    name: 'Instagram Warmup',
-    description: 'Gradually increases activity on fresh IG accounts — likes, follows, story views — to build trust score.',
-    icon: Zap,
-    status: 'Active',
-    successRate: 94,
-    totalRuns: 2_840,
-    lastRun: '3 min ago',
-  },
-  {
-    id: 'account-check',
-    name: 'Account Check',
-    description: 'Verifies account health, login state, and flags any shadow-bans or action blocks.',
-    icon: ShieldCheck,
-    status: 'Active',
-    successRate: 99,
-    totalRuns: 5_102,
-    lastRun: '8 min ago',
-  },
-  {
-    id: 'tiktok-warmup',
-    name: 'TikTok Warmup',
-    description: 'Simulates organic browsing and engagement patterns on new TikTok accounts.',
-    icon: Zap,
-    status: 'Active',
-    successRate: 88,
-    totalRuns: 1_330,
-    lastRun: '12 min ago',
-  },
-  {
-    id: 'app-install',
-    name: 'App Install Flow',
-    description: 'Automates app store search, install, launch, and initial onboarding taps.',
-    icon: Download,
-    status: 'Paused',
-    successRate: 76,
-    totalRuns: 440,
-    lastRun: '2 hr ago',
-  },
-  {
-    id: 'follow-unfollow',
-    name: 'Follow / Unfollow',
-    description: 'Targeted follow/unfollow sequences with configurable delays and safe daily limits.',
-    icon: RefreshCw,
-    status: 'Active',
-    successRate: 91,
-    totalRuns: 3_715,
-    lastRun: '1 min ago',
-  },
-  {
-    id: 'story-view',
-    name: 'Story View',
-    description: 'Views stories from target lists with realistic dwell times and occasional reactions.',
-    icon: Eye,
-    status: 'Active',
-    successRate: 97,
-    totalRuns: 6_880,
-    lastRun: 'just now',
-  },
-  {
-    id: 'dm-sequence',
-    name: 'DM Sequence',
-    description: 'Sends personalised DM sequences from a template library with rate limiting per account.',
-    icon: MessageCircle,
-    status: 'Paused',
-    successRate: 82,
-    totalRuns: 920,
-    lastRun: '4 hr ago',
-  },
+  { id: '1', name: 'Instagram Warmup', description: 'Scroll, like, and follow to warm up new accounts', icon: Zap, status: 'Active', lastRun: '2m ago', successRate: 94, totalRuns: 1240 },
+  { id: '2', name: 'Account Check', description: 'Verify account health, login status and reach', icon: ShieldCheck, status: 'Active', lastRun: '5m ago', successRate: 99, totalRuns: 3892 },
+  { id: '3', name: 'TikTok Warmup', description: 'Watch videos, follow creators, engage with feed', icon: Play, status: 'Paused', lastRun: '1h ago', successRate: 88, totalRuns: 567 },
+  { id: '4', name: 'App Install Flow', description: 'Install and configure apps on new devices', icon: Download, status: 'Active', lastRun: '30m ago', successRate: 97, totalRuns: 204 },
+  { id: '5', name: 'Story View', description: 'View stories from followed accounts naturally', icon: Eye, status: 'Active', lastRun: '8m ago', successRate: 96, totalRuns: 2110 },
+  { id: '6', name: 'DM Sequence', description: 'Send scheduled DM sequences to target lists', icon: MessageCircle, status: 'Paused', lastRun: '3h ago', successRate: 81, totalRuns: 389 },
+  { id: '7', name: 'Refresh Session', description: 'Re-authenticate and refresh account sessions', icon: RefreshCw, status: 'Active', lastRun: '15m ago', successRate: 93, totalRuns: 778 },
 ]
 
-const STATUS_BADGE: Record<AutoStatus, string> = {
-  Active:  'bg-green-500/15 text-green-400',
-  Paused:  'bg-zinc-500/15 text-zinc-400',
-  Running: 'bg-blue-500/15 text-blue-400',
-}
-
-function AutomationCard({ auto }: { auto: Automation }) {
-  const [running, setRunning] = useState(false)
-  const Icon = auto.icon
-
-  function handleRun() {
-    setRunning(true)
-    setTimeout(() => setRunning(false), 3000)
-  }
-
-  const currentStatus: AutoStatus = running ? 'Running' : auto.status
-
-  return (
-    <Card ticks className="flex flex-col gap-4 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-accent/30 bg-accent/10">
-            <Icon size={16} className="text-accent" />
-          </div>
-          <div>
-            <div className="text-sm font-medium text-fg">{auto.name}</div>
-            <span className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[currentStatus]}`}>
-              {currentStatus}
-            </span>
-          </div>
-        </div>
-        <Button variant="primary" size="sm" onClick={handleRun} disabled={running}>
-          <Play size={13} /> {running ? 'Running…' : 'Run'}
-        </Button>
-      </div>
-
-      <p className="text-sm leading-relaxed text-fg-secondary">{auto.description}</p>
-
-      {/* Success rate bar */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-[10px]">
-          <span className="mono text-fg-muted uppercase tracking-wide">Success Rate</span>
-          <span className="mono text-fg">{auto.successRate}%</span>
-        </div>
-        <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
-          <div
-            className="h-full rounded-full bg-accent transition-all"
-            style={{ width: `${auto.successRate}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 border-t border-line pt-4">
-        <div>
-          <div className="label text-fg-muted">Total Runs</div>
-          <div className="mono mt-1 text-sm text-fg">{auto.totalRuns.toLocaleString()}</div>
-        </div>
-        <div>
-          <div className="label text-fg-muted">Last Run</div>
-          <div className="mono mt-1 text-sm text-fg">{auto.lastRun}</div>
-        </div>
-      </div>
-    </Card>
-  )
+const statusColor: Record<AutoStatus, string> = {
+  Active: 'text-emerald-400 bg-emerald-400/10',
+  Paused: 'text-yellow-400 bg-yellow-400/10',
+  Running: 'text-indigo-400 bg-indigo-400/10',
 }
 
 export function AutomationsView() {
+  const [running, setRunning] = useState<Set<string>>(new Set())
+
+  function triggerRun(id: string) {
+    setRunning(prev => new Set(prev).add(id))
+    setTimeout(() => setRunning(prev => { const n = new Set(prev); n.delete(id); return n; }), 3000)
+  }
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4">
-        <div>
-          <div className="text-sm font-medium text-white/90">Automations</div>
-          <div className="mono mt-0.5 text-[11px] text-white/40 uppercase tracking-wide">
-            {AUTOMATIONS.length} FLOWS · {AUTOMATIONS.filter(a => a.status === 'Active').length} ACTIVE
-          </div>
-        </div>
+    <div className="flex flex-col gap-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white/90">Automations</h2>
+        <span className="text-xs text-white/40">{AUTOMATIONS.length} workflows</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {AUTOMATIONS.map(a => (
-            <AutomationCard key={a.id} auto={a} />
-          ))}
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {AUTOMATIONS.map(a => {
+          const Icon = a.icon
+          const isRunning = running.has(a.id)
+          return (
+            <Card key={a.id} className="bg-white/[0.03] border-white/[0.06] p-4 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-md bg-white/[0.06]">
+                    <Icon size={14} className="text-white/60" />
+                  </div>
+                  <span className="text-sm font-medium text-white/85">{a.name}</span>
+                </div>
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusColor[isRunning ? 'Running' : a.status]}`}>
+                  {isRunning ? 'Running' : a.status}
+                </span>
+              </div>
+              <p className="text-xs text-white/40 leading-relaxed">{a.description}</p>
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between text-[10px] text-white/30">
+                  <span>Success rate</span>
+                  <span>{a.successRate}%</span>
+                </div>
+                <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${a.successRate}%` }} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-[10px] text-white/25">{a.totalRuns} runs · last {a.lastRun}</span>
+                <Button
+                  size="sm"
+                  disabled={isRunning}
+                  onClick={() => triggerRun(a.id)}
+                  className="h-6 text-[11px] px-3 bg-white/[0.06] hover:bg-white/[0.1] text-white/70 border-0"
+                >
+                  {isRunning ? 'Running…' : 'Run'}
+                </Button>
+              </div>
+            </Card>
+          )
+        })}
       </div>
     </div>
   )
