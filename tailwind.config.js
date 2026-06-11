@@ -49,9 +49,14 @@ export default {
           '0%, 100%': { opacity: '0.9', transform: 'scale(1)' },
           '50%': { opacity: '0.35', transform: 'scale(1.09)' },
         },
+        'spinner-fade': {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0.15' },
+        },
       },
       animation: {
         'ring-pulse': 'ring-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'spinner-fade': 'spinner-fade 1.2s linear infinite',
       },
     },
   },

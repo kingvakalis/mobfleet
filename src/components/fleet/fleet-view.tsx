@@ -1,8 +1,10 @@
+import { AnimatePresence, motion } from 'framer-motion'
 import { Layers, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
+import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import { FleetGraph } from './fleet-graph'
 
@@ -19,16 +21,9 @@ function Crosshair() {
 /** Uplink handshake — before the fleet snapshot is live. */
 function FleetBoot() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6">
-      <div className="flex gap-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-14 w-14 rounded-[10px]" />
-        ))}
-      </div>
-      <div className="text-center">
-        <Label className="text-fg-secondary">Establishing Uplink</Label>
-        <div className="mono mt-2 text-[11px] text-fg-muted">syncing fleet state…</div>
-      </div>
+    <div className="flex h-full flex-col items-center justify-center gap-4">
+      <Spinner size={22} />
+      <Label className="text-fg-muted">Establishing Uplink</Label>
     </div>
   )
 }
@@ -61,35 +56,61 @@ export function FleetView() {
   const groupFilter = useUIStore((s) => s.groupFilter)
   const setGroupFilter = useUIStore((s) => s.setGroupFilter)
 
-  if (!snapshot.ready) return <FleetBoot />
-  if (snapshot.devices.length === 0) return <FleetEmpty />
-
   const inGroup = groupFilter
     ? snapshot.devices.filter((d) => d.group === groupFilter).length
     : stats.total
 
   return (
-    <div className="relative h-full w-full">
-      <FleetGraph />
-      <div className="absolute left-4 top-4 z-10">
-        <div className="pointer-events-none">
-          <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
-          <div className="mono mt-1 text-[11px] text-fg-secondary">
-            {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
+    <AnimatePresence mode="wait">
+      {!snapshot.ready ? (
+        <motion.div
+          key="boot"
+          className="h-full"
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.2, ease: EXPO_OUT }}
+        >
+          <FleetBoot />
+        </motion.div>
+      ) : snapshot.devices.length === 0 ? (
+        <motion.div
+          key="empty"
+          className="h-full"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3, ease: EXPO_OUT }}
+        >
+          <FleetEmpty />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="graph"
+          className="relative h-full w-full"
+          initial={{ opacity: 0, scale: 0.99 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.45, ease: EXPO_OUT }}
+        >
+          <FleetGraph />
+          <div className="absolute left-4 top-4 z-10">
+            <div className="pointer-events-none">
+              <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
+              <div className="mono mt-1 text-[11px] text-fg-secondary">
+                {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
+              </div>
+            </div>
+            {groupFilter && (
+              <button
+                type="button"
+                onClick={() => setGroupFilter(null)}
+                className="mt-3 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
+              >
+                <span className="label text-accent">{groupFilter}</span>
+                <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
+                <X size={12} className="text-fg-muted" />
+              </button>
+            )}
           </div>
-        </div>
-        {groupFilter && (
-          <button
-            type="button"
-            onClick={() => setGroupFilter(null)}
-            className="mt-3 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
-          >
-            <span className="label text-accent">{groupFilter}</span>
-            <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
-            <X size={12} className="text-fg-muted" />
-          </button>
-        )}
-      </div>
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

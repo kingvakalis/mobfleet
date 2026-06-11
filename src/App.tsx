@@ -6,6 +6,7 @@ import { ScalePanel } from '@/components/scale/scale-panel'
 import { CommandPalette } from '@/components/palette/command-palette'
 import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
+import { Spinner } from '@/components/ui/spinner'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import type { View } from '@/lib/views'
@@ -39,7 +40,7 @@ function useHash() {
 function ViewFallback() {
   return (
     <div className="flex h-full items-center justify-center">
-      <span className="label text-fg-muted">Loading…</span>
+      <Spinner size={22} />
     </div>
   )
 }
