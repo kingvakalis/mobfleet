@@ -10,4 +10,12 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    // Dev: proxy the API + live socket to the backend so the browser stays
+    // same-origin (no CORS). Prod points at VITE_API_URL/VITE_WS_URL instead.
+    proxy: {
+      '/v1': { target: 'http://localhost:8787', changeOrigin: true },
+      '/ws': { target: 'ws://localhost:8787', ws: true },
+    },
+  },
 })

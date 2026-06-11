@@ -1,0 +1,49 @@
+// PRODUCTION schema (Railway/managed Postgres). Models are IDENTICAL to
+// schema.prisma (SQLite) so the generated Prisma Client API is the same — only
+// the datasource provider differs. Prod uses `prisma db push` (see
+// package.json start:prod), so no Postgres-specific migration files are needed.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id           String  @id
+  name         String
+  status       String
+  region       String
+  osVersion    String
+  model        String
+  proxy        String
+  battery      Int
+  group        String
+  assignedUser String?
+  jobId        String?
+  createdAt    Float
+}
+
+model Job {
+  id         String  @id
+  deviceId   String?
+  type       String
+  status     String
+  progress   Float
+  createdAt  Float
+  startedAt  Float?
+  finishedAt Float?
+  error      String?
+}
+
+model Proxy {
+  ip         String  @id
+  region     String
+  provider   String
+  assignedTo String?
+  status     String
+  latency    Int
+  lastCheck  Float
+}

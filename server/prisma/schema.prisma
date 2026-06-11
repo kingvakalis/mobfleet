@@ -1,0 +1,49 @@
+// v1 dev persistence: SQLite (zero external infra, restart-persistent).
+// PROD: swap `provider`/`url` to postgresql via DATABASE_URL (Postgres schema
+// is migration-compatible; see server/.env.example). Timestamps are stored as
+// Float (epoch ms fits exactly in a double) to keep JSON serialization clean.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id           String  @id
+  name         String
+  status       String
+  region       String
+  osVersion    String
+  model        String
+  proxy        String
+  battery      Int
+  group        String
+  assignedUser String?
+  jobId        String?
+  createdAt    Float
+}
+
+model Job {
+  id         String  @id
+  deviceId   String?
+  type       String
+  status     String
+  progress   Float
+  createdAt  Float
+  startedAt  Float?
+  finishedAt Float?
+  error      String?
+}
+
+model Proxy {
+  ip         String  @id
+  region     String
+  provider   String
+  assignedTo String?
+  status     String
+  latency    Int
+  lastCheck  Float
+}

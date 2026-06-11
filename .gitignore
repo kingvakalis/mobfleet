@@ -27,3 +27,8 @@ dist-ssr
 
 # Local dev screenshots
 .shots
+
+# Server (env + local SQLite db; migrations ARE committed)
+.env
+*.db
+*.db-journal

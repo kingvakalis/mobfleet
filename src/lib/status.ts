@@ -1,5 +1,7 @@
+import type { DeviceStatus } from '@/shared/types'
+
 /** The five fleet states. Drives every status color in the app. */
-export type DeviceStatus = 'online' | 'busy' | 'warming' | 'offline' | 'error'
+export type { DeviceStatus }
 
 export interface StatusMeta {
   label: string
