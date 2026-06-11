@@ -13,6 +13,7 @@ import '@fontsource/jetbrains-mono/400.css'
 
 import './index.css'
 import App from './App.tsx'
+import { ToastContainer } from '@/components/ui/toast'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -22,6 +23,7 @@ createRoot(document.getElementById('root')!).render(
           <AmbientBackground />
           <div className="relative z-10 w-full h-full">
             <App />
+          <ToastContainer />
           </div>
         </div>
       </MotionConfig>

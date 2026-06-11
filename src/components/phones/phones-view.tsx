@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
-import { Search, Upload, Plus, Play, Check } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { Search, Upload, Plus, Check, Briefcase, Camera, RotateCcw, RefreshCw, UserPlus, Download, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { phones, statusMeta, type Phone } from '@/lib/fleet-data'
 import { useUIStore } from '@/state/ui-store'
@@ -12,10 +13,25 @@ const proxyStyle: Record<Phone['proxyStatus'], string> = {
   disconnected: 'text-red-400',
 }
 
+function AnimatedCounter({ target, color }: { target: number; color: string }) {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    let cur = 0
+    const step = () => {
+      cur = Math.min(cur + 1, target)
+      setValue(cur)
+      if (cur < target) setTimeout(step, 20)
+    }
+    if (target > 0) step()
+    else setValue(0)
+  }, [target])
+  return <span className={['text-2xl font-bold tabular-nums', color].join(' ')}>{value}</span>
+}
+
 export function PhonesView() {
-  const [search, setSearch] = useState('')
+  const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const openDrawer = useUIStore((s) => s.openDrawer)
+  const openDrawer            = useUIStore((s) => s.openDrawer)
 
   const visible = useMemo(
     () => phones.filter(p =>
@@ -24,6 +40,13 @@ export function PhonesView() {
     ),
     [search]
   )
+
+  const kpis = [
+    { label: 'Total',   value: phones.length,                                                                    color: 'text-white/70' },
+    { label: 'Online',  value: phones.filter(p => p.status === 'online' || p.status === 'running').length,      color: 'text-emerald-400' },
+    { label: 'Warning', value: phones.filter(p => p.status === 'warning').length,                               color: 'text-amber-400' },
+    { label: 'Offline', value: phones.filter(p => p.status === 'offline').length,                               color: 'text-red-400' },
+  ]
 
   function toggleAll() {
     setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(p => p.id)))
@@ -37,7 +60,7 @@ export function PhonesView() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
         <div>
@@ -52,6 +75,19 @@ export function PhonesView() {
             <Plus size={13} /> Add Phone
           </Button>
         </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.04]">
+        {kpis.map(({ label, value, color }) => (
+          <div
+            key={label}
+            className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 flex flex-col gap-1"
+          >
+            <span className="text-[10px] text-white/30 uppercase tracking-wider">{label}</span>
+            <AnimatedCounter target={value} color={color} />
+          </div>
+        ))}
       </div>
 
       {/* Toolbar */}
@@ -70,14 +106,6 @@ export function PhonesView() {
             {f} <span className="text-white/20">▾</span>
           </button>
         ))}
-        {selected.size > 0 && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-white/40">{selected.size} selected</span>
-            <Button size="sm" className="h-7 text-xs gap-1 bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 border-0">
-              <Play size={11} /> Run Job
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -158,6 +186,46 @@ export function PhonesView() {
           </tbody>
         </table>
       </div>
+
+      {/* Floating bulk action bar */}
+      <AnimatePresence>
+        {selected.size > 0 && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30"
+          >
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/[0.10] shadow-2xl">
+              <span className="text-xs text-white/50 mr-1 whitespace-nowrap">{selected.size} selected</span>
+              <div className="w-px h-4 bg-white/[0.08]" />
+              {[
+                { icon: <Briefcase size={12} />, label: 'Run Job' },
+                { icon: <Camera size={12} />,    label: 'Screenshot' },
+                { icon: <RotateCcw size={12} />, label: 'Reboot' },
+                { icon: <RefreshCw size={12} />, label: 'Assign Proxy' },
+                { icon: <UserPlus size={12} />,  label: 'Add to Group' },
+                { icon: <Download size={12} />,  label: 'Export' },
+              ].map(({ icon, label }) => (
+                <button
+                  key={label}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 hover:bg-white/[0.08] transition-colors"
+                >
+                  {icon} {label}
+                </button>
+              ))}
+              <div className="w-px h-4 bg-white/[0.08]" />
+              <button
+                onClick={() => setSelected(new Set())}
+                className="flex items-center justify-center w-6 h-6 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
