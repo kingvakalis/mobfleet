@@ -82,18 +82,24 @@ export function TelemetryCard({ device, job }: { device: Device; job?: Job | nul
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: meta.color, boxShadow: `0 0 6px ${meta.color}` }}
         />
-        <span className="mono truncate text-sm text-fg">{device.id}</span>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-fg">{device.name}</div>
+          <div className="mono truncate text-[10px] text-fg-muted">{device.id}</div>
+        </div>
       </div>
 
       <div className="mt-3 border-t border-line pt-2">
         <Row label="Status" value={meta.label} color={meta.color} />
-        <Row label="OS" value={device.osVersion} />
+        <Row label="Group" value={device.group} />
+        <Row label="Model" value={`${device.model} · ${device.osVersion}`} />
         <Row label="Region" value={regionLabel(device.region)} />
+        <Row label="Battery" value={`${device.battery}%`} />
         <Row label="Proxy" value={device.proxy} />
         <Row
           label="Job"
           value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'}
         />
+        <Row label="Operator" value={device.assignedUser ?? 'Unassigned'} />
         <Row label="Uptime" value={formatUptime(Date.now() - device.createdAt)} />
       </div>
 

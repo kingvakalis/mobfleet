@@ -1,12 +1,18 @@
 import { REGIONS } from '@/data/regions'
 import type { DeviceStatus } from '@/lib/status'
-import type { Device, Job, TaskType } from './types'
+import type { Device, Job, Proxy, TaskType } from './types'
 
 const FLEET_SIZE = 40
+const PROXY_POOL = 52
 const OS_VERSIONS = ['iOS 17.4.1', 'iOS 17.5.1', 'iOS 17.6', 'iOS 18.0', 'iOS 18.1.1']
+const MODELS = ['iPhone SE', 'iPhone 11', 'iPhone 12', 'iPhone 13', 'iPhone 14']
 const TASK_TYPES: TaskType[] = ['upload', 'warmup', 'engage', 'post']
+const GROUPS = ['Carolina', 'Lucia', 'Warmup Pool', 'Instagram Farm', 'TikTok Farm', 'Backup']
+const NAME_BASES = ['CAROLINA', 'LUCIA', 'WARMUP', 'IG FARM', 'TIKTOK', 'BACKUP']
+const USERS = ['A. Rivera', 'M. Chen', 'K. Novak', 'S. Petrov', null, null]
+const PROVIDERS = ['Bright Data', 'Soax', 'IPRoyal', 'Oxylabs']
 
-/** Deterministic PRNG → the seeded constellation is stable across reloads. */
+/** Deterministic PRNG → the seeded fleet is stable across reloads. */
 function mulberry32(seed: number) {
   let a = seed
   return () => {
@@ -28,10 +34,9 @@ function hexId(rng: () => number, len = 8): string {
   return s
 }
 
-/** Weighted initial status distribution for a believable live fleet. */
 function seedStatus(rng: () => number): DeviceStatus {
   const r = rng()
-  if (r < 0.5) return 'online' // idle
+  if (r < 0.5) return 'online'
   if (r < 0.72) return 'busy'
   if (r < 0.84) return 'warming'
   if (r < 0.95) return 'offline'
@@ -41,31 +46,62 @@ function seedStatus(rng: () => number): DeviceStatus {
 export interface SeedResult {
   devices: Device[]
   jobs: Job[]
-  /** Next job sequence number for the provider to continue from. */
+  proxies: Proxy[]
   jobSeq: number
 }
 
 export function seedFleet(now: number = Date.now()): SeedResult {
   const rng = mulberry32(0xc0ffee)
+
+  // Proxy pool first — devices draw their exit IP from it.
+  const proxies: Proxy[] = Array.from({ length: PROXY_POOL }, (_, i) => {
+    const failing = i % 9 === 0
+    return {
+      ip: `10.0.${int(rng, 0, 255)}.${int(rng, 1, 254)}`,
+      region: pick(rng, REGIONS).id,
+      provider: pick(rng, PROVIDERS),
+      assignedTo: null,
+      status: failing ? 'failing' : 'unassigned',
+      latency: failing ? 0 : int(rng, 28, 210),
+      lastCheck: now - int(rng, 30, 600) * 1000,
+    }
+  })
+
   const devices: Device[] = []
   const jobs: Job[] = []
   let jobSeq = 0
   const jid = () => `job-${String(++jobSeq).padStart(4, '0')}`
+  let proxyCursor = 0
+  const nextProxy = (deviceId: string): string => {
+    // hand out the next healthy spare proxy
+    while (proxyCursor < proxies.length && proxies[proxyCursor].status !== 'unassigned') proxyCursor++
+    const p = proxies[proxyCursor % proxies.length]
+    p.assignedTo = deviceId
+    p.status = 'healthy'
+    proxyCursor++
+    return p.ip
+  }
 
   for (let i = 0; i < FLEET_SIZE; i++) {
     const status = seedStatus(rng)
     const region = pick(rng, REGIONS).id
+    const base = NAME_BASES[i % NAME_BASES.length]
+    const id = `ios-${hexId(rng)}`
     const device: Device = {
-      id: `ios-${hexId(rng)}`,
+      id,
+      name: `${base} ${Math.floor(i / NAME_BASES.length) + 1}`,
       status,
       region,
       osVersion: pick(rng, OS_VERSIONS),
-      proxy: `10.${int(rng, 0, 9)}.${int(rng, 0, 255)}.${int(rng, 1, 254)}`,
+      model: pick(rng, MODELS),
+      proxy: nextProxy(id),
+      battery: int(rng, 32, 100),
+      group: pick(rng, GROUPS),
+      assignedUser: pick(rng, USERS),
       jobId: null,
-      createdAt: now - int(rng, 60, 86_400) * 1000, // up to ~24h uptime
+      createdAt: now - int(rng, 60, 86_400) * 1000,
     }
 
-    // Busy devices get a running job.
     if (status === 'busy') {
       const startedAt = now - int(rng, 5, 600) * 1000
       const job: Job = {
@@ -86,7 +122,6 @@ export function seedFleet(now: number = Date.now()): SeedResult {
     devices.push(device)
   }
 
-  // A few queued jobs (unassigned) → non-zero queue depth.
   for (let i = 0; i < int(rng, 3, 6); i++) {
     jobs.push({
       id: jid(),
@@ -101,7 +136,6 @@ export function seedFleet(now: number = Date.now()): SeedResult {
     })
   }
 
-  // Some finished history for the jobs view.
   for (let i = 0; i < 12; i++) {
     const failed = rng() < 0.18
     const finishedAt = now - int(rng, 120, 7200) * 1000
@@ -110,7 +144,7 @@ export function seedFleet(now: number = Date.now()): SeedResult {
       deviceId: pick(rng, devices).id,
       type: pick(rng, TASK_TYPES),
       status: failed ? 'failed' : 'succeeded',
-      progress: failed ? +(rng()).toFixed(2) : 1,
+      progress: failed ? +rng().toFixed(2) : 1,
       createdAt: finishedAt - int(rng, 30, 300) * 1000,
       startedAt: finishedAt - int(rng, 20, 280) * 1000,
       finishedAt,
@@ -118,5 +152,5 @@ export function seedFleet(now: number = Date.now()): SeedResult {
     })
   }
 
-  return { devices, jobs, jobSeq }
+  return { devices, jobs, proxies, jobSeq }
 }

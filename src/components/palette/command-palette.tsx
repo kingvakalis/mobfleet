@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Command } from 'cmdk'
 import {
+  Boxes,
+  Globe,
   Layers,
   LayoutGrid,
   Maximize,
@@ -10,6 +12,8 @@ import {
   Search,
   Send,
   Table2,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react'
 import { useFleet } from '@/hooks/use-fleet'
 import { client } from '@/lib/provider'
@@ -17,6 +21,15 @@ import { graphBus } from '@/lib/graph-bus'
 import { REGIONS, regionLabel } from '@/data/regions'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
+import { VIEWS, type View } from '@/lib/views'
+
+const VIEW_ICON: Record<View, LucideIcon> = {
+  fleet: LayoutGrid,
+  jobs: Table2,
+  automations: Zap,
+  proxies: Globe,
+  groups: Boxes,
+}
 
 function Palette({ onClose }: { onClose: () => void }) {
   const snapshot = useFleet()
@@ -86,8 +99,14 @@ function Palette({ onClose }: { onClose: () => void }) {
             </Command.Empty>
 
             <Command.Group heading="Views">
-              <Item icon={LayoutGrid} label="Go to Fleet" hint="node graph" onSelect={() => run(() => setView('fleet'))} />
-              <Item icon={Table2} label="Go to Jobs" hint="pipeline" onSelect={() => run(() => setView('jobs'))} />
+              {VIEWS.map((v) => (
+                <Item
+                  key={v.id}
+                  icon={VIEW_ICON[v.id]}
+                  label={`Go to ${v.label}`}
+                  onSelect={() => run(() => setView(v.id))}
+                />
+              ))}
             </Command.Group>
 
             <Command.Group heading="Fleet">
@@ -119,7 +138,7 @@ function Palette({ onClose }: { onClose: () => void }) {
               {snapshot.devices.map((d) => (
                 <Command.Item
                   key={d.id}
-                  value={`${d.id} ${regionLabel(d.region)} ${d.status}`}
+                  value={`${d.name} ${d.id} ${d.group} ${regionLabel(d.region)} ${d.status}`}
                   onSelect={() => run(() => openDrawer(d.id))}
                   className="flex cursor-pointer items-center gap-3 rounded-control px-2 py-2 text-sm text-fg-secondary data-[selected=true]:bg-elevated data-[selected=true]:text-fg"
                 >
@@ -127,8 +146,9 @@ function Palette({ onClose }: { onClose: () => void }) {
                     className="h-2 w-2 shrink-0 rounded-full"
                     style={{ background: STATUS[d.status].color }}
                   />
-                  <span className="mono text-[12px]">{d.id}</span>
-                  <span className="label ml-auto text-fg-muted">{regionLabel(d.region)}</span>
+                  <span className="text-[13px]">{d.name}</span>
+                  <span className="mono text-[11px] text-fg-muted">{d.id.slice(-6)}</span>
+                  <span className="label ml-auto text-fg-muted">{d.group}</span>
                 </Command.Item>
               ))}
             </Command.Group>

@@ -5,6 +5,7 @@ import type {
   Device,
   FleetSnapshot,
   Job,
+  Proxy,
   ProviderClient,
   TaskSpec,
   TaskType,
@@ -29,16 +30,17 @@ export function createMockProvider(): ProviderClient {
   const seed = seedFleet()
   let devices: Device[] = seed.devices
   let jobs: Job[] = seed.jobs
+  let proxies: Proxy[] = seed.proxies
   let jobSeq = seed.jobSeq
   let ready = false
-  let snapshot: FleetSnapshot = { devices, jobs, ts: Date.now(), ready }
+  let snapshot: FleetSnapshot = { devices, jobs, proxies, ts: Date.now(), ready }
 
   const listeners = new Set<() => void>()
   let timer: ReturnType<typeof setInterval> | null = null
   let bootTimer: ReturnType<typeof setTimeout> | null = null
 
   function commit() {
-    snapshot = { devices, jobs, ts: Date.now(), ready }
+    snapshot = { devices, jobs, proxies, ts: Date.now(), ready }
     listeners.forEach((l) => l())
   }
 
@@ -217,18 +219,38 @@ export function createMockProvider(): ProviderClient {
     async createDevices(count, opts: CreateDevicesOptions = {}) {
       await delay(200)
       const now = Date.now()
-      const made: Device[] = Array.from({ length: count }, () => ({
-        id: `ios-${hex()}`,
-        status: 'warming' as DeviceStatus,
-        region: opts.region ?? rand(REGIONS).id,
-        osVersion: 'iOS 18.1.1',
-        proxy: `10.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 256)}.${
-          Math.floor(Math.random() * 254) + 1
-        }`,
-        jobId: null,
-        createdAt: now,
-      }))
+      const made: Device[] = []
+      const newProxies: Proxy[] = []
+      for (let i = 0; i < count; i++) {
+        const id = `ios-${hex()}`
+        const region = opts.region ?? rand(REGIONS).id
+        const ip = `10.0.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`
+        newProxies.push({
+          ip,
+          region,
+          provider: 'Bright Data',
+          assignedTo: id,
+          status: 'healthy',
+          latency: 30 + Math.floor(Math.random() * 120),
+          lastCheck: now,
+        })
+        made.push({
+          id,
+          name: `NEW ${hex(4).toUpperCase()}`,
+          status: 'warming',
+          region,
+          osVersion: 'iOS 18.1.1',
+          model: 'iPhone 14',
+          proxy: ip,
+          battery: 100,
+          group: 'New',
+          assignedUser: null,
+          jobId: null,
+          createdAt: now,
+        })
+      }
       devices = [...devices, ...made]
+      proxies = [...proxies, ...newProxies]
       commit()
       return made
     },
@@ -246,8 +268,59 @@ export function createMockProvider(): ProviderClient {
             : j,
         )
       }
+      if (dev) {
+        // free its proxy back to the spare pool
+        proxies = proxies.map((p): Proxy =>
+          p.assignedTo === id ? { ...p, assignedTo: null, status: 'unassigned' } : p,
+        )
+      }
       devices = devices.filter((d) => d.id !== id)
       commit()
+    },
+
+    async assignGroup(ids, group) {
+      await delay(120)
+      const set = new Set(ids)
+      devices = devices.map((d): Device => (set.has(d.id) ? { ...d, group } : d))
+      commit()
+    },
+
+    async rotateProxy(deviceId) {
+      await delay(160)
+      const dev = findDevice(deviceId)
+      if (!dev) throw new Error(`Unknown device: ${deviceId}`)
+      const spare = proxies.find((p) => p.status === 'unassigned')
+      if (!spare) return // pool exhausted
+      const now = Date.now()
+      proxies = proxies.map((p): Proxy => {
+        if (p.assignedTo === deviceId) return { ...p, assignedTo: null, status: 'unassigned' }
+        if (p.ip === spare.ip)
+          return { ...p, assignedTo: deviceId, status: 'healthy', lastCheck: now, latency: 30 + Math.floor(Math.random() * 120) }
+        return p
+      })
+      devices = devices.map((d): Device => (d.id === deviceId ? { ...d, proxy: spare.ip } : d))
+      commit()
+    },
+
+    async testProxy(ip) {
+      await delay(140)
+      const now = Date.now()
+      let result: Proxy | undefined
+      proxies = proxies.map((p): Proxy => {
+        if (p.ip !== ip) return p
+        const recovered = p.status === 'failing' ? Math.random() < 0.6 : true
+        const status: Proxy['status'] = recovered ? (p.assignedTo ? 'healthy' : 'unassigned') : 'failing'
+        result = {
+          ...p,
+          status,
+          latency: status === 'failing' ? 0 : 28 + Math.floor(Math.random() * 200),
+          lastCheck: now,
+        }
+        return result
+      })
+      commit()
+      if (!result) throw new Error(`Unknown proxy: ${ip}`)
+      return result
     },
 
     async runTask(id, task: TaskSpec) {

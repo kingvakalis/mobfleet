@@ -38,6 +38,8 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
   const panelRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
 
+  const groupOptions = [...new Set(snapshot.devices.map((d) => d.group))].sort()
+
   useEffect(() => {
     panelRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
@@ -89,9 +91,9 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
           <div className="flex min-w-0 items-center gap-2.5">
             {device && <StatusDot status={device.status} size={9} pulse={device.status !== 'offline'} />}
             <div className="min-w-0">
-              <div className="mono truncate text-sm text-fg">{deviceId}</div>
+              <div className="truncate text-sm font-medium text-fg">{device ? device.name : deviceId}</div>
               <div className="label mt-0.5 text-fg-muted">
-                {device ? `${regionLabel(device.region)} · ${meta!.label}` : 'DISCONNECTED'}
+                {device ? `${device.group} · ${meta!.label}` : 'DISCONNECTED'}
               </div>
             </div>
           </div>
@@ -112,14 +114,33 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
               <PhoneFrame device={device} job={job} onLog={push} />
               <div className="min-w-0 flex-1">
                 <Cell label="Status" value={meta.label} color={meta.color} />
-                <Cell label="OS" value={device.osVersion} />
+                <Cell label="Model" value={`${device.model} · ${device.osVersion}`} />
                 <Cell label="Region" value={regionLabel(device.region)} />
+                <Cell label="Battery" value={`${device.battery}%`} />
                 <Cell label="Proxy" value={device.proxy} />
-                <Cell label="Uptime" value={formatUptime(Date.now() - device.createdAt)} />
+                <Cell label="Operator" value={device.assignedUser ?? 'Unassigned'} />
                 <Cell
                   label="Job"
                   value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'}
                 />
+                <Cell label="Uptime" value={formatUptime(Date.now() - device.createdAt)} />
+
+                {/* group reassignment */}
+                <div className="py-1">
+                  <div className="label text-fg-muted">Group</div>
+                  <select
+                    value={device.group}
+                    onChange={(e) => void client.assignGroup([device.id], e.target.value)}
+                    aria-label="Device group"
+                    className="mono mt-1 h-7 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40"
+                  >
+                    {groupOptions.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 

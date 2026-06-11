@@ -8,7 +8,6 @@ import { useUIStore } from '@/state/ui-store'
 import type { Job, JobStatus } from '@/lib/provider/types'
 import { cn } from '@/lib/utils'
 import { JobsTable } from './jobs-table'
-import { SubmitJobDialog } from './submit-job-dialog'
 
 type Filter = 'all' | 'active' | 'done' | 'failed'
 
@@ -60,9 +59,7 @@ function FilterTabs({
 export function JobsView() {
   const snapshot = useFleet()
   const [filter, setFilter] = useState<Filter>('all')
-  const dialogOpen = useUIStore((s) => s.submitOpen)
   const openSubmit = useUIStore((s) => s.openSubmit)
-  const closeSubmit = useUIStore((s) => s.closeSubmit)
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = { all: 0, active: 0, done: 0, failed: 0 }
@@ -84,7 +81,7 @@ export function JobsView() {
           <Label className="text-fg">Job Pipeline</Label>
           <FilterTabs value={filter} onChange={setFilter} counts={counts} />
         </div>
-        <Button variant="primary" size="sm" onClick={openSubmit}>
+        <Button variant="primary" size="sm" onClick={() => openSubmit()}>
           <Plus size={14} /> Dispatch Job
         </Button>
       </div>
@@ -101,14 +98,12 @@ export function JobsView() {
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <Label className="text-fg-muted">No {filter === 'all' ? '' : filter} jobs</Label>
-            <Button variant="outline" size="sm" onClick={openSubmit}>
+            <Button variant="outline" size="sm" onClick={() => openSubmit()}>
               <Plus size={14} /> Dispatch one
             </Button>
           </div>
         )}
       </div>
-
-      <SubmitJobDialog open={dialogOpen} onClose={closeSubmit} />
     </div>
   )
 }

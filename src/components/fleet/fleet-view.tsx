@@ -1,4 +1,4 @@
-import { Layers } from 'lucide-react'
+import { Layers, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -58,18 +58,37 @@ function FleetEmpty() {
 export function FleetView() {
   const snapshot = useFleet()
   const stats = useFleetStats()
+  const groupFilter = useUIStore((s) => s.groupFilter)
+  const setGroupFilter = useUIStore((s) => s.setGroupFilter)
 
   if (!snapshot.ready) return <FleetBoot />
   if (snapshot.devices.length === 0) return <FleetEmpty />
 
+  const inGroup = groupFilter
+    ? snapshot.devices.filter((d) => d.group === groupFilter).length
+    : stats.total
+
   return (
     <div className="relative h-full w-full">
       <FleetGraph />
-      <div className="pointer-events-none absolute left-4 top-4 z-10">
-        <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
-        <div className="mono mt-1 text-[11px] text-fg-secondary">
-          {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
+      <div className="absolute left-4 top-4 z-10">
+        <div className="pointer-events-none">
+          <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
+          <div className="mono mt-1 text-[11px] text-fg-secondary">
+            {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
+          </div>
         </div>
+        {groupFilter && (
+          <button
+            type="button"
+            onClick={() => setGroupFilter(null)}
+            className="mt-3 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
+          >
+            <span className="label text-accent">{groupFilter}</span>
+            <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
+            <X size={12} className="text-fg-muted" />
+          </button>
+        )}
       </div>
     </div>
   )

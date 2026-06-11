@@ -6,6 +6,12 @@ interface UIState {
   view: View
   setView: (v: View) => void
 
+  /** Active group filter on the fleet graph (null = all). */
+  groupFilter: string | null
+  setGroupFilter: (g: string | null) => void
+  /** Jump to the fleet view filtered to a group. */
+  focusGroup: (g: string) => void
+
   drawerDeviceId: string | null
   openDrawer: (id: string) => void
   closeDrawer: () => void
@@ -15,7 +21,9 @@ interface UIState {
   closeScale: () => void
 
   submitOpen: boolean
-  openSubmit: () => void
+  /** Preselected automation when the dispatch dialog opens. */
+  submitAutomationId: string | null
+  openSubmit: (automationId?: string) => void
   closeSubmit: () => void
 
   paletteOpen: boolean
@@ -28,6 +36,10 @@ export const useUIStore = create<UIState>((set) => ({
   view: 'fleet',
   setView: (view) => set({ view }),
 
+  groupFilter: null,
+  setGroupFilter: (groupFilter) => set({ groupFilter }),
+  focusGroup: (g) => set({ view: 'fleet', groupFilter: g }),
+
   drawerDeviceId: null,
   openDrawer: (id) => set({ drawerDeviceId: id }),
   closeDrawer: () => set({ drawerDeviceId: null }),
@@ -37,8 +49,9 @@ export const useUIStore = create<UIState>((set) => ({
   closeScale: () => set({ scaleOpen: false }),
 
   submitOpen: false,
-  openSubmit: () => set({ submitOpen: true }),
-  closeSubmit: () => set({ submitOpen: false }),
+  submitAutomationId: null,
+  openSubmit: (automationId) => set({ submitOpen: true, submitAutomationId: automationId ?? null }),
+  closeSubmit: () => set({ submitOpen: false, submitAutomationId: null }),
 
   paletteOpen: false,
   openPalette: () => set({ paletteOpen: true }),

@@ -41,7 +41,7 @@ function makeOrchestrator(): Node {
   }
 }
 
-function deviceNode(d: Device, job: Job | null, opts: { isNew?: boolean }): Node {
+function deviceNode(d: Device, job: Job | null, opts: { isNew?: boolean; dimmed?: boolean }): Node {
   const p = positionFor(d.id)
   const data: DeviceNodeData = { device: d, job, pos: p, ...opts }
   return {
@@ -64,6 +64,7 @@ function buildAll(devices: Device[], jobsById: Map<string, Job>): Node[] {
 
 function Graph() {
   const snapshot = useFleet()
+  const groupFilter = useUIStore((s) => s.groupFilter)
   const { fitView } = useReactFlow()
 
   // Expose fit-to-screen to the command palette.
@@ -97,11 +98,12 @@ function Graph() {
 
       for (const d of snapshot.devices) {
         const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
+        const dimmed = groupFilter ? d.group !== groupFilter : false
         const existing = byId.get(d.id)
         if (existing) {
-          next.push({ ...existing, data: { ...existing.data, device: d, job, exiting: false } })
+          next.push({ ...existing, data: { ...existing.data, device: d, job, exiting: false, dimmed } })
         } else {
-          next.push(deviceNode(d, job, { isNew: !hasWarped(d.id) }))
+          next.push(deviceNode(d, job, { isNew: !hasWarped(d.id), dimmed }))
         }
       }
 
@@ -117,12 +119,12 @@ function Graph() {
       }
       return next
     })
-  }, [snapshot.devices, jobsById, setNodes])
+  }, [snapshot.devices, jobsById, setNodes, groupFilter])
 
   const edges = useMemo<Edge[]>(
     () =>
       snapshot.devices
-        .filter((d) => d.status !== 'offline')
+        .filter((d) => d.status !== 'offline' && (!groupFilter || d.group === groupFilter))
         .map((d) => ({
           id: `e-${d.id}`,
           source: 'orchestrator',
@@ -132,7 +134,7 @@ function Graph() {
           type: 'pulse',
           data: { active: d.status === 'busy' },
         })),
-    [snapshot.devices],
+    [snapshot.devices, groupFilter],
   )
 
   // --- interaction ---------------------------------------------------------
@@ -188,6 +190,7 @@ function Graph() {
       stop: () => selectedIds.forEach((id) => void client.stop(id)),
       assign: () =>
         selectedIds.forEach((id) => void client.runTask(id, { type: 'upload', label: 'Bulk upload' })),
+      rotateProxy: () => selectedIds.forEach((id) => void client.rotateProxy(id)),
       retire: () => {
         selectedIds.forEach((id) => void client.delete(id))
         clearSelection()
@@ -229,6 +232,7 @@ function Graph() {
             onStart={bulk.start}
             onStop={bulk.stop}
             onAssign={bulk.assign}
+            onRotateProxy={bulk.rotateProxy}
             onRetire={bulk.retire}
             onClear={clearSelection}
           />

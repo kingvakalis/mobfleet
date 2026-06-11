@@ -1,20 +1,31 @@
-import { lazy, Suspense, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useSyncExternalStore, type ComponentType } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
 import { DeviceDrawer } from '@/components/drawer/device-drawer'
 import { ScalePanel } from '@/components/scale/scale-panel'
 import { CommandPalette } from '@/components/palette/command-palette'
+import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
+import type { View } from '@/lib/views'
 
 // Split the heavy view chunks (React Flow lives in FleetView) out of first paint.
-const FleetView = lazy(() =>
-  import('@/components/fleet/fleet-view').then((m) => ({ default: m.FleetView })),
+const FleetView = lazy(() => import('@/components/fleet/fleet-view').then((m) => ({ default: m.FleetView })))
+const JobsView = lazy(() => import('@/components/jobs/jobs-view').then((m) => ({ default: m.JobsView })))
+const AutomationsView = lazy(() =>
+  import('@/components/automations/automations-view').then((m) => ({ default: m.AutomationsView })),
 )
-const JobsView = lazy(() =>
-  import('@/components/jobs/jobs-view').then((m) => ({ default: m.JobsView })),
-)
+const ProxiesView = lazy(() => import('@/components/proxies/proxies-view').then((m) => ({ default: m.ProxiesView })))
+const GroupsView = lazy(() => import('@/components/groups/groups-view').then((m) => ({ default: m.GroupsView })))
+
+const VIEW_MAP: Record<View, ComponentType> = {
+  fleet: FleetView,
+  jobs: JobsView,
+  automations: AutomationsView,
+  proxies: ProxiesView,
+  groups: GroupsView,
+}
 
 // `#style` escape hatch → the Slice-0 design-system page (dev reference).
 function subscribeHash(cb: () => void) {
@@ -36,6 +47,7 @@ function ViewFallback() {
 export default function App() {
   const hash = useHash()
   const view = useUIStore((s) => s.view)
+  const Current = VIEW_MAP[view]
 
   if (hash === '#style') return <StyleGuide />
 
@@ -51,12 +63,13 @@ export default function App() {
           className="h-full"
         >
           <Suspense fallback={<ViewFallback />}>
-            {view === 'fleet' ? <FleetView /> : <JobsView />}
+            <Current />
           </Suspense>
         </motion.div>
       </AnimatePresence>
       <DeviceDrawer />
       <ScalePanel />
+      <SubmitJobDialog />
       <CommandPalette />
     </AppShell>
   )

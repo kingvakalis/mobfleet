@@ -31,22 +31,47 @@ export interface Job {
 
 export interface Device {
   id: string
+  /** Human-friendly persona/label, e.g. "CAROLINA 1". */
+  name: string
   status: DeviceStatus
   /** Region id, see data/regions. */
   region: string
   osVersion: string
-  /** Proxy/exit IP. */
+  /** Hardware model, e.g. "iPhone 13". */
+  model: string
+  /** Proxy/exit IP (links to a Proxy in the pool). */
   proxy: string
+  /** Battery level 0–100. */
+  battery: number
+  /** Organisational group, e.g. "Instagram Farm". */
+  group: string
+  /** Operator this device is assigned to, or null. */
+  assignedUser: string | null
   /** Current job id, or null when idle. */
   jobId: string | null
   /** Provision time (epoch ms) — uptime is derived from this. */
   createdAt: number
 }
 
+export type ProxyStatus = 'healthy' | 'failing' | 'unassigned'
+
+export interface Proxy {
+  ip: string
+  region: string
+  provider: string
+  /** Device id this proxy serves, or null when spare. */
+  assignedTo: string | null
+  status: ProxyStatus
+  /** Round-trip latency in ms (0 when failing). */
+  latency: number
+  lastCheck: number
+}
+
 /** Immutable point-in-time view of the fleet, pushed to subscribers. */
 export interface FleetSnapshot {
   devices: Device[]
   jobs: Job[]
+  proxies: Proxy[]
   ts: number
   /** False during the initial uplink handshake, then true. */
   ready: boolean
@@ -74,6 +99,13 @@ export interface ProviderClient {
   /** Re-dispatch a finished job's task (on its device if free, else queued). */
   retryJob(jobId: string): Promise<Job>
   listJobs(): Promise<Job[]>
+
+  /** Move devices into a group (created on demand). */
+  assignGroup(ids: string[], group: string): Promise<void>
+  /** Assign a fresh healthy proxy to a device. */
+  rotateProxy(deviceId: string): Promise<void>
+  /** Re-check a proxy's health. */
+  testProxy(ip: string): Promise<Proxy>
 
   /** Live feed: device + job updates. Returns an unsubscribe fn. */
   subscribe(listener: () => void): () => void

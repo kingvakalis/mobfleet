@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react'
+import { memo, useEffect, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { markWarped } from '@/lib/layout/constellation'
@@ -14,14 +14,28 @@ export const NODE_H = 88
 
 const CARD_WIDTH = 280
 const CARD_EST_HEIGHT = 250
+const CARD_GAP = 16
 
-/** Anchor the hover card toward the constellation centre (flow-coord based). */
-function cardAnchor(pos?: { x: number; y: number }): { left: number; top: number } {
+/**
+ * Anchor the hover card beside the phone (toward the constellation centre),
+ * never over it. The gap is padding on the wrapper, not empty space, so the
+ * pointer stays inside the node subtree and hover doesn't drop mid-travel.
+ */
+function cardAnchor(pos?: { x: number; y: number }): CSSProperties {
   const x = pos?.x ?? 0
   const y = pos?.y ?? 0
-  const left = x > 60 ? NODE_W - CARD_WIDTH : x < -60 ? 0 : NODE_W / 2 - CARD_WIDTH / 2
-  const top = y < -60 ? NODE_H + 10 : y > 60 ? -(CARD_EST_HEIGHT + 10) : -10
-  return { left, top }
+  if (Math.abs(x) >= Math.abs(y)) {
+    // Beside the phone, vertically centred on it.
+    const top = NODE_H / 2 - CARD_EST_HEIGHT / 2
+    return x > 0
+      ? { right: NODE_W, top, paddingRight: CARD_GAP }
+      : { left: NODE_W, top, paddingLeft: CARD_GAP }
+  }
+  // Above or below the phone, horizontally centred on it.
+  const left = NODE_W / 2 - CARD_WIDTH / 2
+  return y > 0
+    ? { bottom: NODE_H, left, paddingBottom: CARD_GAP }
+    : { top: NODE_H, left, paddingTop: CARD_GAP }
 }
 
 // `type` (not `interface`) so it's assignable to React Flow's node data record.
@@ -32,6 +46,8 @@ export type DeviceNodeData = {
   exiting?: boolean
   hovered?: boolean
   pos?: { x: number; y: number }
+  /** Dimmed because a group filter excludes it. */
+  dimmed?: boolean
 }
 
 const centeredHandle =
@@ -84,7 +100,8 @@ function MiniScreen({ device, job }: { device: Device; job?: Job | null }) {
 
 /** One phone in the constellation: status ring + phone body with a live screen. */
 export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps) {
-  const { device, job, isNew, exiting, hovered, pos } = data as unknown as DeviceNodeData
+  const { device, job, isNew, exiting, hovered, pos, dimmed } = data as unknown as DeviceNodeData
+  const dim = dimmed ? 'opacity-20 grayscale transition-opacity duration-300' : 'transition-opacity duration-300'
   const reduce = useReducedMotion()
   const color = STATUS[device.status].color
   const offline = device.status === 'offline'
@@ -132,21 +149,65 @@ export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps
         <div className="absolute -inset-1 rounded-[16px]" style={{ boxShadow: '0 0 0 1.5px var(--accent)' }} />
       )}
 
-      {/* status ring hugs the phone */}
-      <div
-        className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse')}
-        style={{ boxShadow: `0 0 0 1.5px ${color}` }}
-      />
+      {/* phone scales up slightly while the hover card is open */}
+      <motion.div
+        className="absolute inset-0"
+        animate={{ scale: hovered && !exiting ? 1.08 : 1 }}
+        transition={{ duration: 0.2, ease: EXPO_OUT }}
+      >
+        {/* hover highlight */}
+        <AnimatePresence>
+          {hovered && !exiting && (
+            <motion.div
+              className="pointer-events-none absolute -inset-[5px] rounded-[18px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              style={{ boxShadow: `0 0 0 1.5px ${color}, 0 0 22px ${color}66, 0 0 56px ${color}2e` }}
+            />
+          )}
+        </AnimatePresence>
 
-      {/* phone body */}
-      <div className={cn('absolute inset-0 rounded-[14px] border border-line bg-[#0a0a0a] p-[3px]', offline && 'opacity-60')}>
-        {/* notch */}
-        <div className="absolute left-1/2 top-[4px] z-10 h-[3px] w-3.5 -translate-x-1/2 rounded-full bg-black" />
-        {/* screen */}
-        <div className="h-full w-full overflow-hidden rounded-[11px] bg-[#050505]">
-          <MiniScreen device={device} job={job} />
+        {/* status ring hugs the phone */}
+        <div
+          className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse', dim)}
+          style={{ boxShadow: `0 0 0 1.5px ${color}` }}
+        />
+
+        {/* side buttons: volume (left) + power (right) */}
+        <div className={cn('absolute -left-[2px] top-[18px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]', dim)} />
+        <div className={cn('absolute -left-[2px] top-[28px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]', dim)} />
+        <div className={cn('absolute -right-[2px] top-[24px] h-[11px] w-[2px] rounded-r-[1px] bg-[#3a3a3c]', dim)} />
+
+        {/* phone body: brushed-metal frame around the glass */}
+        <div
+          className={cn('absolute inset-0 rounded-[14px] p-[2.5px]', offline && 'opacity-60', dim)}
+          style={{
+            background: 'linear-gradient(150deg, #48484c 0%, #1c1c1f 28%, #0c0c0e 62%, #313135 100%)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07), 0 4px 14px rgba(0,0,0,0.6)',
+          }}
+        >
+          {/* screen */}
+          <div className="relative h-full w-full overflow-hidden rounded-[11.5px] bg-[#050505]">
+            <MiniScreen device={device} job={job} />
+            {/* dynamic-island pill with camera dot */}
+            <div className="absolute left-1/2 top-[3px] z-10 flex h-[4px] w-[14px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-[2px]">
+              <div className="h-[2px] w-[2px] rounded-full bg-[#1e3a5f]" />
+            </div>
+            {/* home indicator */}
+            <div className="absolute bottom-[2px] left-1/2 z-10 h-[2px] w-[11px] -translate-x-1/2 rounded-full bg-white/25" />
+            {/* glass reflection */}
+            <div
+              className="pointer-events-none absolute inset-0 z-10 rounded-[11.5px]"
+              style={{
+                background:
+                  'linear-gradient(118deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 26%, transparent 42%)',
+              }}
+            />
+          </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* id label below the phone */}
       <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap">
