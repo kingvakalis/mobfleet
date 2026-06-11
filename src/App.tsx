@@ -11,13 +11,13 @@ import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import type { ViewId } from '@/lib/views'
 
-const FleetView = lazy(() => import('@/components/fleet/fleet-view').then((m) => ({ default: m.FleetView })))
-const JobsView = lazy(() => import('@/components/jobs/jobs-view').then((m) => ({ default: m.JobsView })))
-const AutomationsView = lazy(() =>
-  import('@/components/automations/automations-view').then((m) => ({ default: m.AutomationsView })),
-)
-const ProxiesView = lazy(() => import('@/components/proxies/proxies-view').then((m) => ({ default: m.ProxiesView })))
-const GroupsView = lazy(() => import('@/components/groups/groups-view').then((m) => ({ default: m.GroupsView })))
+const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
+const JobsView        = lazy(() => import('@/components/jobs/jobs-view').then(m => ({ default: m.JobsView })))
+const AutomationsView = lazy(() => import('@/components/automations/automations-view').then(m => ({ default: m.AutomationsView })))
+const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').then(m => ({ default: m.ProxiesView })))
+const GroupsView      = lazy(() => import('@/components/groups/groups-view').then(m => ({ default: m.GroupsView })))
+const PhonesView      = lazy(() => import('@/components/phones/phones-view').then(m => ({ default: m.PhonesView })))
+const LogsView        = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.LogsView })))
 
 function Soon({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
@@ -25,13 +25,13 @@ function Soon({ label }: { label: string }) {
 
 const VIEW_MAP: Record<ViewId, ComponentType> = {
   fleet:       FleetView,
-  jobs:        JobsView,
-  automations: AutomationsView,
-  proxies:     ProxiesView,
+  phones:      PhonesView,
   groups:      GroupsView,
-  phones:      () => <Soon label="Phones — coming soon" />,
+  proxies:     ProxiesView,
+  automations: AutomationsView,
+  jobs:        JobsView,
   scale:       () => <Soon label="Scale — coming soon" />,
-  logs:        () => <Soon label="Logs — coming soon" />,
+  logs:        LogsView,
 }
 
 function subscribeHash(cb: () => void) {
@@ -41,18 +41,15 @@ function subscribeHash(cb: () => void) {
 function useHash() {
   return useSyncExternalStore(subscribeHash, () => window.location.hash)
 }
-
 function ViewFallback() {
   return <div className="flex h-full items-center justify-center"><Spinner size={22} /></div>
 }
 
 export default function App() {
   const hash = useHash()
-  const view = useUIStore((s) => s.view)
+  const view = useUIStore(s => s.view)
   const Current = VIEW_MAP[view] ?? VIEW_MAP.fleet
-
   if (hash === '#style') return <StyleGuide />
-
   return (
     <AppShell>
       <AnimatePresence mode="wait">
