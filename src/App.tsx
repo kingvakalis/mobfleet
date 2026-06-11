@@ -18,6 +18,7 @@ const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').t
 const GroupsView      = lazy(() => import('@/components/groups/groups-view').then(m => ({ default: m.GroupsView })))
 const PhonesView      = lazy(() => import('@/components/phones/phones-view').then(m => ({ default: m.PhonesView })))
 const LogsView        = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.LogsView })))
+const AccountsView    = lazy(() => import('@/components/accounts/accounts-view').then(m => ({ default: m.AccountsView })))
 
 function Soon({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
@@ -26,12 +27,14 @@ function Soon({ label }: { label: string }) {
 const VIEW_MAP: Record<ViewId, ComponentType> = {
   fleet:       FleetView,
   phones:      PhonesView,
+  accounts:    AccountsView,
   groups:      GroupsView,
   proxies:     ProxiesView,
   automations: AutomationsView,
   jobs:        JobsView,
   scale:       () => <Soon label="Scale — coming soon" />,
   logs:        LogsView,
+  settings:    () => <Soon label="Settings — coming soon" />,
 }
 
 function subscribeHash(cb: () => void) {

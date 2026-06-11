@@ -32,6 +32,8 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
   phones:      Boxes,
   scale:       Maximize,
   logs:        Minus,
+  accounts:    Table2,
+  settings:    Minus,
 }
 
 function Palette({ onClose }: { onClose: () => void }) {

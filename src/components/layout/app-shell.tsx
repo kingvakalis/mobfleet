@@ -1,7 +1,7 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import {
   Network, Smartphone, Layers, Shield, Zap,
-  Briefcase, SlidersHorizontal, Terminal,
+  Briefcase, Terminal, Database, Settings, Moon, Sun,
   type LucideIcon,
 } from 'lucide-react'
 import { VIEWS, type ViewId } from '@/lib/views'
@@ -14,8 +14,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
   shield:     Shield,
   zap:        Zap,
   briefcase:  Briefcase,
-  sliders:    SlidersHorizontal,
   terminal:   Terminal,
+  database:   Database,
+  settings:   Settings,
 }
 
 interface AppShellProps {
@@ -25,6 +26,7 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const view = useUIStore((s) => s.view)
   const setView = useUIStore((s) => s.setView)
+  const [dark, setDark] = useState(true)
 
   return (
     <div className="flex h-full bg-[#0a0a0f]">
@@ -59,8 +61,15 @@ export function AppShell({ children }: AppShellProps) {
             )
           })}
         </nav>
-        <div className="border-t border-white/5 px-4 py-3">
+        <div className="border-t border-white/5 px-4 py-3 flex items-center justify-between">
           <div className="mono text-[10px] text-white/25 uppercase tracking-wider">UPPED · v2</div>
+          <button
+            onClick={() => setDark(d => !d)}
+            className="p-1 rounded-md text-white/25 hover:text-white/60 hover:bg-white/[0.06] transition-colors"
+            title="Toggle theme"
+          >
+            {dark ? <Moon size={13} /> : <Sun size={13} />}
+          </button>
         </div>
       </aside>
       <main className="relative flex-1 overflow-hidden">
