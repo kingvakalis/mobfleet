@@ -19,12 +19,8 @@ const AutomationsView = lazy(() =>
 const ProxiesView = lazy(() => import('@/components/proxies/proxies-view').then((m) => ({ default: m.ProxiesView })))
 const GroupsView = lazy(() => import('@/components/groups/groups-view').then((m) => ({ default: m.GroupsView })))
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="flex h-full items-center justify-center text-white/20 text-sm">
-      {label} — coming soon
-    </div>
-  )
+function Soon({ label }: { label: string }) {
+  return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
 }
 
 const VIEW_MAP: Record<ViewId, ComponentType> = {
@@ -33,9 +29,9 @@ const VIEW_MAP: Record<ViewId, ComponentType> = {
   automations: AutomationsView,
   proxies:     ProxiesView,
   groups:      GroupsView,
-  phones:      () => <Placeholder label="Phones" />,
-  scale:       () => <Placeholder label="Scale" />,
-  logs:        () => <Placeholder label="Logs" />,
+  phones:      () => <Soon label="Phones — coming soon" />,
+  scale:       () => <Soon label="Scale — coming soon" />,
+  logs:        () => <Soon label="Logs — coming soon" />,
 }
 
 function subscribeHash(cb: () => void) {
@@ -47,11 +43,7 @@ function useHash() {
 }
 
 function ViewFallback() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <Spinner size={22} />
-    </div>
-  )
+  return <div className="flex h-full items-center justify-center"><Spinner size={22} /></div>
 }
 
 export default function App() {
