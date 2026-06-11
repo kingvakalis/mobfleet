@@ -21,19 +21,22 @@ import { graphBus } from '@/lib/graph-bus'
 import { REGIONS, regionLabel } from '@/data/regions'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
-import { VIEWS, type View } from '@/lib/views'
+import { VIEWS, type ViewId } from '@/lib/views'
 
-const VIEW_ICON: Record<View, LucideIcon> = {
+const VIEW_ICON: Record<ViewId, LucideIcon> = {
   fleet: LayoutGrid,
   jobs: Table2,
   automations: Zap,
   proxies: Globe,
-  groups: Boxes,
+  groups:      Layers,
+  phones:      Boxes,
+  scale:       Maximize,
+  logs:        Minus,
 }
 
 function Palette({ onClose }: { onClose: () => void }) {
   const snapshot = useFleet()
-  const setView = useUIStore((s) => s.setView)
+  const setViewId = useUIStore((s) => s.setViewId)
   const view = useUIStore((s) => s.view)
   const openScale = useUIStore((s) => s.openScale)
   const openSubmit = useUIStore((s) => s.openSubmit)
@@ -46,10 +49,10 @@ function Palette({ onClose }: { onClose: () => void }) {
 
   const fitGraph = () => {
     if (view !== 'fleet') {
-      setView('fleet')
-      setTimeout(() => graphBus.fitView?.(), 420)
+      setViewId('fleet')
+      setTimeout(() => graphBus.fitViewId?.(), 420)
     } else {
-      graphBus.fitView?.()
+      graphBus.fitViewId?.()
     }
   }
 
@@ -104,7 +107,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   key={v.id}
                   icon={VIEW_ICON[v.id]}
                   label={`Go to ${v.label}`}
-                  onSelect={() => run(() => setView(v.id))}
+                  onSelect={() => run(() => setViewId(v.id))}
                 />
               ))}
             </Command.Group>
@@ -127,7 +130,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                 label="Dispatch a job"
                 onSelect={() =>
                   run(() => {
-                    setView('jobs')
+                    setViewId('jobs')
                     openSubmit()
                   })
                 }
