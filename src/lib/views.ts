@@ -8,6 +8,9 @@ export type ViewId =
   | 'scale'
   | 'logs';
 
+// Alias for backward compat
+export type View = ViewId;
+
 export interface ViewMeta {
   id: ViewId;
   label: string;
