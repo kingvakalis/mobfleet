@@ -22,16 +22,13 @@ interface AppShellProps {
   children: ReactNode
 }
 
-/** The frame: fixed left sidebar + full-bleed view stage. */
 export function AppShell({ children }: AppShellProps) {
   const view = useUIStore((s) => s.view)
   const setView = useUIStore((s) => s.setView)
 
   return (
     <div className="flex h-full bg-[#0a0a0f]">
-      {/* ── Sidebar ─────────────────────────────────────────── */}
       <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/5 bg-[#0a0a0f]">
-        {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-white/5 px-4 py-4">
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
@@ -41,8 +38,6 @@ export function AppShell({ children }: AppShellProps) {
             UPPED FARM
           </span>
         </div>
-
-        {/* Nav */}
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {VIEWS.map((v) => {
             const Icon = ICON_MAP[v.icon] ?? Network
@@ -64,14 +59,10 @@ export function AppShell({ children }: AppShellProps) {
             )
           })}
         </nav>
-
-        {/* Footer */}
         <div className="border-t border-white/5 px-4 py-3">
           <div className="mono text-[10px] text-white/25 uppercase tracking-wider">UPPED · v2</div>
         </div>
       </aside>
-
-      {/* ── Main stage ──────────────────────────────────────── */}
       <main className="relative flex-1 overflow-hidden">
         {children}
       </main>
