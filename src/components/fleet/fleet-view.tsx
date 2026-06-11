@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, X } from 'lucide-react'
+import { Layers, X, Box, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
@@ -7,6 +8,9 @@ import { useFleet, useFleetStats } from '@/hooks/use-fleet'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import { FleetGraph } from './fleet-graph'
+import { Fleet3D } from './fleet-3d'
+
+type ViewMode = '2d' | '3d'
 
 function Crosshair() {
   return (
@@ -18,7 +22,6 @@ function Crosshair() {
   )
 }
 
-/** Uplink handshake — before the fleet snapshot is live. */
 function FleetBoot() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4">
@@ -28,14 +31,11 @@ function FleetBoot() {
   )
 }
 
-/** Pool drained to zero. */
 function FleetEmpty() {
   const openScale = useUIStore((s) => s.openScale)
   return (
     <div className="relative flex h-full items-center justify-center">
-      <div className="pointer-events-none absolute">
-        <Crosshair />
-      </div>
+      <div className="pointer-events-none absolute"><Crosshair /></div>
       <div className="relative flex flex-col items-center gap-4 text-center">
         <Label className="text-fg-secondary">No Devices In Pool</Label>
         <p className="mono max-w-[260px] text-[11px] leading-relaxed text-fg-muted">
@@ -49,12 +49,12 @@ function FleetEmpty() {
   )
 }
 
-/** The default screen: the live node constellation with a HUD overlay. */
 export function FleetView() {
-  const snapshot = useFleet()
-  const stats = useFleetStats()
+  const snapshot    = useFleet()
+  const stats       = useFleetStats()
   const groupFilter = useUIStore((s) => s.groupFilter)
   const setGroupFilter = useUIStore((s) => s.setGroupFilter)
+  const [mode, setMode] = useState<ViewMode>('3d')
 
   const inGroup = groupFilter
     ? snapshot.devices.filter((d) => d.group === groupFilter).length
@@ -63,22 +63,11 @@ export function FleetView() {
   return (
     <AnimatePresence mode="wait">
       {!snapshot.ready ? (
-        <motion.div
-          key="boot"
-          className="h-full"
-          exit={{ opacity: 0, scale: 0.98 }}
-          transition={{ duration: 0.2, ease: EXPO_OUT }}
-        >
+        <motion.div key="boot" className="h-full" exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           <FleetBoot />
         </motion.div>
       ) : snapshot.devices.length === 0 ? (
-        <motion.div
-          key="empty"
-          className="h-full"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, ease: EXPO_OUT }}
-        >
+        <motion.div key="empty" className="h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <FleetEmpty />
         </motion.div>
       ) : (
@@ -89,9 +78,25 @@ export function FleetView() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.45, ease: EXPO_OUT }}
         >
-          <FleetGraph />
-          <div className="absolute left-4 top-4 z-10">
-            <div className="pointer-events-none">
+          {/* View mode toggle */}
+          <div className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-lg bg-black/40 border border-white/[0.08] p-1 backdrop-blur-sm">
+            <button
+              onClick={() => setMode('3d')}
+              className={['flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors', mode === '3d' ? 'bg-indigo-600 text-white' : 'text-white/40 hover:text-white/70'].join(' ')}
+            >
+              <Box size={12} /> 3D
+            </button>
+            <button
+              onClick={() => setMode('2d')}
+              className={['flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors', mode === '2d' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'].join(' ')}
+            >
+              <Network size={12} /> Graph
+            </button>
+          </div>
+
+          {/* Fleet info HUD */}
+          <div className="absolute left-4 top-4 z-20">
+            <div className="pointer-events-none px-3 py-2 rounded-lg bg-black/40 border border-white/[0.06] backdrop-blur-sm">
               <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
               <div className="mono mt-1 text-[11px] text-fg-secondary">
                 {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
@@ -101,7 +106,7 @@ export function FleetView() {
               <button
                 type="button"
                 onClick={() => setGroupFilter(null)}
-                className="mt-3 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
+                className="mt-2 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
               >
                 <span className="label text-accent">{groupFilter}</span>
                 <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
@@ -109,6 +114,24 @@ export function FleetView() {
               </button>
             )}
           </div>
+
+          {/* Stats strip bottom left */}
+          <div className="absolute bottom-4 left-4 z-20 flex items-center gap-3">
+            {[
+              { label: 'Online',  value: stats.busy,               color: '#22c55e' },
+              { label: 'Idle',    value: stats.idle,               color: '#818cf8' },
+              { label: 'Warning', value: stats.total - stats.busy - stats.idle, color: '#f59e0b' },
+            ].map(s => (
+              <div key={s.label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/40 border border-white/[0.06] backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
+                <span className="text-[10px] text-white/50">{s.label}</span>
+                <span className="text-[10px] font-semibold" style={{ color: s.color }}>{s.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Visualization */}
+          {mode === '3d' ? <Fleet3D /> : <FleetGraph />}
         </motion.div>
       )}
     </AnimatePresence>
