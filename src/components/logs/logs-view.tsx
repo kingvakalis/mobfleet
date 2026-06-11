@@ -22,11 +22,12 @@ export function LogsView() {
   const [filter, setFilter] = useState<'ALL' | LogLevel>('ALL')
   const [search, setSearch] = useState('')
 
-  const visible = useMemo(() =>
-    allLogs.filter(l =>
+  const visible = useMemo(
+    () => allLogs.filter(l =>
       (filter === 'ALL' || l.level === filter) &&
       (search === '' || l.message.toLowerCase().includes(search.toLowerCase()) || l.device.toLowerCase().includes(search.toLowerCase()))
-    ), [allLogs, filter, search]
+    ),
+    [allLogs, filter, search]
   )
 
   return (
@@ -53,7 +54,7 @@ export function LogsView() {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={\`px-3 py-1 text-xs rounded-md transition-colors \${filter === f ? 'bg-white/[0.1] text-white/90' : 'text-white/35 hover:text-white/60'}\`}
+              className={['px-3 py-1 text-xs rounded-md transition-colors', filter === f ? 'bg-white/[0.1] text-white/90' : 'text-white/35 hover:text-white/60'].join(' ')}
             >
               {f}
             </button>
@@ -67,9 +68,9 @@ export function LogsView() {
           {visible.map(l => (
             <div key={l.id} className="flex items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.02] transition-colors">
               <span className="text-white/20 w-20 shrink-0">{l.ts}</span>
-              <span className={\`px-1.5 py-0.5 rounded text-[9px] font-semibold w-12 text-center shrink-0 \${levelBg[l.level]}\`}>{l.level}</span>
+              <span className={['px-1.5 py-0.5 rounded text-[9px] font-semibold w-12 text-center shrink-0', levelBg[l.level]].join(' ')}>{l.level}</span>
               <span className="text-white/35 w-24 shrink-0 truncate">{l.device}</span>
-              <span className={\`\${levelStyle[l.level]}\`}>{l.message}</span>
+              <span className={levelStyle[l.level]}>{l.message}</span>
             </div>
           ))}
         </div>

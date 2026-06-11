@@ -12,9 +12,9 @@ const statusStyle: Record<Proxy['status'], { dot: string; badge: string }> = {
 }
 
 const TABS: { id: FilterTab; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'healthy', label: 'Healthy' },
-  { id: 'failing', label: 'Failing' },
+  { id: 'all',        label: 'All' },
+  { id: 'healthy',    label: 'Healthy' },
+  { id: 'failing',    label: 'Failing' },
   { id: 'unassigned', label: 'Unassigned' },
 ]
 
@@ -39,7 +39,7 @@ export function ProxiesView() {
           <button
             key={t.id}
             onClick={() => setFilter(t.id)}
-            className={\`px-3 py-1.5 text-xs rounded-md transition-colors \${filter === t.id ? 'bg-white/[0.1] text-white/90' : 'text-white/35 hover:text-white/60'}\`}
+            className={['px-3 py-1.5 text-xs rounded-md transition-colors', filter === t.id ? 'bg-white/[0.1] text-white/90' : 'text-white/35 hover:text-white/60'].join(' ')}
           >
             {t.label}
           </button>
@@ -59,18 +59,23 @@ export function ProxiesView() {
             {visible.map((p, i) => {
               const s = statusStyle[p.status]
               return (
-                <tr key={p.id} className={\`border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors \${i === visible.length - 1 ? 'border-0' : ''}\`}>
+                <tr
+                  key={p.id}
+                  className={['border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors', i === visible.length - 1 ? 'border-0' : ''].join(' ')}
+                >
                   <td className="px-4 py-3 font-mono text-white/65">{p.ip}:{p.port}</td>
                   <td className="px-4 py-3 text-white/45">{p.region}</td>
                   <td className="px-4 py-3 text-white/45">{p.provider}</td>
-                  <td className="px-4 py-3 text-white/45">{p.status === 'unassigned' ? '—' : \`\${p.latencyMs}ms\`}</td>
+                  <td className="px-4 py-3 text-white/45">{p.status === 'unassigned' ? '—' : p.latencyMs + 'ms'}</td>
                   <td className="px-4 py-3">
-                    <span className={\`flex items-center gap-1.5 w-fit px-2 py-0.5 rounded-full text-[10px] \${s.badge}\`}>
-                      <span className={\`w-1 h-1 rounded-full \${s.dot}\`} />
+                    <span className={['flex items-center gap-1.5 w-fit px-2 py-0.5 rounded-full text-[10px]', s.badge].join(' ')}>
+                      <span className={['w-1 h-1 rounded-full', s.dot].join(' ')} />
                       {p.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-white/35">{p.assignedTo ?? <span className="italic text-white/15">unassigned</span>}</td>
+                  <td className="px-4 py-3 text-white/35">
+                    {p.assignedTo ?? <span className="italic text-white/15">unassigned</span>}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <button className="p-1.5 hover:bg-white/[0.06] rounded text-white/25 hover:text-white/60 transition-colors"><RefreshCw size={11} /></button>

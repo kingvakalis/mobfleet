@@ -30,8 +30,26 @@ const TABS = ['Apps', 'Automations', 'Sessions', 'Logs'] as const
 type Tab = typeof TABS[number]
 
 const levelStyle: Record<LogLevel, string> = {
-  INFO: 'text-white/35', WARN: 'text-yellow-400', ERROR: 'text-red-400', OK: 'text-emerald-400'
+  INFO:  'text-white/35',
+  WARN:  'text-yellow-400',
+  ERROR: 'text-red-400',
+  OK:    'text-emerald-400',
 }
+
+const CONTROLS = [
+  { label: 'Lock',    Icon: Lock },
+  { label: 'Home',    Icon: Home },
+  { label: 'Back',    Icon: ChevronDown },
+  { label: 'Up',      Icon: ChevronUp },
+  { label: 'Down',    Icon: ChevronDown },
+  { label: 'Grid',    Icon: LayoutGrid },
+  { label: 'Tap',     Icon: MousePointerClick },
+  { label: 'Drag',    Icon: Move },
+  { label: 'Gesture', Icon: Hand },
+  { label: 'Camera',  Icon: Camera },
+  { label: 'Rotate',  Icon: RotateCcw },
+  { label: 'Power',   Icon: Power },
+]
 
 export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
   const [tab, setTab] = useState<Tab>('Apps')
@@ -55,7 +73,6 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
     <div className="flex h-full bg-[#0a0a0f] overflow-hidden">
       {/* Left: iPhone + controls */}
       <div className="flex flex-col items-center gap-4 p-6 w-[260px] shrink-0 border-r border-white/[0.06] overflow-y-auto">
-        {/* Close */}
         <div className="w-full flex items-center justify-between mb-1">
           <span className="font-mono text-xs text-white/60">{phone.name}</span>
           <button onClick={onClose} className="text-white/25 hover:text-white/70 text-xl leading-none">×</button>
@@ -66,7 +83,10 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-4 bg-black rounded-b-xl z-10" />
           <div className="flex items-center justify-between px-4 pt-5 pb-1 text-[7px] text-white/50">
             <span>9:41</span>
-            <div className="flex items-center gap-1"><Wifi size={7} /><Battery size={7} /></div>
+            <div className="flex items-center gap-1">
+              <Wifi size={7} />
+              <Battery size={7} />
+            </div>
           </div>
           <div className="grid grid-cols-4 gap-1.5 p-2">
             {APPS.map(app => (
@@ -79,25 +99,15 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
           <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-16 h-1 rounded-full bg-white/25" />
         </div>
 
-        {/* Gesture controls */}
+        {/* Controls */}
         <div className="w-full">
           <p className="text-[9px] uppercase tracking-widest text-white/20 mb-2">Controls</p>
           <div className="grid grid-cols-3 gap-1">
-            {[
-              { label: 'Lock',   Icon: Lock },
-              { label: 'Home',   Icon: Home },
-              { label: 'Back',   Icon: ChevronDown },
-              { label: 'Up',     Icon: ChevronUp },
-              { label: 'Down',   Icon: ChevronDown },
-              { label: 'Grid',   Icon: LayoutGrid },
-              { label: 'Tap',    Icon: MousePointerClick },
-              { label: 'Drag',   Icon: Move },
-              { label: 'Gesture',Icon: Hand },
-              { label: 'Camera', Icon: Camera },
-              { label: 'Rotate', Icon: RotateCcw },
-              { label: 'Power',  Icon: Power },
-            ].map(({ label, Icon }) => (
-              <button key={label} className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors text-white/40 hover:text-white/70">
+            {CONTROLS.map(({ label, Icon }) => (
+              <button
+                key={label}
+                className="flex flex-col items-center gap-0.5 p-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition-colors text-white/40 hover:text-white/70"
+              >
                 <Icon size={12} />
                 <span className="text-[8px]">{label}</span>
               </button>
@@ -115,9 +125,17 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
             className="w-full h-16 bg-white/[0.04] border border-white/[0.06] rounded-lg p-2 text-xs text-white/70 placeholder-white/20 outline-none focus:border-white/20 resize-none"
           />
           <div className="flex gap-1 mt-1.5">
-            {[{ Icon: Send, label: 'Send' }, { Icon: Copy, label: 'Copy' }, { Icon: Eraser, label: 'Clear' }].map(({ Icon, label }) => (
-              <button key={label} className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/40 hover:text-white/70 transition-colors">
-                <Icon size={10} />{label}
+            {[
+              { Icon: Send,   label: 'Send'  },
+              { Icon: Copy,   label: 'Copy'  },
+              { Icon: Eraser, label: 'Clear' },
+            ].map(({ Icon, label }) => (
+              <button
+                key={label}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/40 hover:text-white/70 transition-colors"
+              >
+                <Icon size={10} />
+                {label}
               </button>
             ))}
           </div>
@@ -126,14 +144,14 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
 
       {/* Right panel */}
       <div className="flex flex-col flex-1 overflow-hidden">
-        {/* Device info strip */}
-        <div className="flex items-center gap-6 px-5 py-3 border-b border-white/[0.06] bg-white/[0.01]">
+        {/* Device info */}
+        <div className="flex items-center gap-6 px-5 py-3 border-b border-white/[0.06] bg-white/[0.01] flex-wrap">
           {[
-            ['Model', phone.model],
-            ['iOS', phone.os],
-            ['Battery', \`\${phone.battery}%\`],
-            ['Proxy', phone.proxyIp],
-            ['Group', phone.group],
+            ['Model',  phone.model],
+            ['iOS',    phone.os],
+            ['Batt',   phone.battery + '%'],
+            ['Proxy',  phone.proxyIp],
+            ['Group',  phone.group],
             ['Status', phone.status],
             ['Uptime', phone.uptime],
           ].map(([k, v]) => (
@@ -150,7 +168,7 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={\`px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5 \${tab === t ? 'bg-white/[0.08] text-white/90' : 'text-white/35 hover:text-white/60'}\`}
+              className={['px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5', tab === t ? 'bg-white/[0.08] text-white/90' : 'text-white/35 hover:text-white/60'].join(' ')}
             >
               {t === 'Apps' && <LayoutGrid size={11} />}
               {t === 'Automations' && <Play size={11} />}
@@ -194,10 +212,10 @@ export function PhoneDetailView({ deviceId, onClose }: PhoneDetailViewProps) {
           )}
           {tab === 'Logs' && (
             <div ref={logRef} className="font-mono text-[11px] space-y-0.5 max-h-full overflow-y-auto">
-              {logs.map(l => (
-                <div key={l.id} className="flex items-center gap-3 py-0.5">
+              {logs.map((l, idx) => (
+                <div key={idx} className="flex items-center gap-3 py-0.5">
                   <span className="text-white/15 w-16 shrink-0">{l.ts}</span>
-                  <span className={\`w-10 shrink-0 text-[9px] font-semibold \${levelStyle[l.level]}\`}>{l.level}</span>
+                  <span className={['w-10 shrink-0 text-[9px] font-semibold', levelStyle[l.level]].join(' ')}>{l.level}</span>
                   <span className={levelStyle[l.level]}>{l.message}</span>
                 </div>
               ))}

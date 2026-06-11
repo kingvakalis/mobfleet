@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Search, Upload, Plus, Play, MoreHorizontal, Check } from 'lucide-react'
+import { Search, Upload, Plus, Play, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { phones, statusMeta, type Phone } from '@/lib/fleet-data'
 import { useUIStore } from '@/state/ui-store'
@@ -17,8 +17,11 @@ export function PhonesView() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const openDrawer = useUIStore((s) => s.openDrawer)
 
-  const visible = useMemo(() =>
-    phones.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.group.toLowerCase().includes(search.toLowerCase())),
+  const visible = useMemo(
+    () => phones.filter(p =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.group.toLowerCase().includes(search.toLowerCase())
+    ),
     [search]
   )
 
@@ -26,7 +29,11 @@ export function PhonesView() {
     setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(p => p.id)))
   }
   function toggle(id: string) {
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setSelected(prev => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
   }
 
   return (
@@ -79,11 +86,19 @@ export function PhonesView() {
           <thead className="sticky top-0 bg-[#0a0a0f] z-10">
             <tr className="border-b border-white/[0.06]">
               <th className="px-4 py-3 text-left w-8">
-                <button onClick={toggleAll} className={\`w-4 h-4 rounded border flex items-center justify-center transition-colors \${selected.size === visible.length && visible.length > 0 ? 'bg-indigo-500 border-indigo-500' : 'border-white/20 hover:border-white/40'}\`}>
+                <button
+                  onClick={toggleAll}
+                  className={[
+                    'w-4 h-4 rounded border flex items-center justify-center transition-colors',
+                    selected.size === visible.length && visible.length > 0
+                      ? 'bg-indigo-500 border-indigo-500'
+                      : 'border-white/20 hover:border-white/40',
+                  ].join(' ')}
+                >
                   {selected.size === visible.length && visible.length > 0 && <Check size={10} className="text-white" />}
                 </button>
               </th>
-              {['Name', 'Status', 'Group', 'Region', 'Proxy', 'OS', 'Battery', 'Last Activity', 'Job', ''].map(h => (
+              {['Name', 'Status', 'Group', 'Region', 'Proxy', 'OS', 'Battery', 'Last Active', 'Job', ''].map(h => (
                 <th key={h} className="px-3 py-3 text-left text-[10px] font-medium text-white/25 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -96,10 +111,10 @@ export function PhonesView() {
                 <tr
                   key={p.id}
                   onClick={() => toggle(p.id)}
-                  className={\`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer \${isSel ? 'bg-indigo-500/5' : ''}\`}
+                  className={['border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer', isSel ? 'bg-indigo-500/5' : ''].join(' ')}
                 >
                   <td className="px-4 py-3">
-                    <div className={\`w-4 h-4 rounded border flex items-center justify-center transition-colors \${isSel ? 'bg-indigo-500 border-indigo-500' : 'border-white/15'}\`}>
+                    <div className={['w-4 h-4 rounded border flex items-center justify-center transition-colors', isSel ? 'bg-indigo-500 border-indigo-500' : 'border-white/15'].join(' ')}>
                       {isSel && <Check size={10} className="text-white" />}
                     </div>
                   </td>
@@ -113,13 +128,16 @@ export function PhonesView() {
                   <td className="px-3 py-3 text-white/50">{p.group}</td>
                   <td className="px-3 py-3 text-white/40">{p.region}</td>
                   <td className="px-3 py-3">
-                    <span className={\`font-mono \${proxyStyle[p.proxyStatus]}\`}>{p.proxyIp}</span>
+                    <span className={['font-mono text-xs', proxyStyle[p.proxyStatus]].join(' ')}>{p.proxyIp}</span>
                   </td>
                   <td className="px-3 py-3 text-white/40">{p.os}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
                       <div className="w-12 h-1 rounded-full bg-white/[0.06] overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: \`\${p.battery}%\`, background: p.battery > 30 ? '#22c55e' : '#ef4444' }} />
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: p.battery + '%', background: p.battery > 30 ? '#22c55e' : '#ef4444' }}
+                        />
                       </div>
                       <span className="text-white/35">{p.battery}%</span>
                     </div>
@@ -128,7 +146,7 @@ export function PhonesView() {
                   <td className="px-3 py-3 text-white/35 font-mono">{p.job}</td>
                   <td className="px-3 py-3">
                     <button
-                      onClick={e => { e.stopPropagation(); openDrawer(p.id); }}
+                      onClick={e => { e.stopPropagation(); openDrawer(p.id) }}
                       className="px-2 py-1 rounded text-[10px] text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
                     >
                       Control →
