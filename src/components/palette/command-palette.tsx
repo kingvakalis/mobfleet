@@ -36,7 +36,7 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
 
 function Palette({ onClose }: { onClose: () => void }) {
   const snapshot = useFleet()
-  const setViewId = useUIStore((s) => s.setViewId)
+  const setView = useUIStore((s) => s.setView)
   const view = useUIStore((s) => s.view)
   const openScale = useUIStore((s) => s.openScale)
   const openSubmit = useUIStore((s) => s.openSubmit)
@@ -49,10 +49,10 @@ function Palette({ onClose }: { onClose: () => void }) {
 
   const fitGraph = () => {
     if (view !== 'fleet') {
-      setViewId('fleet')
-      setTimeout(() => graphBus.fitViewId?.(), 420)
+      setView('fleet')
+      setTimeout(() => graphBus.fitView?.(), 420)
     } else {
-      graphBus.fitViewId?.()
+      graphBus.fitView?.()
     }
   }
 
@@ -107,7 +107,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   key={v.id}
                   icon={VIEW_ICON[v.id]}
                   label={`Go to ${v.label}`}
-                  onSelect={() => run(() => setViewId(v.id))}
+                  onSelect={() => run(() => setView(v.id))}
                 />
               ))}
             </Command.Group>
@@ -130,7 +130,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                 label="Dispatch a job"
                 onSelect={() =>
                   run(() => {
-                    setViewId('jobs')
+                    setView('jobs')
                     openSubmit()
                   })
                 }
