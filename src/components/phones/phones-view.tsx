@@ -2,16 +2,11 @@ import { useState, useMemo, useEffect } from 'react'
 import { Search, Upload, Plus, Check, Briefcase, Camera, RotateCcw, RefreshCw, UserPlus, Download, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
-import { phones, statusMeta, type Phone } from '@/lib/fleet-data'
+import { useFleet } from '@/hooks/use-fleet'
+import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 
 const FILTERS = ['Status', 'Group', 'Region', 'Proxy Status']
-
-const proxyStyle: Record<Phone['proxyStatus'], string> = {
-  healthy:      'text-emerald-400',
-  issue:        'text-yellow-400',
-  disconnected: 'text-red-400',
-}
 
 function AnimatedCounter({ target, color }: { target: number; color: string }) {
   const [value, setValue] = useState(0)
@@ -29,27 +24,31 @@ function AnimatedCounter({ target, color }: { target: number; color: string }) {
 }
 
 export function PhonesView() {
+  const snapshot           = useFleet()
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const openDrawer            = useUIStore((s) => s.openDrawer)
 
+  const devices = snapshot.devices
+
   const visible = useMemo(
-    () => phones.filter(p =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.group.toLowerCase().includes(search.toLowerCase())
+    () => devices.filter(d =>
+      d.name.toLowerCase().includes(search.toLowerCase()) ||
+      d.group.toLowerCase().includes(search.toLowerCase()) ||
+      d.region.toLowerCase().includes(search.toLowerCase())
     ),
-    [search]
+    [devices, search]
   )
 
   const kpis = [
-    { label: 'Total',   value: phones.length,                                                                    color: 'text-white/70' },
-    { label: 'Online',  value: phones.filter(p => p.status === 'online' || p.status === 'running').length,      color: 'text-emerald-400' },
-    { label: 'Warning', value: phones.filter(p => p.status === 'warning').length,                               color: 'text-amber-400' },
-    { label: 'Offline', value: phones.filter(p => p.status === 'offline').length,                               color: 'text-red-400' },
+    { label: 'Total',   value: devices.length,                                                       color: 'text-white/70' },
+    { label: 'Online',  value: devices.filter(d => d.status === 'online' || d.status === 'busy' || d.status === 'warming').length, color: 'text-emerald-400' },
+    { label: 'Warning', value: devices.filter(d => d.status === 'error').length,                     color: 'text-amber-400' },
+    { label: 'Offline', value: devices.filter(d => d.status === 'offline').length,                   color: 'text-red-400' },
   ]
 
   function toggleAll() {
-    setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(p => p.id)))
+    setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(d => d.id)))
   }
   function toggle(id: string) {
     setSelected(prev => {
@@ -80,10 +79,7 @@ export function PhonesView() {
       {/* KPI Row */}
       <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.04]">
         {kpis.map(({ label, value, color }) => (
-          <div
-            key={label}
-            className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 flex flex-col gap-1"
-          >
+          <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 flex flex-col gap-1">
             <span className="text-[10px] text-white/30 uppercase tracking-wider">{label}</span>
             <AnimatedCounter target={value} color={color} />
           </div>
@@ -126,19 +122,20 @@ export function PhonesView() {
                   {selected.size === visible.length && visible.length > 0 && <Check size={10} className="text-white" />}
                 </button>
               </th>
-              {['Name', 'Status', 'Group', 'Region', 'Proxy', 'OS', 'Battery', 'Last Active', 'Job', ''].map(h => (
+              {['Name', 'Status', 'Group', 'Region', 'Model', 'OS', 'Battery', 'Proxy', 'Job', ''].map(h => (
                 <th key={h} className="px-3 py-3 text-left text-[10px] font-medium text-white/25 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {visible.map((p) => {
-              const meta = statusMeta[p.status]
-              const isSel = selected.has(p.id)
+            {visible.map((d) => {
+              const meta = STATUS[d.status]
+              const isSel = selected.has(d.id)
+              const job = d.jobId ? snapshot.jobs.find(j => j.id === d.jobId) : null
               return (
                 <tr
-                  key={p.id}
-                  onClick={() => toggle(p.id)}
+                  key={d.id}
+                  onClick={() => toggle(d.id)}
                   className={['border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer', isSel ? 'bg-indigo-500/5' : ''].join(' ')}
                 >
                   <td className="px-4 py-3">
@@ -146,35 +143,33 @@ export function PhonesView() {
                       {isSel && <Check size={10} className="text-white" />}
                     </div>
                   </td>
-                  <td className="px-3 py-3 font-mono text-white/70 whitespace-nowrap">{p.name}</td>
+                  <td className="px-3 py-3 font-mono text-white/70 whitespace-nowrap">{d.name}</td>
                   <td className="px-3 py-3">
                     <span className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
                       <span style={{ color: meta.color }}>{meta.label}</span>
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-white/50">{p.group}</td>
-                  <td className="px-3 py-3 text-white/40">{p.region}</td>
-                  <td className="px-3 py-3">
-                    <span className={['font-mono text-xs', proxyStyle[p.proxyStatus]].join(' ')}>{p.proxyIp}</span>
-                  </td>
-                  <td className="px-3 py-3 text-white/40">{p.os}</td>
+                  <td className="px-3 py-3 text-white/50">{d.group}</td>
+                  <td className="px-3 py-3 text-white/40">{d.region}</td>
+                  <td className="px-3 py-3 text-white/40">{d.model}</td>
+                  <td className="px-3 py-3 text-white/40">{d.osVersion}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
                       <div className="w-12 h-1 rounded-full bg-white/[0.06] overflow-hidden">
                         <div
                           className="h-full rounded-full"
-                          style={{ width: p.battery + '%', background: p.battery > 30 ? '#22c55e' : '#ef4444' }}
+                          style={{ width: d.battery + '%', background: d.battery > 30 ? '#22c55e' : '#ef4444' }}
                         />
                       </div>
-                      <span className="text-white/35">{p.battery}%</span>
+                      <span className="text-white/35">{d.battery}%</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-white/30">{p.lastActivity}</td>
-                  <td className="px-3 py-3 text-white/35 font-mono">{p.job}</td>
+                  <td className="px-3 py-3 font-mono text-white/40 text-[10px]">{d.proxy.split(':')[0]}</td>
+                  <td className="px-3 py-3 text-white/35 font-mono">{job ? job.type : '—'}</td>
                   <td className="px-3 py-3">
                     <button
-                      onClick={e => { e.stopPropagation(); openDrawer(p.id) }}
+                      onClick={e => { e.stopPropagation(); openDrawer(d.id) }}
                       className="px-2 py-1 rounded text-[10px] text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
                     >
                       Control →
@@ -208,10 +203,7 @@ export function PhonesView() {
                 { icon: <UserPlus size={12} />,  label: 'Add to Group' },
                 { icon: <Download size={12} />,  label: 'Export' },
               ].map(({ icon, label }) => (
-                <button
-                  key={label}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 hover:bg-white/[0.08] transition-colors"
-                >
+                <button key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 hover:bg-white/[0.08] transition-colors">
                   {icon} {label}
                 </button>
               ))}
