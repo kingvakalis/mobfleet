@@ -50,9 +50,9 @@ export const AUTOMATIONS: Automation[] = [
     lastRun: 'yesterday',
   },
   {
-    id: 'proxy-rotation',
-    name: 'Proxy Rotation',
-    description: 'Rotates proxies on schedule with health verification.',
+    id: 'session-refresh',
+    name: 'Session Refresh',
+    description: 'Re-validates app sessions and re-authenticates expired logins.',
     taskType: 'engage',
     successRate: 100,
     runs: 2200,

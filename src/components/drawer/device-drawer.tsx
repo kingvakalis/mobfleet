@@ -18,6 +18,7 @@ import { formatUptime } from '@/lib/format'
 import { EXPO_OUT } from '@/lib/motion'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
+import { useSettings } from '@/state/settings-store'
 import { LogStream } from './log-stream'
 
 function Cell({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -92,16 +93,18 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const copyProxy = async () => {
+  const copyId = async () => {
     if (!device) return
     try {
-      await navigator.clipboard.writeText(device.proxy)
+      await navigator.clipboard.writeText(device.id)
     } catch {
       /* ignore */
     }
     setCopied(true)
     setTimeout(() => setCopied(false), 1200)
   }
+
+  const confirmDestructive = useSettings((s) => s.confirmDestructive)
 
   const quickAction = (key: (typeof QUICK)[number]['key']) => {
     const p = phoneRef.current
@@ -112,7 +115,10 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
       case 'switcher':   p?.switcher(); break
       case 'screenshot': p?.screenshot(); break
       case 'restart':    push('info', 'stream restarted'); break
-      case 'reboot':     push('warn', 'device reboot dispatched'); break
+      case 'reboot':
+        if (confirmDestructive && !window.confirm('Reboot this device?')) return
+        push('warn', 'device reboot dispatched')
+        break
     }
   }
 
@@ -187,7 +193,7 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
               <Tele label="Latency" value={`${latency}ms`} color={latColor} />
               <Tele label="FPS" value={String(fps)} />
               <Tele label="Battery" value={`${device.battery}%`} color={device.battery > 30 ? 'var(--status-online)' : 'var(--status-error)'} />
-              <Tele label="Proxy" value="HEALTHY" color="var(--status-online)" />
+              <Tele label="Stream" value="STABLE" color="var(--status-online)" />
               <Tele label="Uptime" value={formatUptime(now - device.createdAt)} />
             </div>
 
@@ -307,7 +313,7 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
                 <Cell label="Status" value={meta.label} color={meta.color} />
                 <Cell label="Model" value={`${device.model} · ${device.osVersion}`} />
                 <Cell label="Region" value={regionLabel(device.region)} />
-                <Cell label="Proxy" value={device.proxy} />
+                <Cell label="Device ID" value={device.id} />
                 <Cell label="Operator" value={device.assignedUser ?? 'Unassigned'} />
                 <Cell
                   label="Job"
@@ -334,13 +340,17 @@ function DrawerInner({ deviceId, onClose }: { deviceId: string; onClose: () => v
                 >
                   <Send size={13} /> Assign
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void client.rotateProxy(device.id)}>
-                  <RefreshCw size={13} /> Rotate Proxy
+                <Button size="sm" variant="outline" onClick={copyId}>
+                  {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy ID'}
                 </Button>
-                <Button size="sm" variant="outline" onClick={copyProxy}>
-                  {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Proxy'}
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => void client.delete(device.id)}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => {
+                    if (confirmDestructive && !window.confirm(`Retire ${device.name}? This removes it from the pool.`)) return
+                    void client.delete(device.id)
+                  }}
+                >
                   <Trash2 size={13} /> Retire
                 </Button>
               </div>

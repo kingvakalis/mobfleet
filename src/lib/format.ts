@@ -38,3 +38,8 @@ export function truncateId(id: string, head = 8, tail = 3): string {
   if (id.length <= head + tail + 1) return id
   return `${id.slice(0, head)}…${id.slice(-tail)}`
 }
+
+/** Uptime from a creation timestamp to now (kept here so render code stays pure). */
+export function uptimeSince(createdAt: number): string {
+  return formatUptime(Date.now() - createdAt)
+}

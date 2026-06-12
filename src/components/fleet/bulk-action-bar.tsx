@@ -1,6 +1,6 @@
 import { type ComponentType } from 'react'
 import { motion } from 'framer-motion'
-import { Globe, Play, Send, Square, Trash2, X } from 'lucide-react'
+import { Play, Send, Square, Trash2, X } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { EXPO_OUT } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -39,7 +39,6 @@ export function BulkActionBar({
   onStart,
   onStop,
   onAssign,
-  onRotateProxy,
   onRetire,
   onClear,
 }: {
@@ -47,7 +46,6 @@ export function BulkActionBar({
   onStart: () => void
   onStop: () => void
   onAssign: () => void
-  onRotateProxy: () => void
   onRetire: () => void
   onClear: () => void
 }) {
@@ -69,7 +67,6 @@ export function BulkActionBar({
         <BarBtn icon={Play} label="Start" onClick={onStart} />
         <BarBtn icon={Square} label="Stop" onClick={onStop} />
         <BarBtn icon={Send} label="Assign" onClick={onAssign} />
-        <BarBtn icon={Globe} label="Rotate Proxy" onClick={onRotateProxy} />
         <BarBtn icon={Trash2} label="Retire" danger onClick={onRetire} />
         <div className="mx-1 h-6 w-px bg-line" />
         <button

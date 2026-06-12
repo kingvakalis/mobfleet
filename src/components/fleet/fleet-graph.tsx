@@ -16,9 +16,11 @@ import { useFleet } from '@/hooks/use-fleet'
 import { client } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
 import { useUIStore } from '@/state/ui-store'
-import { hasWarped, positionFor } from '@/lib/layout/constellation'
+import { hasWarped, positionFor, savePosition } from '@/lib/layout/constellation'
+import { STATUS } from '@/lib/status'
 import type { Device, Job } from '@/lib/provider/types'
 import { DeviceNode, NODE_H, NODE_W, type DeviceNodeData } from './device-node'
+import type { FleetFilters } from './fleet-controls'
 import { CORE_SIZE, OrchestratorNode } from './orchestrator-node'
 import { PulseEdge } from './pulse-edge'
 import { GraphControls } from './graph-controls'
@@ -49,7 +51,6 @@ function deviceNode(d: Device, job: Job | null, opts: { isNew?: boolean; dimmed?
     type: 'device',
     position: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 },
     data,
-    draggable: false,
   }
 }
 
@@ -62,10 +63,23 @@ function buildAll(devices: Device[], jobsById: Map<string, Job>): Node[] {
   return list
 }
 
-function Graph() {
+function Graph({ filters }: { filters?: FleetFilters }) {
   const snapshot = useFleet()
   const groupFilter = useUIStore((s) => s.groupFilter)
   const { fitView } = useReactFlow()
+
+  // A device that fails any active filter is dimmed (not removed — layout stays stable).
+  const matches = useCallback(
+    (d: Device): boolean => {
+      if (groupFilter && d.group !== groupFilter) return false
+      if (!filters) return true
+      if (filters.group && d.group !== filters.group) return false
+      if (filters.status && STATUS[d.status].label !== filters.status) return false
+      if (filters.search && !d.name.toLowerCase().includes(filters.search.toLowerCase())) return false
+      return true
+    },
+    [groupFilter, filters],
+  )
 
   // Expose fit-to-screen to the command palette.
   useEffect(() => {
@@ -98,7 +112,7 @@ function Graph() {
 
       for (const d of snapshot.devices) {
         const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
-        const dimmed = groupFilter ? d.group !== groupFilter : false
+        const dimmed = !matches(d)
         const existing = byId.get(d.id)
         if (existing) {
           next.push({ ...existing, data: { ...existing.data, device: d, job, exiting: false, dimmed } })
@@ -119,12 +133,12 @@ function Graph() {
       }
       return next
     })
-  }, [snapshot.devices, jobsById, setNodes, groupFilter])
+  }, [snapshot.devices, jobsById, setNodes, matches])
 
   const edges = useMemo<Edge[]>(
     () =>
       snapshot.devices
-        .filter((d) => d.status !== 'offline' && (!groupFilter || d.group === groupFilter))
+        .filter((d) => d.status !== 'offline' && matches(d))
         .map((d) => ({
           id: `e-${d.id}`,
           source: 'orchestrator',
@@ -179,6 +193,12 @@ function Graph() {
     [openDrawer],
   )
 
+  // Operator drag → persist the node's center as its custom layout position.
+  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
+    if (node.type !== 'device') return
+    savePosition(node.id, { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 })
+  }, [])
+
   const clearSelection = useCallback(
     () => setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))),
     [setNodes],
@@ -190,7 +210,6 @@ function Graph() {
       stop: () => selectedIds.forEach((id) => void client.stop(id)),
       assign: () =>
         selectedIds.forEach((id) => void client.runTask(id, { type: 'upload', label: 'Bulk upload' })),
-      rotateProxy: () => selectedIds.forEach((id) => void client.rotateProxy(id)),
       retire: () => {
         selectedIds.forEach((id) => void client.delete(id))
         clearSelection()
@@ -211,11 +230,13 @@ function Graph() {
       onPaneClick={clearSelection}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
+      onNodeDragStop={onNodeDragStop}
       fitView
       fitViewOptions={{ padding: 0.28 }}
       minZoom={0.2}
       maxZoom={2}
-      nodesDraggable={false}
+      nodesDraggable
+      nodeDragThreshold={6}
       nodesConnectable={false}
       elementsSelectable
       selectNodesOnDrag={false}
@@ -223,7 +244,7 @@ function Graph() {
       proOptions={{ hideAttribution: true }}
       className="bg-canvas"
     >
-      <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#161616" />
+      <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#1b2230" />
       <GraphControls />
       <AnimatePresence>
         {selectedIds.length > 0 && (
@@ -232,7 +253,6 @@ function Graph() {
             onStart={bulk.start}
             onStop={bulk.stop}
             onAssign={bulk.assign}
-            onRotateProxy={bulk.rotateProxy}
             onRetire={bulk.retire}
             onClear={clearSelection}
           />
@@ -242,11 +262,11 @@ function Graph() {
   )
 }
 
-export function FleetGraph() {
+export function FleetGraph({ filters }: { filters?: FleetFilters }) {
   return (
     <div className="h-full w-full">
       <ReactFlowProvider>
-        <Graph />
+        <Graph filters={filters} />
       </ReactFlowProvider>
     </div>
   )

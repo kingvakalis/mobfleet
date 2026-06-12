@@ -3,7 +3,7 @@ import { Check, Copy, Play, ScrollText, Send, Square, Trash2 } from 'lucide-reac
 import { regionLabel } from '@/data/regions'
 import { client } from '@/lib/provider'
 import { useUIStore } from '@/state/ui-store'
-import { formatUptime } from '@/lib/format'
+import { uptimeSince } from '@/lib/format'
 import { STATUS } from '@/lib/status'
 import type { Device, Job } from '@/lib/provider/types'
 import { cn } from '@/lib/utils'
@@ -61,9 +61,9 @@ export function TelemetryCard({ device, job }: { device: Device; job?: Job | nul
   const canStart = device.status === 'offline' || device.status === 'error'
   const idle = device.status === 'online'
 
-  const copyProxy = async () => {
+  const copyId = async () => {
     try {
-      await navigator.clipboard.writeText(device.proxy)
+      await navigator.clipboard.writeText(device.id)
     } catch {
       /* clipboard may be blocked — ignore */
     }
@@ -94,13 +94,12 @@ export function TelemetryCard({ device, job }: { device: Device; job?: Job | nul
         <Row label="Model" value={`${device.model} · ${device.osVersion}`} />
         <Row label="Region" value={regionLabel(device.region)} />
         <Row label="Battery" value={`${device.battery}%`} />
-        <Row label="Proxy" value={device.proxy} />
         <Row
           label="Job"
           value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'}
         />
         <Row label="Operator" value={device.assignedUser ?? 'Unassigned'} />
-        <Row label="Uptime" value={formatUptime(Date.now() - device.createdAt)} />
+        <Row label="Uptime" value={uptimeSince(device.createdAt)} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
@@ -118,8 +117,8 @@ export function TelemetryCard({ device, job }: { device: Device; job?: Job | nul
         <Action icon={ScrollText} label="Logs" onClick={() => openDrawer(device.id)} />
         <Action
           icon={copied ? Check : Copy}
-          label={copied ? 'Copied' : 'Proxy'}
-          onClick={copyProxy}
+          label={copied ? 'Copied' : 'Copy ID'}
+          onClick={copyId}
         />
         <Action icon={Trash2} label="Retire" danger onClick={() => void client.delete(device.id)} />
       </div>

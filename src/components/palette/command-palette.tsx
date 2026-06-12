@@ -27,7 +27,7 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
   fleet: LayoutGrid,
   jobs: Table2,
   automations: Zap,
-  proxies: Globe,
+  team:        Globe,
   groups:      Layers,
   phones:      Boxes,
   scale:       Maximize,

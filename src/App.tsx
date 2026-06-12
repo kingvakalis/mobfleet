@@ -15,11 +15,12 @@ import type { ViewId } from '@/lib/views'
 const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
 const JobsView        = lazy(() => import('@/components/jobs/jobs-view').then(m => ({ default: m.JobsView })))
 const AutomationsView = lazy(() => import('@/components/automations/automations-view').then(m => ({ default: m.AutomationsView })))
-const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').then(m => ({ default: m.ProxiesView })))
 const GroupsView      = lazy(() => import('@/components/groups/groups-view').then(m => ({ default: m.GroupsView })))
 const PhonesView      = lazy(() => import('@/components/phones/phones-view').then(m => ({ default: m.PhonesView })))
-const LogsView        = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.LogsView })))
+const ActivityView    = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.ActivityView })))
 const AccountsView    = lazy(() => import('@/components/accounts/accounts-view').then(m => ({ default: m.AccountsView })))
+const TeamView        = lazy(() => import('@/components/team/team-view').then(m => ({ default: m.TeamView })))
+const SettingsView    = lazy(() => import('@/components/settings/settings-view').then(m => ({ default: m.SettingsView })))
 
 function Soon({ label }: { label: string }) {
   return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
@@ -31,13 +32,13 @@ const VIEW_MAP: Record<ViewId, ComponentType> = {
   phones:      PhonesView,
   accounts:    AccountsView,
   groups:      GroupsView,
-  proxies:     ProxiesView,
+  team:        TeamView,
   automations: AutomationsView,
   jobs:        JobsView,
   scale:       () => <Soon label="Scale — coming soon" />,
 
-  logs:        LogsView,
-  settings:    () => <Soon label="Settings — coming soon" />,
+  logs:        ActivityView,
+  settings:    SettingsView,
 }
 
 function subscribeHash(cb: () => void) {

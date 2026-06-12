@@ -2,45 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── SpaceX Mission Control Design System ─────────────────────────────────── */
+/* ─── MobFleet Design System — layered dark command center ─────────────────── */
 :root {
-  --bg-base: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-elevated: #111111;
-  --bg-card: #0d0d0d;
-  --border: rgba(255,255,255,0.08);
-  --border-bright: rgba(255,255,255,0.16);
-  --text: #ffffff;
-  --text-secondary: rgba(255,255,255,0.7);
-  --text-muted: rgba(255,255,255,0.35);
-  --accent: #e8e8e8;
-  --accent-red: #ff3b3b;
-  --accent-green: #00ff88;
+  /* Layered near-black foundation (never flat #000 for page surfaces). */
+  --bg-base: #07090D;
+  --bg-surface: #0B0F15;
+  --bg-elevated: #0E131B;
+  --bg-card: #0E131B;
+  --bg-hover: #121924;
+  --border: rgba(148,163,184,0.10);
+  --border-bright: rgba(148,163,184,0.22);
+  --text: #f3f5f8;
+  --text-secondary: rgba(226,232,240,0.72);
+  --text-muted: rgba(148,163,184,0.45);
+  /* One product accent — controlled teal. */
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45,212,191,0.12);
+  --accent-border: rgba(45,212,191,0.35);
+  --accent-text: #7ce8da;
+  --accent-red: #ff4d4d;
+  --accent-green: #34d399;
   --accent-blue: #4fc3f7;
-  --accent-amber: #ffb300;
-  --status-online: #00ff88;
+  --accent-amber: #fbbf24;
+  --status-online: #34d399;
   --status-busy: #4fc3f7;
-  --status-warming: #ffb300;
-  --status-offline: #444444;
-  --status-error: #ff3b3b;
+  --status-warming: #fbbf24;
+  --status-offline: #4b5563;
+  --status-error: #ff4d4d;
 
   /* Legacy token aliases */
-  --canvas: #000000;
-  --panel: #0a0a0a;
-  --elevated: #111111;
-  --border-legacy: #1a1a1a;
-  --text-primary: #ffffff;
-  --text-secondary-legacy: rgba(255,255,255,0.7);
-  --text-muted-legacy: rgba(255,255,255,0.35);
-  --color-surface: #0a0a0a;
-  --color-surface-2: #111111;
-  --color-border: rgba(255,255,255,0.08);
-  --color-text-primary: rgba(255,255,255,0.92);
-  --color-text-secondary: rgba(255,255,255,0.35);
-  --color-accent: #e8e8e8;
-  --color-online: #00ff88;
-  --color-warning: #ffb300;
-  --color-offline: #ff3b3b;
+  --canvas: #07090D;
+  --panel: #0B0F15;
+  --elevated: #0E131B;
+  --border-legacy: #161c26;
+  --text-primary: #f3f5f8;
+  --text-secondary-legacy: rgba(226,232,240,0.72);
+  --text-muted-legacy: rgba(148,163,184,0.45);
+  --color-surface: #0B0F15;
+  --color-surface-2: #0E131B;
+  --color-border: rgba(148,163,184,0.10);
+  --color-text-primary: rgba(243,245,248,0.92);
+  --color-text-secondary: rgba(148,163,184,0.45);
+  --color-accent: #2dd4bf;
+  --color-online: #34d399;
+  --color-warning: #fbbf24;
+  --color-offline: #ff4d4d;
 
   color-scheme: dark;
 }
@@ -52,8 +58,8 @@
 
   body {
     margin: 0;
-    background-color: #000000;
-    color: #ffffff;
+    background-color: var(--bg-base);
+    color: var(--text);
     font-family: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: 'cv11', 'ss01', 'tnum';
     -webkit-font-smoothing: antialiased;
@@ -92,6 +98,56 @@
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
   }
+
+  /* ── Global ambient background system ──────────────────────────────────────
+     One reusable atmosphere: technical grid + soft radial light + vignette.
+     CSS-only (no canvas), readable, and cheap. Apply via <AppBackground/>. */
+  /* No mask-image here — masking a full-viewport layer is pathologically slow
+     to rasterize on software/low-end GPUs. The vignette supplies the fade. */
+  .app-bg-grid {
+    background-image:
+      linear-gradient(rgba(148,163,184,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .app-bg-glow {
+    background:
+      radial-gradient(ellipse 55% 45% at 50% 32%, rgba(45,212,191,0.045), transparent 70%),
+      radial-gradient(ellipse 70% 60% at 80% 90%, rgba(79,195,247,0.025), transparent 70%);
+  }
+  .app-bg-vignette {
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(2,3,6,0.5) 100%);
+  }
+  .app-bg-noise {
+    opacity: 0.35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ── Shared control language ─────────────────────────────────────────────── */
+  .btn-accent {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    color: var(--accent-text);
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+  .btn-accent:hover { background: rgba(45,212,191,0.22); }
+  .btn-accent:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+  .btn-ghost:hover { background: var(--bg-hover); border-color: var(--border-bright); color: var(--text-secondary); }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .card-surface {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    transition: border-color 180ms ease, background-color 180ms ease;
+  }
+  .card-surface:hover { border-color: var(--border-bright); }
 
   /* ── Sci-fi HUD primitives ─────────────────────────────────────────────── */
 
@@ -181,6 +237,11 @@
 
 @keyframes spin-slow {
   to { transform: rotate(360deg); }
+}
+
+@keyframes bg-drift {
+  0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+  100% { transform: translate3d(1.5%, 1%, 0) scale(1.05); }
 }
 .spin-slow { animation: spin-slow 14s linear infinite; }
 .spin-slow-rev { animation: spin-slow 22s linear infinite reverse; }

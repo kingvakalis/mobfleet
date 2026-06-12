@@ -1,12 +1,10 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Search, Upload, Plus, Check, Briefcase, Camera, RotateCcw, RefreshCw, UserPlus, Download, X } from 'lucide-react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { Search, Upload, Plus, Check, Briefcase, RotateCcw, UserPlus, Download, X, ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useFleet } from '@/hooks/use-fleet'
 import { client } from '@/lib/provider'
-import { STATUS } from '@/lib/status'
+import { STATUS, ALL_STATUSES, type DeviceStatus } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
-
-const FILTERS = ['Status', 'Group', 'Region', 'Proxy Status']
 
 const STATUS_COLORS: Record<string, string> = {
   online:  'var(--status-online)',
@@ -32,22 +30,119 @@ function AnimatedCounter({ target, color }: { target: number; color: string }) {
   return <span className="mono text-3xl font-bold tabular-nums" style={{ color }}>{value}</span>
 }
 
+/** Dropdown filter — closes on outside click; null option clears. */
+function FilterSelect({
+  label, options, value, onChange,
+}: {
+  label: string
+  options: string[]
+  value: string | null
+  onChange: (v: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={[
+          'mono h-8 px-3 text-[9px] uppercase tracking-widest border transition-colors flex items-center gap-1.5',
+          value
+            ? 'text-[var(--accent-text)] border-[var(--accent-border)] bg-[var(--accent-soft)]'
+            : 'text-white/30 border-transparent hover:text-white/60 hover:border-white/20',
+        ].join(' ')}
+      >
+        {label}{value ? `: ${value}` : ''} <ChevronDown size={10} className="text-white/30" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.14 }}
+            className="absolute left-0 top-9 z-30 min-w-[150px] max-h-64 overflow-y-auto border border-line bg-elevated shadow-2xl py-1"
+          >
+            <button
+              type="button"
+              onClick={() => { onChange(null); setOpen(false) }}
+              className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/40 hover:bg-hover hover:text-white/80 transition-colors"
+            >
+              All
+            </button>
+            {options.map(o => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => { onChange(o); setOpen(false) }}
+                className={[
+                  'mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider transition-colors',
+                  value === o ? 'text-[var(--accent-text)] bg-[var(--accent-soft)]' : 'text-white/55 hover:bg-hover hover:text-white/90',
+                ].join(' ')}
+              >
+                {o}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function lastActive(status: DeviceStatus, id: string): string {
+  if (status === 'busy') return 'now'
+  if (status === 'offline') return '—'
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return `${(h % 29) + 1}m ago`
+}
+
 export function PhonesView() {
   const snapshot              = useFleet()
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [groupFilter, setGroupFilter]   = useState<string | null>(null)
+  const [modelFilter, setModelFilter]   = useState<string | null>(null)
+  const [jobFilter, setJobFilter]       = useState<string | null>(null)
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false)
   const openPhoneControl      = useUIStore((s) => s.openPhoneControl)
   const openDrawer            = useUIStore((s) => s.openDrawer)
+  const openScale             = useUIStore((s) => s.openScale)
 
   const devices = snapshot.devices
+  const jobById = useMemo(() => new Map(snapshot.jobs.map(j => [j.id, j])), [snapshot.jobs])
+
+  const groups = useMemo(() => [...new Set(devices.map(d => d.group))].sort(), [devices])
+  const models = useMemo(() => [...new Set(devices.map(d => d.model))].sort(), [devices])
+  const jobTypes = useMemo(
+    () => [...new Set(devices.map(d => (d.jobId ? jobById.get(d.jobId)?.type : null)).filter(Boolean) as string[])].sort(),
+    [devices, jobById],
+  )
 
   const visible = useMemo(
-    () => devices.filter(d =>
-      d.name.toLowerCase().includes(search.toLowerCase()) ||
-      d.group.toLowerCase().includes(search.toLowerCase()) ||
-      d.region.toLowerCase().includes(search.toLowerCase())
-    ),
-    [devices, search]
+    () => devices.filter(d => {
+      const job = d.jobId ? jobById.get(d.jobId) : null
+      return (
+        d.name.toLowerCase().includes(search.toLowerCase()) &&
+        (!statusFilter || STATUS[d.status].label === statusFilter) &&
+        (!groupFilter || d.group === groupFilter) &&
+        (!modelFilter || d.model === modelFilter) &&
+        (!jobFilter || job?.type === jobFilter)
+      )
+    }),
+    [devices, jobById, search, statusFilter, groupFilter, modelFilter, jobFilter],
   )
 
   const onlineCount  = devices.filter(d => d.status === 'online' || d.status === 'busy' || d.status === 'warming').length
@@ -73,27 +168,54 @@ export function PhonesView() {
     })
   }
 
+  const exportSelected = () => {
+    const rows = devices
+      .filter(d => selected.has(d.id))
+      .map(d => ({ id: d.id, name: d.name, status: d.status, group: d.group, model: d.model, os: d.osVersion, battery: d.battery }))
+    const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'mobfleet-devices.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const rebootSelected = () => {
+    selected.forEach(id => {
+      void client.stop(id).then(() => client.start(id))
+    })
+    setSelected(new Set())
+  }
+
   return (
-    <div className="flex flex-col h-full relative bg-black">
+    <div className="flex flex-col h-full relative">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-line">
         <div>
           <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Fleet Registry</p>
           <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">DEVICE REGISTRY</h1>
           <p className="mono text-[10px] text-white/30 tracking-wider mt-0.5">{devices.length} UNITS TRACKED</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/40 border border-white/[0.12] hover:border-white/30 hover:text-white/70 transition-colors">
+          <button
+            disabled
+            title="Bulk import requires the backend connection (VITE_USE_BACKEND)"
+            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/20 border border-white/[0.08] cursor-not-allowed"
+          >
             <Upload size={11} className="inline mr-1.5" />IMPORT
           </button>
-          <button className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 hover:bg-white hover:text-black transition-colors">
+          <button
+            onClick={openScale}
+            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 hover:bg-white hover:text-black transition-colors"
+          >
             <Plus size={11} className="inline mr-1.5" />ADD UNIT
           </button>
         </div>
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.06]">
+      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-line">
         {kpis.map(({ label, value, color, topBorder }, i) => (
           <motion.div
             key={label}
@@ -103,7 +225,7 @@ export function PhonesView() {
             className="hud-corners p-4 flex flex-col gap-2"
             style={{
               background: 'var(--bg-surface)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: '1px solid var(--border)',
               borderTop: `2px solid ${topBorder}`,
               ['--hud-c' as string]: `${topBorder}`,
             }}
@@ -114,39 +236,49 @@ export function PhonesView() {
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-white/[0.06]">
+      {/* Toolbar — search + the four primary filters */}
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-line">
         <div className="relative flex-1 max-w-xs">
           <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="SEARCH UNITS..."
-            className="w-full h-8 pl-8 pr-3 bg-transparent border border-white/[0.08] text-[10px] mono text-white/70 placeholder-white/20 outline-none focus:border-white/20 tracking-wider"
+            className="w-full h-8 pl-8 pr-3 bg-transparent border border-line text-[10px] mono text-white/70 placeholder-white/20 outline-none focus:border-[var(--accent-border)] tracking-wider transition-colors"
           />
         </div>
-        {FILTERS.map(f => (
-          <button key={f} className="mono h-8 px-3 text-[9px] uppercase tracking-widest text-white/30 hover:text-white/60 hover:border-white/20 border border-transparent transition-colors flex items-center gap-1">
-            {f} <span className="text-white/20 ml-0.5">▾</span>
+        <FilterSelect label="Status" options={ALL_STATUSES.map(s => STATUS[s].label)} value={statusFilter} onChange={setStatusFilter} />
+        <FilterSelect label="Group"  options={groups} value={groupFilter} onChange={setGroupFilter} />
+        <FilterSelect label="Model"  options={models} value={modelFilter} onChange={setModelFilter} />
+        <FilterSelect label="Job"    options={jobTypes} value={jobFilter} onChange={setJobFilter} />
+        {(statusFilter || groupFilter || modelFilter || jobFilter) && (
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(null); setGroupFilter(null); setModelFilter(null); setJobFilter(null) }}
+            className="mono h-8 px-2 text-[9px] uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
+          >
+            Clear
           </button>
-        ))}
+        )}
+        <span className="mono ml-auto text-[9px] uppercase tracking-widest text-white/25">{visible.length} SHOWN</span>
       </div>
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10" style={{ background: '#000000' }}>
-            <tr className="border-b border-white/[0.08]">
+          <thead className="sticky top-0 z-10 bg-black">
+            <tr className="border-b border-line">
               <th className="px-4 py-3 text-left w-8">
                 <button
                   onClick={toggleAll}
+                  aria-label="Select all"
                   className="w-3.5 h-3.5 border border-white/20 flex items-center justify-center transition-colors hover:border-white/50"
                   style={{ background: selected.size === visible.length && visible.length > 0 ? 'rgba(255,255,255,0.9)' : 'transparent' }}
                 >
                   {selected.size === visible.length && visible.length > 0 && <Check size={8} className="text-black" />}
                 </button>
               </th>
-              {['NAME', 'STATUS', 'GROUP', 'REGION', 'MODEL', 'OS', 'BATTERY', 'PROXY', 'JOB', ''].map(h => (
+              {['NAME', 'STATUS', 'GROUP', 'MODEL', 'JOB', 'LAST ACTIVE', ''].map(h => (
                 <th key={h} className="px-3 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -155,7 +287,7 @@ export function PhonesView() {
             {visible.map((d, i) => {
               const meta   = STATUS[d.status]
               const isSel  = selected.has(d.id)
-              const job    = d.jobId ? snapshot.jobs.find(j => j.id === d.jobId) : null
+              const job    = d.jobId ? jobById.get(d.jobId) : null
               const dotColor = STATUS_COLORS[d.status] ?? meta?.color ?? 'rgba(255,255,255,0.3)'
               return (
                 <motion.tr
@@ -168,16 +300,8 @@ export function PhonesView() {
                   title="Double-click for live control"
                   className="border-b border-white/[0.04] cursor-pointer transition-all duration-100"
                   style={{
-                    borderLeft: isSel ? '2px solid var(--accent-blue)' : '2px solid transparent',
-                    background: isSel ? 'rgba(79,195,247,0.04)' : 'transparent',
-                  }}
-                  onMouseEnter={e => {
-                    if (!isSel) (e.currentTarget as HTMLElement).style.borderLeftColor = 'rgba(79,195,247,0.4)'
-                    ;(e.currentTarget as HTMLElement).style.background = isSel ? 'rgba(79,195,247,0.04)' : 'rgba(255,255,255,0.02)'
-                  }}
-                  onMouseLeave={e => {
-                    if (!isSel) (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent'
-                    ;(e.currentTarget as HTMLElement).style.background = isSel ? 'rgba(79,195,247,0.04)' : 'transparent'
+                    borderLeft: isSel ? '2px solid var(--accent)' : '2px solid transparent',
+                    background: isSel ? 'var(--accent-soft)' : 'transparent',
                   }}
                 >
                   <td className="px-4 py-3">
@@ -199,29 +323,24 @@ export function PhonesView() {
                     </span>
                   </td>
                   <td className="px-3 py-3 mono text-white/45 text-[11px]">{d.group}</td>
-                  <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.region}</td>
                   <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.model}</td>
-                  <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.osVersion}</td>
                   <td className="px-3 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-10 h-0.5 rounded-none overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                        <div
-                          className="h-full transition-[width] duration-700 ease-expo-out"
-                          style={{
-                            width: d.battery + '%',
-                            background: d.battery > 30 ? 'var(--accent-green)' : d.battery > 15 ? 'var(--accent-amber)' : 'var(--accent-red)',
-                          }}
-                        />
-                      </div>
-                      <span className="mono text-[10px] text-white/30">{d.battery}%</span>
-                    </div>
+                    {job ? (
+                      <span className="flex items-center gap-2">
+                        <span className="mono text-[10px] uppercase tracking-wider text-[#4fc3f7]">{job.type}</span>
+                        <span className="w-12 h-0.5 bg-white/[0.08] overflow-hidden">
+                          <span className="block h-full transition-[width] duration-500" style={{ width: `${Math.round(job.progress * 100)}%`, background: 'var(--status-busy)' }} />
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="mono text-[10px] text-white/20">—</span>
+                    )}
                   </td>
-                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{d.proxy.split(':')[0]}</td>
-                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{job ? job.type : '—'}</td>
+                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{lastActive(d.status, d.id)}</td>
                   <td className="px-3 py-3">
                     <button
                       onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}
-                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[#4fc3f7]/60 hover:text-[#7dd3fc] hover:bg-[#4fc3f7]/[0.06] transition-colors"
+                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[var(--accent-border)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
                     >
                       CONTROL →
                     </button>
@@ -231,6 +350,11 @@ export function PhonesView() {
             })}
           </tbody>
         </table>
+        {visible.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <span className="mono text-[10px] uppercase tracking-widest text-white/30">No devices match the current filters</span>
+          </div>
+        )}
       </div>
 
       {/* Floating bulk action bar */}
@@ -243,24 +367,69 @@ export function PhonesView() {
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30"
           >
-            <div className="flex items-center gap-2 px-4 py-2.5 border border-white/[0.15] bg-black shadow-2xl">
+            <div className="relative flex items-center gap-2 px-4 py-2.5 border border-white/[0.15] bg-black shadow-2xl">
               <span className="mono text-[9px] text-white/40 mr-1 whitespace-nowrap uppercase tracking-widest">{selected.size} SELECTED</span>
               <div className="w-px h-4 bg-white/[0.08]" />
-              {[
-                { icon: <Briefcase size={11} />, label: 'RUN JOB', run: () => { selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' })); setSelected(new Set()) } },
-                { icon: <Camera size={11} />,    label: 'CAPTURE', run: undefined },
-                { icon: <RotateCcw size={11} />, label: 'REBOOT',  run: undefined },
-                { icon: <RefreshCw size={11} />, label: 'PROXY',   run: () => selected.forEach(id => void client.rotateProxy(id)) },
-                { icon: <UserPlus size={11} />,  label: 'GROUP',   run: undefined },
-                { icon: <Download size={11} />,  label: 'EXPORT',  run: undefined },
-              ].map(({ icon, label, run }) => (
-                <button key={label} type="button" onClick={run} disabled={!run} className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/50">
-                  {icon} {label}
+              <button
+                type="button"
+                onClick={() => { selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' })); setSelected(new Set()) }}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+              >
+                <Briefcase size={11} /> RUN JOB
+              </button>
+              <button
+                type="button"
+                onClick={rebootSelected}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+              >
+                <RotateCcw size={11} /> REBOOT
+              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setGroupMenuOpen(o => !o)}
+                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                >
+                  <UserPlus size={11} /> GROUP
                 </button>
-              ))}
+                <AnimatePresence>
+                  {groupMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.14 }}
+                      className="absolute bottom-9 left-0 min-w-[150px] border border-line bg-elevated shadow-2xl py-1"
+                    >
+                      {groups.map(g => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => {
+                            void client.assignGroup([...selected], g)
+                            setGroupMenuOpen(false)
+                            setSelected(new Set())
+                          }}
+                          className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 hover:bg-hover hover:text-white/90 transition-colors"
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <button
+                type="button"
+                onClick={exportSelected}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+              >
+                <Download size={11} /> EXPORT
+              </button>
               <div className="w-px h-4 bg-white/[0.08]" />
               <button
-                onClick={() => setSelected(new Set())}
+                onClick={() => { setSelected(new Set()); setGroupMenuOpen(false) }}
+                aria-label="Clear selection"
                 className="flex items-center justify-center w-6 h-6 text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-colors"
               >
                 <X size={12} />

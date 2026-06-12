@@ -22,6 +22,7 @@ import {
 import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
+import { useSettings } from '@/state/settings-store'
 import type { DeviceStatus } from '@/lib/status'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -79,7 +80,8 @@ function Effects() {
     })
     const c = new EffectComposer(gl, target)
     c.addPass(new RenderPass(scene, camera))
-    c.addPass(new UnrealBloomPass(new THREE.Vector2(size.width, size.height), 0.75, 0.55, 0.16))
+    // Restrained bloom — status lights and pulses glow, surfaces don't blow out.
+    c.addPass(new UnrealBloomPass(new THREE.Vector2(size.width, size.height), 0.42, 0.45, 0.28))
     c.addPass(new OutputPass())
     return c
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,11 +133,11 @@ function Starfield({ reduced }: { reduced: boolean }) {
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        size={0.055}
+        size={0.05}
         sizeAttenuation
-        color="#9db8e8"
+        color="#8aa3cc"
         transparent
-        opacity={0.5}
+        opacity={0.32}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
@@ -192,7 +194,7 @@ const LINK_FRAG = /* glsl */ `
     float flick = mix(1.0, 0.55 + 0.45 * sin(uTime * 11.0), uFlash);
     float i = (uBase + uPulse * e) * flick;
     i *= smoothstep(0.0, 0.05, vUv.x) * smoothstep(1.0, 0.96, vUv.x);
-    gl_FragColor = vec4(uColor * i * 2.4, i);
+    gl_FragColor = vec4(uColor * i * 1.7, i);
   }
 `
 
@@ -410,7 +412,8 @@ function PhoneNode({
 
     if (bodyRef.current) {
       bodyRef.current.emissive.copy(color.current)
-      const ei = selected ? 0.5 : hovered ? 0.3 : 0.12
+      // Body stays a dark physical object — status reads from LED/screen/arcs.
+      const ei = selected ? 0.28 : hovered ? 0.16 : 0.05
       bodyRef.current.emissiveIntensity += (ei - bodyRef.current.emissiveIntensity) * k7
     }
     if (ledRef.current) ledRef.current.color.copy(color.current)
@@ -608,6 +611,7 @@ function OrchestratorCore({
 
   return (
     <group
+      scale={0.78}
       onClick={(e) => { e.stopPropagation(); onClick() }}
       onPointerEnter={() => { setHovered(true);  document.body.style.cursor = 'pointer' }}
       onPointerLeave={() => { setHovered(false); document.body.style.cursor = 'default' }}
@@ -681,7 +685,7 @@ function OrchestratorCore({
       </mesh>
 
       {/* Heart light */}
-      <pointLight color={CORE_COLOR} intensity={hovered ? 7 : 4} distance={9} decay={2} />
+      <pointLight color={CORE_COLOR} intensity={hovered ? 4 : 2.2} distance={9} decay={2} />
 
       <Billboard position={[0, -1.05, 0]}>
         <Text font={monoFont} fontSize={0.16} letterSpacing={0.25} color="#dce7f5" anchorX="center" anchorY="middle">
@@ -871,7 +875,7 @@ function Scene({
 // ─── Context menu ────────────────────────────────────────────────────────────
 
 const CTX_ITEMS = [
-  'Launch', 'Control', 'Assign', 'Change Proxy',
+  'Launch', 'Control', 'Assign',
   'Add to Group', 'View Logs', 'Reboot', 'Retire',
 ]
 
@@ -1035,7 +1039,7 @@ function SelectedPanel({
             ['Model',  d.model ?? '—'],
             ['Region', (d.region ?? '—').toUpperCase()],
             ['Group',  d.group ?? '—'],
-            ['Proxy',  d.proxy ?? '—'],
+            ['OS',     d.osVersion ?? '—'],
             ['Battery', `${d.battery ?? '—'}%`],
           ].map(([k, v]) => (
             <div key={k}>
@@ -1100,7 +1104,9 @@ function Fleet3DInner() {
   const openDrawer        = useUIStore(s => s.openDrawer)
   const setView           = useUIStore(s => s.setView)
   const openPhoneControl  = useUIStore(s => s.openPhoneControl)
-  const reduced           = useReducedMotion() ?? false
+  const performanceMode   = useSettings(s => s.performanceMode)
+  const forceReduce       = useSettings(s => s.reduceMotion)
+  const reduced           = (useReducedMotion() ?? false) || forceReduce
 
   const [selectedId,  setSelectedId]  = useState<string | null>(null)
   const [hoveredId,   setHoveredId]   = useState<string | null>(null)
@@ -1154,7 +1160,7 @@ function Fleet3DInner() {
       <Suspense fallback={<Loader />}>
         <Canvas
           camera={{ position: INTRO_CAM, fov: 50 }}
-          dpr={[1, 2]}
+          dpr={performanceMode === 'full' ? [1, 2] : [1, 1.25]}
           gl={{ antialias: false, alpha: false, powerPreference: 'high-performance' }}
           style={{ background: '#020206' }}
         >

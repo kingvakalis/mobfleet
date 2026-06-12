@@ -128,7 +128,7 @@ export function useLiveLogs(): LogEntry[] {
         case 'error': return { level: 'ERROR', message: 'App crash detected' }
         case 'busy': return { level: 'INFO', message: 'Automation running' }
         case 'warming': return { level: 'INFO', message: 'Booting device' }
-        case 'offline': return { level: 'WARN', message: 'Proxy disconnected' }
+        case 'offline': return { level: 'WARN', message: 'Device went offline' }
         default: return { level: 'OK', message: 'Heartbeat OK' }
       }
     }

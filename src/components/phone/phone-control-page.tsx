@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import { motion, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
@@ -13,6 +13,7 @@ import type { LogLevel } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
+import { useSettings } from '@/state/settings-store'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 9) }
@@ -45,7 +46,7 @@ const MOCK_SESSIONS = [
 
 const MOCK_LOGS = [
   '[09:14:02] SYS  Device stream initialised',
-  '[09:14:03] SYS  Proxy tunnel established — 10.0.0.0:8080',
+  '[09:14:03] SYS  Control channel established',
   '[09:14:05] CMD  Screen unlocked',
   '[09:14:06] SYS  Session ready · latency 38ms',
   '[09:15:12] CMD  Launched: Instagram',
@@ -108,6 +109,39 @@ function Card({ title, children, className = '' }: { title?: string; children: R
   )
 }
 
+// ─── Phone stage — soft glow + cursor-reactive perspective tilt ───────────────
+function PhoneStage({ statusColor, children }: { statusColor: string; children: React.ReactNode }) {
+  const reduced = useReducedMotion()
+  const rx = useMotionValue(0)
+  const ry = useMotionValue(0)
+  const srx = useSpring(rx, { stiffness: 120, damping: 18 })
+  const sry = useSpring(ry, { stiffness: 120, damping: 18 })
+
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (reduced) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const px = (e.clientX - r.left) / r.width - 0.5
+    const py = (e.clientY - r.top) / r.height - 0.5
+    ry.set(px * 7)
+    rx.set(-py * 5)
+  }
+  const onLeave = () => { rx.set(0); ry.set(0) }
+
+  return (
+    <div className="relative" style={{ perspective: 1100 }} onPointerMove={onMove} onPointerLeave={onLeave}>
+      {/* centered ambient glow behind the device */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-[-80px] -z-10 transition-colors duration-700"
+        style={{ background: `radial-gradient(ellipse 60% 50% at 50% 45%, ${statusColor}14, transparent 70%)` }}
+      />
+      <motion.div style={{ rotateX: srx, rotateY: sry, transformStyle: 'preserve-3d' }}>
+        {children}
+      </motion.div>
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
   const { devices, jobs } = useFleet()
@@ -120,9 +154,13 @@ export function PhoneControlPage() {
   const device = devices[currentIndex] ?? devices[0] ?? null
   const job = device?.jobId ? jobs.find(j => j.id === device.jobId) ?? null : null
 
-  // UI state
-  const [quality, setQuality]       = useState(22)
-  const [fps, setFps]               = useState(18)
+  // UI state — stream defaults come from workspace settings
+  const defaultQuality = useSettings(s => s.defaultStreamQuality)
+  const defaultFps     = useSettings(s => s.defaultStreamFps)
+  const confirmDestructive = useSettings(s => s.confirmDestructive)
+  const [quality, setQuality]       = useState(defaultQuality)
+  const [fps, setFps]               = useState(defaultFps)
+  const [confirmingReboot, setConfirmingReboot] = useState(false)
   const [gesture, setGesture]       = useState('tap')
   const [sendText, setSendText]     = useState('')
   const [notes, setNotes]           = useState('')
@@ -178,6 +216,12 @@ export function PhoneControlPage() {
     { key: 'reboot',     label: 'Reboot',     icon: <Power size={18} />, danger: true },
   ]
 
+  // Command lifecycle against the simulated stream: dispatch → ack.
+  const dispatchCommand = (label: string, ack: string) => {
+    addLog(`→ ${label} dispatched`)
+    setTimeout(() => addLog(`✓ ${ack}`, 'screenshot'), 450)
+  }
+
   const runQuick = (key: string) => {
     const p = phoneRef.current
     switch (key) {
@@ -186,8 +230,16 @@ export function PhoneControlPage() {
       case 'back':       p?.back(); break
       case 'switcher':   p?.switcher(); break
       case 'screenshot': p?.screenshot(); break
-      case 'restart':    addLog('Stream restarted'); break
-      case 'reboot':     addLog('Device reboot sent', 'error'); break
+      case 'restart':    dispatchCommand('Restart stream', 'Stream re-established'); break
+      case 'reboot':
+        if (confirmDestructive && !confirmingReboot) {
+          setConfirmingReboot(true)
+          setTimeout(() => setConfirmingReboot(false), 3000)
+          return
+        }
+        setConfirmingReboot(false)
+        dispatchCommand('Device reboot', 'Reboot accepted — device restarting')
+        break
     }
   }
 
@@ -275,15 +327,15 @@ export function PhoneControlPage() {
                   <span className="font-mono text-[11px] text-white/80">{value}</span>
                 </div>
               ))}
-              {/* Proxy IP - clickable */}
+              {/* Device ID - clickable to copy */}
               <div className="flex justify-between items-center py-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>PROXY IP</span>
+                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>DEVICE ID</span>
                 <button
                   className="font-mono text-[11px] text-[#2dd4bf] hover:text-[#5eead4] transition-colors"
-                  onClick={() => { navigator.clipboard?.writeText(device.proxy); addLog(`Copied proxy IP: ${device.proxy}`) }}
+                  onClick={() => { navigator.clipboard?.writeText(device.id); addLog(`Copied device ID: ${device.id}`) }}
                   title="Click to copy"
                 >
-                  {device.proxy}
+                  {device.id.slice(0, 14)}
                 </button>
               </div>
             </div>
@@ -385,8 +437,8 @@ export function PhoneControlPage() {
             </div>
             <div className="flex items-center gap-1.5">
               <Shield size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">PROXY</span>
-              <span className="font-mono text-[12px] text-green-400">Healthy</span>
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">STREAM</span>
+              <span className="font-mono text-[12px] text-green-400">Stable</span>
             </div>
             <div className="flex items-center gap-1.5">
               <BatteryMedium size={11} className="text-white/35" />
@@ -395,17 +447,19 @@ export function PhoneControlPage() {
             </div>
           </div>
 
-          {/* Live interactive phone */}
-          <div className="hud-corners p-4" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '14px' }}>
-            <LivePhone
-              ref={phoneRef}
-              device={device}
-              job={job}
-              width={264}
-              gesture={gesture}
-              onLog={phoneLog}
-            />
-          </div>
+          {/* Live interactive phone — dominant object, subtle cursor tilt */}
+          <PhoneStage statusColor={meta.color}>
+            <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
+              <LivePhone
+                ref={phoneRef}
+                device={device}
+                job={job}
+                width={330}
+                gesture={gesture}
+                onLog={phoneLog}
+              />
+            </div>
+          </PhoneStage>
 
           {/* Bottom action bar */}
           <div className="flex gap-2 mt-5">
@@ -439,7 +493,9 @@ export function PhoneControlPage() {
           {/* Quick Controls */}
           <Card title="Quick Controls">
             <div className="grid grid-cols-4 gap-2">
-              {quickControls.map(({ key, label, icon, danger }) => (
+              {quickControls.map(({ key, label: rawLabel, icon, danger }) => {
+                const label = key === 'reboot' && confirmingReboot ? 'Confirm?' : rawLabel
+                return (
                 <button
                   key={key}
                   onClick={() => runQuick(key)}
@@ -463,7 +519,8 @@ export function PhoneControlPage() {
                   {icon}
                   <span className="text-[10px] font-medium">{label}</span>
                 </button>
-              ))}
+                )
+              })}
             </div>
           </Card>
 

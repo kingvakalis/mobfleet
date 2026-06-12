@@ -1,6 +1,6 @@
 import { type ReactNode, useState, useEffect } from 'react'
 import {
-  Network, Smartphone, Layers, Shield, Zap,
+  Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings, Grid2x2,
   type LucideIcon,
 } from 'lucide-react'
@@ -12,7 +12,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
   smartphone: Smartphone,
   layers:     Layers,
-  shield:     Shield,
+  users:      Users,
   zap:        Zap,
   briefcase:  Briefcase,
   terminal:   Terminal,
@@ -71,14 +71,14 @@ export function AppShell({ children }: AppShellProps) {
                 className="group relative flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs transition-all duration-150"
                 style={{
                   color: isActive ? '#ffffff' : 'rgba(255,255,255,0.35)',
-                  borderLeft: isActive ? '2px solid rgba(255,255,255,0.8)' : '2px solid transparent',
-                  background: isActive ? 'rgba(255,255,255,0.03)' : 'transparent',
+                  borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                  background: isActive ? 'var(--accent-soft)' : 'transparent',
                 }}
               >
                 <Icon
                   size={13}
                   className="shrink-0 transition-colors"
-                  style={{ color: isActive ? '#ffffff' : 'rgba(255,255,255,0.25)' }}
+                  style={{ color: isActive ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}
                 />
                 <span className="mono tracking-wider uppercase text-[10px] truncate relative z-10">{v.label}</span>
               </button>
@@ -106,8 +106,9 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </aside>
 
-      <main className="relative flex-1 overflow-hidden bg-black">
-        {children}
+      <main className="relative flex-1 overflow-hidden">
+        <div className="app-bg-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />
+        <div className="relative h-full">{children}</div>
       </main>
     </div>
   )

@@ -6,9 +6,15 @@ export default {
     // Tailwind just maps utility names onto them.
     extend: {
       colors: {
+        // Layered near-black foundation — `black` deliberately remapped so the
+        // whole product sits on depth, not a #000 void. True black stays
+        // available as `pure-black` for OLED-style phone glass.
+        black: '#07090D',
+        'pure-black': '#000000',
         canvas: 'var(--canvas)',
         panel: 'var(--panel)',
         elevated: 'var(--elevated)',
+        hover: 'var(--bg-hover)',
         line: 'var(--border)', // hairline border color (avoids clashing with `border` width utils)
         fg: {
           DEFAULT: 'var(--text-primary)',

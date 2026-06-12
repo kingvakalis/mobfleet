@@ -1,22 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useSettings } from '@/state/settings-store'
 
-interface Props {
-  density?: 'full' | 'reduced'
+const mq = typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+function subscribeMq(cb: () => void) {
+  mq?.addEventListener('change', cb)
+  return () => mq?.removeEventListener('change', cb)
 }
 
-export function AmbientBackground({ density = 'full' }: Props) {
+export function AmbientBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mouseRef  = useRef({ x: 0, y: 0 })
   const frameRef  = useRef<number>(0)
-  const [reduced, setReduced] = useState(false)
+  const osReduced = useSyncExternalStore(subscribeMq, () => mq?.matches ?? false)
+  const performanceMode = useSettings((s) => s.performanceMode)
+  const forceReduced = useSettings((s) => s.reduceMotion)
+  const reduced = osReduced || forceReduced || performanceMode !== 'full'
+  const density: 'full' | 'reduced' = performanceMode === 'full' ? 'full' : 'reduced'
 
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReduced(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
+  // 'reduced' performance mode: no decorative canvas at all.
+  const disabled = performanceMode === 'reduced'
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -79,8 +81,8 @@ export function AmbientBackground({ density = 'full' }: Props) {
       const ly = H * (0.25 + my * 0.3 + Math.cos(t * 0.0004) * 0.06)
 
       const g1 = ctx.createRadialGradient(lx, ly, 0, lx, ly, W * 0.55)
-      g1.addColorStop(0, 'rgba(99,102,241,0.08)')
-      g1.addColorStop(0.5, 'rgba(79,70,229,0.04)')
+      g1.addColorStop(0, 'rgba(45,212,191,0.055)')
+      g1.addColorStop(0.5, 'rgba(14,116,144,0.03)')
       g1.addColorStop(1, 'rgba(0,0,0,0)')
       ctx.fillStyle = g1
       ctx.fillRect(0, 0, W, H)
@@ -89,7 +91,7 @@ export function AmbientBackground({ density = 'full' }: Props) {
       const lx2 = W * (0.75 + Math.sin(t * 0.0003) * 0.08)
       const ly2 = H * (0.8  + Math.cos(t * 0.0004) * 0.06)
       const g2 = ctx.createRadialGradient(lx2, ly2, 0, lx2, ly2, W * 0.4)
-      g2.addColorStop(0, 'rgba(16,185,129,0.04)')
+      g2.addColorStop(0, 'rgba(79,195,247,0.03)')
       g2.addColorStop(1, 'rgba(0,0,0,0)')
       ctx.fillStyle = g2
       ctx.fillRect(0, 0, W, H)
@@ -139,6 +141,7 @@ export function AmbientBackground({ density = 'full' }: Props) {
     }
   }, [reduced, density])
 
+  if (disabled) return null
   return (
     <canvas
       ref={canvasRef}

@@ -58,7 +58,7 @@ const PLATFORM_EMOJI: Record<Platform, string> = {
   TikTok:    '🎵',
 }
 
-function mask(_s: string) {
+function mask() {
   return '••••••'
 }
 
@@ -77,7 +77,7 @@ function RevealCell({ value }: RevealCellProps) {
 
   return (
     <div className="flex items-center gap-1.5 group/cell">
-      <span className="font-mono text-[11px] text-white/50">{shown ? value : mask(value)}</span>
+      <span className="font-mono text-[11px] text-white/50">{shown ? value : mask()}</span>
       <button
         onClick={() => setShown(v => !v)}
         className="opacity-0 group-hover/cell:opacity-100 p-0.5 rounded text-white/25 hover:text-white/60 transition-all"

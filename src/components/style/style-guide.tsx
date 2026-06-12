@@ -168,7 +168,7 @@ export function StyleGuide() {
               <div className="mono mt-4 space-y-2 text-sm text-fg">
                 <p>ID · ios-7f3a9c2e</p>
                 <p>UPTIME · 04:21:07</p>
-                <p>REGION · us-east-1 · PROXY · 10.0.4.221</p>
+                <p>REGION · us-east-1 · MODEL · iPhone 17 Pro</p>
                 <p className="label text-fg-secondary">Uppercase Tracking 0.12em</p>
               </div>
             </Card>

@@ -59,35 +59,39 @@ export interface DeviceLog {
  */
 export function useDeviceLog(deviceId: string | null): DeviceLog {
   const snapshot = useFleet()
-  const [lines, setLines] = useState<LogLine[]>([])
-  const seq = useRef(0)
-  const prev = useRef<{ status?: DeviceStatus; jobId?: string | null }>({})
+  // Seed lines own ids 0–3; live lines continue from 4.
+  const seq = useRef(4)
 
   const device = deviceId ? snapshot.devices.find((d) => d.id === deviceId) : undefined
   const job = device?.jobId ? snapshot.jobs.find((j) => j.id === device.jobId) ?? null : null
 
+  // Seed the backlog once on mount — consumers remount per device (keyed), so
+  // the device identity is stable for the lifetime of this hook instance.
+  const [lines, setLines] = useState<LogLine[]>(() => {
+    if (!device) return []
+    let id = 0
+    const mk = (level: LogLevel, text: string): LogLine => ({ id: id++, t: clock(), level, text })
+    return [
+      mk('info', `attaching to ${device.id}`),
+      mk('info', `region ${regionLabel(device.region)} · ${device.osVersion}`),
+      mk('info', 'control channel established'),
+      mk(levelForStatus(device.status), `status ${device.status.toUpperCase()}`),
+    ]
+  })
+  const prev = useRef<{ status?: DeviceStatus; jobId?: string | null }>({
+    status: device?.status,
+    jobId: device?.jobId,
+  })
+
   // Keep the latest device/job for the interval closure.
   const latest = useRef<{ device?: Device; job: Job | null }>({ device, job })
-  latest.current = { device, job }
+  useEffect(() => {
+    latest.current = { device, job }
+  })
 
   const push = useCallback((level: LogLevel, text: string) => {
     setLines((ls) => [...ls, { id: seq.current++, t: clock(), level, text }].slice(-MAX_LINES))
   }, [])
-
-  // (Re)seed when the target device changes.
-  useEffect(() => {
-    setLines([])
-    seq.current = 0
-    prev.current = {}
-    const d = latest.current.device
-    if (!d) return
-    push('info', `attaching to ${d.id}`)
-    push('info', `region ${regionLabel(d.region)} · ${d.osVersion}`)
-    push('info', `proxy ${d.proxy}`)
-    push(levelForStatus(d.status), `status ${d.status.toUpperCase()}`)
-    prev.current = { status: d.status, jobId: d.jobId }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId, push])
 
   // React to live transitions.
   useEffect(() => {

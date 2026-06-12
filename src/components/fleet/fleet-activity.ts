@@ -14,7 +14,7 @@ const EVENT_POOL = [
   { type: 'Connected',    message: 'Device came online',         level: 'OK'    },
   { type: 'Automation',   message: 'Instagram warmup started',   level: 'INFO'  },
   { type: 'Screenshot',   message: 'Screen captured',            level: 'OK'    },
-  { type: 'Proxy',        message: 'Proxy rotated successfully',  level: 'OK'    },
+  { type: 'App Launch',   message: 'Instagram opened',            level: 'OK'    },
   { type: 'Warning',      message: 'High memory usage detected',  level: 'WARN'  },
   { type: 'Job Done',     message: 'Follow-flow completed',       level: 'OK'    },
   { type: 'Error',        message: 'Command failed: timeout',     level: 'ERROR' },

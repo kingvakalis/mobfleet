@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, X, Box, Network } from 'lucide-react'
+import { Layers, X, Box, Network, Activity } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
@@ -9,8 +9,8 @@ import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import { FleetGraph } from './fleet-graph'
 import { Fleet3D } from './fleet-3d'
-import { FleetControls, type LayoutMode } from './fleet-controls'
-import { FleetRightPanel } from './fleet-right-panel'
+import { FleetControls, type FleetFilters } from './fleet-controls'
+import { FleetActivityDrawer } from './fleet-right-panel'
 
 type ViewMode = '2d' | '3d'
 
@@ -57,19 +57,15 @@ export function FleetView() {
   const groupFilterUI  = useUIStore((s) => s.groupFilter)
   const setGroupFilterUI = useUIStore((s) => s.setGroupFilter)
 
-  const [mode, setMode]               = useState<ViewMode>('2d')
-  const [search, setSearch]           = useState('')
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [groupFilter, setGroupFilter] = useState<string | null>(null)
-  const [layout, setLayout]           = useState<LayoutMode>('constellation')
-  const [paused, setPaused]           = useState(false)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [mode, setMode]           = useState<ViewMode>('2d')
+  const [filters, setFilters]     = useState<FleetFilters>({ search: '', status: null, group: null })
+  const [activityOpen, setActivityOpen] = useState(false)
 
-  const panelMode = selectedIds.length === 0
-    ? 'activity'
-    : selectedIds.length === 1
-    ? 'device'
-    : 'bulk'
+  const devices = snapshot?.devices
+  const groups = useMemo(
+    () => [...new Set((devices ?? []).map((d) => d.group))].sort(),
+    [devices],
+  )
 
   const inGroup = groupFilterUI
     ? (snapshot?.devices ?? []).filter((d) => d.group === groupFilterUI).length
@@ -88,32 +84,45 @@ export function FleetView() {
       ) : (
         <motion.div
           key="graph"
-          className="flex h-full w-full"
+          className="relative flex h-full w-full"
           initial={{ opacity: 0, scale: 0.99 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.45, ease: EXPO_OUT }}
         >
-          {/* Left: canvas area */}
           <div className="flex-1 relative">
-            {/* View mode toggle */}
-            <div className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-lg bg-black/40 border border-white/[0.08] p-1 backdrop-blur-sm">
+            {/* View mode toggle + activity */}
+            <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg bg-black/40 border border-line p-1 backdrop-blur-sm">
+                <button
+                  onClick={() => setMode('3d')}
+                  className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                >
+                  <Box size={12} /> 3D
+                </button>
+                <button
+                  onClick={() => setMode('2d')}
+                  className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                >
+                  <Network size={12} /> Graph
+                </button>
+              </div>
               <button
-                onClick={() => setMode('3d')}
-                className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                onClick={() => setActivityOpen(o => !o)}
+                title="Live activity & fleet health"
+                className={[
+                  'mono flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] uppercase tracking-widest backdrop-blur-sm transition-colors',
+                  activityOpen
+                    ? 'border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]'
+                    : 'border-line bg-black/40 text-white/40 hover:text-white/70',
+                ].join(' ')}
               >
-                <Box size={12} /> 3D
-              </button>
-              <button
-                onClick={() => setMode('2d')}
-                className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
-              >
-                <Network size={12} /> Graph
+                <Activity size={12} /> Activity
               </button>
             </div>
 
             {/* Fleet info HUD */}
             <div className="absolute left-4 top-4 z-20">
-              <div className="pointer-events-none px-3 py-2 rounded-lg bg-black/40 border border-white/[0.06] backdrop-blur-sm">
+              <div className="pointer-events-none px-3 py-2 rounded-lg bg-black/40 border border-line backdrop-blur-sm">
                 <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
                 <div className="mono mt-1 text-[11px] text-fg-secondary">
                   {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
@@ -123,62 +132,26 @@ export function FleetView() {
                 <button
                   type="button"
                   onClick={() => setGroupFilterUI(null)}
-                  className="mt-2 inline-flex items-center gap-2 rounded-control border border-accent/40 bg-accent/10 px-2.5 py-1.5 transition-colors hover:bg-accent/20"
+                  className="mt-2 inline-flex items-center gap-2 rounded-control border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2.5 py-1.5 transition-colors hover:bg-[var(--accent-soft)]"
                 >
-                  <span className="label text-accent">{groupFilterUI}</span>
+                  <span className="label text-[var(--accent-text)]">{groupFilterUI}</span>
                   <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
                   <X size={12} className="text-fg-muted" />
                 </button>
               )}
             </div>
 
-            {/* Stats strip bottom left */}
-            <div className="absolute bottom-16 left-4 z-20 flex items-center gap-3">
-              {[
-                { label: 'Online',  value: stats.busy,                              color: '#22c55e' },
-                { label: 'Idle',    value: stats.idle,                              color: '#818cf8' },
-                { label: 'Warning', value: stats.total - stats.busy - stats.idle,   color: '#f59e0b' },
-              ].map(s => (
-                <div key={s.label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/40 border border-white/[0.06] backdrop-blur-sm">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
-                  <span className="text-[10px] text-white/50">{s.label}</span>
-                  <span className="text-[10px] font-semibold" style={{ color: s.color }}>{s.value}</span>
-                </div>
-              ))}
-            </div>
-
             {/* Floating controls bar */}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-              <FleetControls
-                search={search}
-                setSearch={setSearch}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                groupFilter={groupFilter}
-                setGroupFilter={setGroupFilter}
-                layout={layout}
-                setLayout={setLayout}
-                paused={paused}
-                setPaused={setPaused}
-                onReset={() => {
-                  setSearch('')
-                  setStatusFilter(null)
-                  setGroupFilter(null)
-                  setLayout('constellation')
-                }}
-              />
+              <FleetControls filters={filters} setFilters={setFilters} groups={groups} />
             </div>
 
             {/* Visualization */}
-            {mode === '3d' ? <Fleet3D /> : <FleetGraph />}
+            {mode === '3d' ? <Fleet3D /> : <FleetGraph filters={filters} />}
           </div>
 
-          {/* Right panel */}
-          <FleetRightPanel
-            mode={panelMode}
-            selectedIds={selectedIds}
-            onClose={() => setSelectedIds([])}
-          />
+          {/* Collapsible activity / health drawer */}
+          <FleetActivityDrawer open={activityOpen} onClose={() => setActivityOpen(false)} />
         </motion.div>
       )}
     </AnimatePresence>
