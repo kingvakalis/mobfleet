@@ -14,11 +14,17 @@ export function AmbientBackground() {
   const osReduced = useSyncExternalStore(subscribeMq, () => mq?.matches ?? false)
   const performanceMode = useSettings((s) => s.performanceMode)
   const forceReduced = useSettings((s) => s.reduceMotion)
-  const reduced = osReduced || forceReduced || performanceMode !== 'full'
-  const density: 'full' | 'reduced' = performanceMode === 'full' ? 'full' : 'reduced'
+  const motionPref = useSettings((s) => s.motion)
+  const intensity = useSettings((s) => s.backgroundIntensity)
 
-  // 'reduced' performance mode: no decorative canvas at all.
-  const disabled = performanceMode === 'reduced'
+  const motionOff = osReduced || forceReduced || motionPref === 'reduced' || motionPref === 'off'
+  // Static canvas (no drift/particles) for minimal intensity or restricted motion.
+  const reduced = motionOff || performanceMode !== 'full' || intensity === 'minimal' || (intensity === 'balanced' && motionPref === 'balanced')
+  const density: 'full' | 'reduced' =
+    performanceMode === 'full' && intensity === 'atmospheric' ? 'full' : 'reduced'
+
+  // No decorative canvas at all.
+  const disabled = performanceMode === 'reduced' || intensity === 'off'
 
   useEffect(() => {
     const canvas = canvasRef.current

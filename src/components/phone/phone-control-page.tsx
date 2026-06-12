@@ -5,7 +5,7 @@ import {
   Lock, Home, CornerDownLeft, Grid2x2,
   Camera, RefreshCw, Power,
   Send, Copy, X, Rocket, FileText,
-  Video, Zap, Shield, BatteryMedium, Gauge,
+  Video, Zap, Shield, BatteryMedium, Gauge, Anchor,
 } from 'lucide-react'
 import type { AppDef } from '@/components/phone/app-catalog'
 import { LivePhone, type LivePhoneHandle } from '@/components/phone/live-phone'
@@ -110,15 +110,24 @@ function Card({ title, children, className = '' }: { title?: string; children: R
 }
 
 // ─── Phone stage — soft glow + cursor-reactive perspective tilt ───────────────
-function PhoneStage({ statusColor, children }: { statusColor: string; children: React.ReactNode }) {
+// `stabilized` stops all decorative body motion and smoothly returns the phone
+// to neutral. Screen gestures are untouched — only the stage transform changes.
+function PhoneStage({ statusColor, stabilized, children }: {
+  statusColor: string; stabilized: boolean; children: React.ReactNode
+}) {
   const reduced = useReducedMotion()
+  const frozen = stabilized || reduced
   const rx = useMotionValue(0)
   const ry = useMotionValue(0)
   const srx = useSpring(rx, { stiffness: 120, damping: 18 })
   const sry = useSpring(ry, { stiffness: 120, damping: 18 })
 
+  useEffect(() => {
+    if (frozen) { rx.set(0); ry.set(0) }
+  }, [frozen, rx, ry])
+
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (reduced) return
+    if (frozen) return
     const r = e.currentTarget.getBoundingClientRect()
     const px = (e.clientX - r.left) / r.width - 0.5
     const py = (e.clientY - r.top) / r.height - 0.5
@@ -158,6 +167,8 @@ export function PhoneControlPage() {
   const defaultQuality = useSettings(s => s.defaultStreamQuality)
   const defaultFps     = useSettings(s => s.defaultStreamFps)
   const confirmDestructive = useSettings(s => s.confirmDestructive)
+  const stabilizePhone = useSettings(s => s.stabilizePhone)
+  const updateSettings = useSettings(s => s.update)
   const [quality, setQuality]       = useState(defaultQuality)
   const [fps, setFps]               = useState(defaultFps)
   const [confirmingReboot, setConfirmingReboot] = useState(false)
@@ -445,10 +456,31 @@ export function PhoneControlPage() {
               <span className="text-[11px] text-white/40 uppercase tracking-wider">BATTERY</span>
               <span className="font-mono text-[12px] text-white tabular-nums">{device.battery}%</span>
             </div>
+            <div className="w-px h-4 bg-white/[0.08]" />
+            {/* Stabilize: stops decorative body tilt — screen controls unaffected */}
+            <button
+              type="button"
+              aria-pressed={stabilizePhone}
+              title={stabilizePhone ? 'Phone motion is stabilized — click to enable tilt' : 'Stabilize phone (stop tilt motion)'}
+              onClick={() => {
+                const next = !stabilizePhone
+                updateSettings({ stabilizePhone: next })
+                addLog(next ? 'Phone motion stabilized' : 'Phone motion enabled')
+              }}
+              className={[
+                'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider transition-colors',
+                stabilizePhone
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
+                  : 'text-white/40 border border-white/[0.08] hover:text-white/70',
+              ].join(' ')}
+            >
+              <Anchor size={11} />
+              {stabilizePhone ? 'Stabilized' : 'Stabilize'}
+            </button>
           </div>
 
           {/* Live interactive phone — dominant object, subtle cursor tilt */}
-          <PhoneStage statusColor={meta.color}>
+          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
               <LivePhone
                 ref={phoneRef}

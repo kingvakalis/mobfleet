@@ -17,9 +17,9 @@ const CARD_EST_HEIGHT = 250
 const CARD_GAP = 16
 
 /**
- * Anchor the hover card beside the phone (toward the constellation centre),
+ * Anchor the selection card beside the phone (toward the constellation centre),
  * never over it. The gap is padding on the wrapper, not empty space, so the
- * pointer stays inside the node subtree and hover doesn't drop mid-travel.
+ * pointer stays inside the node subtree while moving to the card.
  */
 function cardAnchor(pos?: { x: number; y: number }): CSSProperties {
   const x = pos?.x ?? 0
@@ -46,8 +46,12 @@ export type DeviceNodeData = {
   exiting?: boolean
   hovered?: boolean
   pos?: { x: number; y: number }
-  /** Dimmed because a group filter excludes it. */
+  /** Fails the active fleet filters → faded, labels hidden. */
   dimmed?: boolean
+  /** Matches the active fleet filters → status-colored emphasis outline. */
+  emphasized?: boolean
+  /** Color identity when its group is part of a multi-group filter. */
+  groupColor?: string | null
 }
 
 const centeredHandle =
@@ -98,10 +102,14 @@ function MiniScreen({ device, job }: { device: Device; job?: Job | null }) {
   }
 }
 
-/** One phone in the constellation: status ring + phone body with a live screen. */
-export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps) {
-  const { device, job, isNew, exiting, hovered, pos, dimmed } = data as unknown as DeviceNodeData
-  const dim = dimmed ? 'opacity-20 grayscale transition-opacity duration-300' : 'transition-opacity duration-300'
+/**
+ * One phone in the constellation. Hover only clarifies the frame (no info
+ * card, no movement) — device details appear on SELECTION. Double-click opens
+ * full phone control (handled by the graph).
+ */
+export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }: NodeProps) {
+  const { device, job, isNew, exiting, hovered, pos, dimmed, emphasized, groupColor } =
+    data as unknown as DeviceNodeData
   const reduce = useReducedMotion()
   const color = STATUS[device.status].color
   const offline = device.status === 'offline'
@@ -116,15 +124,15 @@ export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps
   return (
     <motion.div
       className="relative"
-      style={{ width: NODE_W, height: NODE_H }}
+      style={{ width: NODE_W, height: NODE_H, cursor: dragging ? 'grabbing' : 'pointer' }}
       initial={warp ? { opacity: 0, scale: 0.8 } : false}
       animate={
         exiting
           ? { opacity: 0, scale: 0.9, filter: 'blur(4px) saturate(0)' }
-          : { opacity: 1, scale: 1, filter: 'blur(0px) saturate(1)' }
+          : { opacity: dimmed ? 0.22 : 1, scale: 1, filter: 'blur(0px) saturate(1)' }
       }
       transition={
-        exiting ? { duration: reduce ? 0 : 0.34, ease: EXPO_OUT } : { duration: 0.5, ease: EXPO_OUT, delay }
+        exiting ? { duration: reduce ? 0 : 0.34, ease: EXPO_OUT } : { duration: 0.3, ease: EXPO_OUT, delay }
       }
     >
       <Handle
@@ -145,54 +153,59 @@ export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps
         />
       )}
 
+      {/* Filter emphasis — restrained status/group outline (below selection). */}
+      <AnimatePresence>
+        {emphasized && !exiting && !selected && (
+          <motion.div
+            className="pointer-events-none absolute -inset-[4px] rounded-[17px]"
+            initial={{ opacity: 0, scale: 1.08 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25, ease: EXPO_OUT }}
+            style={{ boxShadow: `0 0 0 1.5px ${groupColor ?? color}, 0 0 14px ${groupColor ?? color}40` }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Selection — strongest ring in the hierarchy. */}
       {selected && (
-        <div className="absolute -inset-1 rounded-[16px]" style={{ boxShadow: '0 0 0 1.5px var(--accent)' }} />
+        <div className="absolute -inset-1.5 rounded-[17px]" style={{ boxShadow: '0 0 0 2px var(--accent), 0 0 18px var(--accent-soft)' }} />
       )}
 
-      {/* phone scales up slightly while the hover card is open */}
-      <motion.div
-        className="absolute inset-0"
-        animate={{ scale: hovered && !exiting ? 1.08 : 1 }}
-        transition={{ duration: 0.2, ease: EXPO_OUT }}
-      >
-        {/* hover highlight */}
-        <AnimatePresence>
-          {hovered && !exiting && (
-            <motion.div
-              className="pointer-events-none absolute -inset-[5px] rounded-[18px]"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              style={{ boxShadow: `0 0 0 1.5px ${color}, 0 0 22px ${color}66, 0 0 56px ${color}2e` }}
-            />
-          )}
-        </AnimatePresence>
+      <div className="absolute inset-0">
+        {/* hover — minimal frame clarification only */}
+        <div
+          className="pointer-events-none absolute -inset-[3px] rounded-[16px] transition-opacity duration-150"
+          style={{
+            opacity: hovered && !exiting && !selected ? 1 : 0,
+            boxShadow: '0 0 0 1px var(--border-bright)',
+          }}
+        />
 
         {/* status ring hugs the phone */}
         <div
-          className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse', dim)}
+          className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse')}
           style={{ boxShadow: `0 0 0 1.5px ${color}` }}
         />
 
         {/* side buttons: volume (left) + power (right) */}
-        <div className={cn('absolute -left-[2px] top-[18px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]', dim)} />
-        <div className={cn('absolute -left-[2px] top-[28px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]', dim)} />
-        <div className={cn('absolute -right-[2px] top-[24px] h-[11px] w-[2px] rounded-r-[1px] bg-[#3a3a3c]', dim)} />
+        <div className="absolute -left-[2px] top-[18px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]" />
+        <div className="absolute -left-[2px] top-[28px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]" />
+        <div className="absolute -right-[2px] top-[24px] h-[11px] w-[2px] rounded-r-[1px] bg-[#3a3a3c]" />
 
         {/* phone body: brushed-metal frame around the glass */}
         <div
-          className={cn('absolute inset-0 rounded-[14px] p-[2.5px]', offline && 'opacity-60', dim)}
+          className={cn('absolute inset-0 rounded-[14px] p-[2.5px]', offline && 'opacity-60')}
           style={{
             background: 'linear-gradient(150deg, #48484c 0%, #1c1c1f 28%, #0c0c0e 62%, #313135 100%)',
             boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07), 0 4px 14px rgba(0,0,0,0.6)',
           }}
         >
           {/* screen */}
-          <div className="relative h-full w-full overflow-hidden rounded-[11.5px] bg-[#050505]">
+          <div className="relative h-full w-full overflow-hidden rounded-[11.5px] bg-pure-black">
             <MiniScreen device={device} job={job} />
             {/* dynamic-island pill with camera dot */}
-            <div className="absolute left-1/2 top-[3px] z-10 flex h-[4px] w-[14px] -translate-x-1/2 items-center justify-end rounded-full bg-black pr-[2px]">
+            <div className="absolute left-1/2 top-[3px] z-10 flex h-[4px] w-[14px] -translate-x-1/2 items-center justify-end rounded-full bg-pure-black pr-[2px]">
               <div className="h-[2px] w-[2px] rounded-full bg-[#1e3a5f]" />
             </div>
             {/* home indicator */}
@@ -207,16 +220,29 @@ export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps
             />
           </div>
         </div>
-      </motion.div>
-
-      {/* id label below the phone */}
-      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap">
-        <span className="mono text-[8px] text-fg-muted">{short}</span>
       </div>
 
-      {/* hover → expand into telemetry card */}
+      {/* id label below the phone — clearer when emphasized, hidden when dimmed */}
+      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-center">
+        <span
+          className="mono text-[8px] transition-colors duration-200"
+          style={{ color: dimmed ? 'transparent' : emphasized ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+        >
+          {short}
+        </span>
+        {emphasized && groupColor && (
+          <div
+            className="mono mt-[1px] rounded-full border px-1 text-[7px] uppercase tracking-wider"
+            style={{ borderColor: `${groupColor}66`, color: groupColor, background: `${groupColor}14` }}
+          >
+            {device.group}
+          </div>
+        )}
+      </div>
+
+      {/* selection → contextual telemetry card (info appears on click, not hover) */}
       <AnimatePresence>
-        {hovered && !exiting && (
+        {selected && !exiting && !dragging && (
           <motion.div
             key="card"
             className="absolute z-50"
@@ -226,7 +252,7 @@ export const DeviceNode = memo(function DeviceNode({ data, selected }: NodeProps
             exit={{ opacity: 0, scale: 0.96, y: 2 }}
             transition={{ duration: 0.2, ease: EXPO_OUT }}
           >
-            <TelemetryCard device={device} job={job} />
+            <TelemetryCard device={device} job={job} noMatch={dimmed} />
           </motion.div>
         )}
       </AnimatePresence>

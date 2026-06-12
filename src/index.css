@@ -4,7 +4,9 @@
 
 /* ─── MobFleet Design System — layered dark command center ─────────────────── */
 :root {
-  /* Layered near-black foundation (never flat #000 for page surfaces). */
+  /* Layered near-black foundation (never flat #000 for page surfaces).
+     These are DEFAULTS — lib/themes.ts overrides them per theme preset. */
+  --bg-base-rgb: 7 9 13;
   --bg-base: #07090D;
   --bg-surface: #0B0F15;
   --bg-elevated: #0E131B;
@@ -145,9 +147,22 @@
   .card-surface {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    transition: border-color 180ms ease, background-color 180ms ease;
+    transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
   }
   .card-surface:hover { border-color: var(--border-bright); }
+
+  /* ── Surface styles (data-surface on <html>) ───────────────────────────── */
+  [data-surface="soft"] .card-surface { box-shadow: 0 8px 28px -16px rgba(0,0,0,0.6); }
+  [data-surface="glass"] .card-surface {
+    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  /* ── Interface density (data-density on <html>) ────────────────────────── */
+  [data-density="compact"] table td, [data-density="compact"] table th { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+  [data-density="dense"] table td, [data-density="dense"] table th { padding-top: 0.28rem; padding-bottom: 0.28rem; }
+  [data-density="compact"] .card-surface { padding: 0.7rem; }
+  [data-density="dense"] .card-surface { padding: 0.5rem; }
 
   /* ── Sci-fi HUD primitives ─────────────────────────────────────────────── */
 
@@ -266,6 +281,11 @@
   100% { color: inherit; }
 }
 .flash { animation: flash-value 0.4s ease-out; }
+
+/* Fleet graph pane: grab/grabbing cursors + no text selection mid-drag. */
+.fleet-flow .react-flow__pane { cursor: grab; }
+.fleet-flow .react-flow__pane.dragging { cursor: grabbing; }
+.fleet-flow, .fleet-flow * { user-select: none; -webkit-user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

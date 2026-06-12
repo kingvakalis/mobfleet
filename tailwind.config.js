@@ -6,10 +6,10 @@ export default {
     // Tailwind just maps utility names onto them.
     extend: {
       colors: {
-        // Layered near-black foundation — `black` deliberately remapped so the
-        // whole product sits on depth, not a #000 void. True black stays
-        // available as `pure-black` for OLED-style phone glass.
-        black: '#07090D',
+        // Layered near-black foundation — `black` deliberately remapped onto
+        // the theme token (RGB triplet keeps `black/40` alpha utilities
+        // working). True black stays available as `pure-black` for phone glass.
+        black: 'rgb(var(--bg-base-rgb) / <alpha-value>)',
         'pure-black': '#000000',
         canvas: 'var(--canvas)',
         panel: 'var(--panel)',

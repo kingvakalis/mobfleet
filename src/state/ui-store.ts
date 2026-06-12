@@ -1,14 +1,33 @@
 import { create } from 'zustand'
 import type { View } from '@/lib/views'
 
+/** Fleet filters — session-scoped, shared by the 2D and 3D views so they
+ *  survive view switches and phone-control round-trips. */
+export interface FleetFilters {
+  search: string
+  status: string | null
+  groups: string[]
+  model: string | null
+  job: string | null
+  /** false = dim non-matching (default), true = hide them entirely. */
+  hideNonMatching: boolean
+}
+
+export const EMPTY_FLEET_FILTERS: FleetFilters = {
+  search: '', status: null, groups: [], model: null, job: null, hideNonMatching: false,
+}
+
+export function fleetFiltersActive(f: FleetFilters): boolean {
+  return f.search !== '' || f.status !== null || f.groups.length > 0 || f.model !== null || f.job !== null
+}
+
 /** Cross-tree UI state: active view, drawer, scale & submit overlays, palette. */
 interface UIState {
   view: View
   setView: (v: View) => void
 
-  /** Active group filter on the fleet graph (null = all). */
-  groupFilter: string | null
-  setGroupFilter: (g: string | null) => void
+  fleetFilters: FleetFilters
+  setFleetFilters: (f: FleetFilters) => void
   /** Jump to the fleet view filtered to a group. */
   focusGroup: (g: string) => void
 
@@ -40,9 +59,9 @@ export const useUIStore = create<UIState>((set) => ({
   view: 'fleet',
   setView: (view) => set({ view }),
 
-  groupFilter: null,
-  setGroupFilter: (groupFilter) => set({ groupFilter }),
-  focusGroup: (g) => set({ view: 'fleet', groupFilter: g }),
+  fleetFilters: EMPTY_FLEET_FILTERS,
+  setFleetFilters: (fleetFilters) => set({ fleetFilters }),
+  focusGroup: (g) => set({ view: 'fleet', fleetFilters: { ...EMPTY_FLEET_FILTERS, groups: [g] } }),
 
   drawerDeviceId: null,
   openDrawer: (id) => set({ drawerDeviceId: id }),

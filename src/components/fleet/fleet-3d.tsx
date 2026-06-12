@@ -21,8 +21,10 @@ import {
 } from 'lucide-react'
 import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
-import { useUIStore } from '@/state/ui-store'
+import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
+import { matchesDevice } from '@/lib/fleet-filtering'
+import { graphBus } from '@/lib/graph-bus'
 import type { DeviceStatus } from '@/lib/status'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -59,6 +61,8 @@ interface NodeData {
   model?: string
   region?: string
   job?: string
+  /** Fails the active fleet filters → faded, labels minimal. */
+  dimmed?: boolean
 }
 
 interface ContextMenuState {
@@ -198,7 +202,7 @@ const LINK_FRAG = /* glsl */ `
   }
 `
 
-function linkTargets(status: DeviceStatus, selected: boolean, hovered: boolean) {
+function linkTargets(status: DeviceStatus, selected: boolean, hovered: boolean, dimmed: boolean) {
   let base = 0.05, pulse = 0.35, speed = 0.10, flash = 0
   switch (status) {
     case 'busy':    base = 0.09; pulse = 0.95; speed = 0.50; break
@@ -208,16 +212,18 @@ function linkTargets(status: DeviceStatus, selected: boolean, hovered: boolean) 
   }
   if (hovered)  { base += 0.10; pulse += 0.30 }
   if (selected) { base = Math.max(base, 0.26); pulse = Math.max(pulse, 1.1); speed = Math.max(speed, 0.6) }
+  if (dimmed && !selected) { base *= 0.2; pulse *= 0.15 }
   return { base, pulse, speed, flash }
 }
 
 function EnergyLink({
-  to, status, selected, hovered,
+  to, status, selected, hovered, dimmed = false,
 }: {
   to: [number, number, number]
   status: DeviceStatus
   selected: boolean
   hovered: boolean
+  dimmed?: boolean
 }) {
   const matRef = useRef<THREE.ShaderMaterial>(null)
   const targetColor = useMemo(() => new THREE.Color(STATUS_COLOR[status]), [status])
@@ -249,7 +255,7 @@ function EnergyLink({
   useFrame(({ clock }, dt) => {
     const m = matRef.current
     if (!m) return
-    const t = linkTargets(status, selected, hovered)
+    const t = linkTargets(status, selected, hovered, dimmed)
     const k = 1 - Math.exp(-7 * dt)
     m.uniforms.uTime.value = clock.elapsedTime
     m.uniforms.uBase.value  += (t.base  - m.uniforms.uBase.value)  * k
@@ -410,21 +416,27 @@ function PhoneNode({
     // Status color crossfade
     color.current.lerp(targetColor, 1 - Math.exp(-6 * dt))
 
+    // Filter dim: material intensity drops, the phone stays faintly present.
+    const dimF = data.dimmed && !selected ? 0.18 : 1
+
     if (bodyRef.current) {
       bodyRef.current.emissive.copy(color.current)
       // Body stays a dark physical object — status reads from LED/screen/arcs.
-      const ei = selected ? 0.28 : hovered ? 0.16 : 0.05
+      const ei = (selected ? 0.28 : hovered ? 0.16 : 0.05) * dimF
       bodyRef.current.emissiveIntensity += (ei - bodyRef.current.emissiveIntensity) * k7
     }
-    if (ledRef.current) ledRef.current.color.copy(color.current)
+    if (ledRef.current) {
+      ledRef.current.color.copy(color.current)
+      if (dimF < 1) ledRef.current.color.multiplyScalar(0.35)
+    }
 
     if (screenRef.current) {
       const u = screenRef.current.uniforms
       u.uTime.value = t
       ;(u.uColor.value as THREE.Color).copy(color.current)
-      u.uActivity.value += (screenActivity(data.status) - u.uActivity.value) * k4
+      u.uActivity.value += (screenActivity(data.status) * dimF - u.uActivity.value) * k4
       u.uBoost.value += ((selected ? 1 : hovered ? 0.5 : 0) - u.uBoost.value) * k7
-      u.uFlash.value += ((data.status === 'error' ? 1 : 0) - u.uFlash.value) * k4
+      u.uFlash.value += ((data.status === 'error' && dimF === 1 ? 1 : 0) - u.uFlash.value) * k4
     }
 
     // Selection arcs — counter-rotate, fade with state
@@ -513,14 +525,14 @@ function PhoneNode({
           font={monoFont}
           fontSize={hovered || selected ? 0.105 : 0.085}
           letterSpacing={0.1}
-          color={selected ? '#ffffff' : hovered ? '#e6ecff' : '#8a93a6'}
+          color={selected ? '#ffffff' : hovered ? '#e6ecff' : data.dimmed ? '#2e3542' : '#8a93a6'}
           anchorX="center"
           anchorY="middle"
           maxWidth={1.6}
         >
           {data.name.toUpperCase()}
         </Text>
-        {(hovered || selected) && (
+        {(hovered || selected) && !data.dimmed && (
           <Text
             font={monoFont}
             fontSize={0.075}
@@ -702,22 +714,42 @@ function OrchestratorCore({
 // ─── Camera rig — intro flight + selection focus, damped ─────────────────────
 
 function CameraRig({
-  selectedPos, autoRotate, controlsRef, interactedRef,
+  selectedPos, autoRotate, controlsRef, interactedRef, focusReq,
 }: {
   selectedPos: [number, number, number] | null
   autoRotate: boolean
   controlsRef: React.RefObject<OrbitControlsImpl | null>
   interactedRef: React.RefObject<boolean>
+  focusReq?: { center: [number, number, number]; radius: number; key: number } | null
 }) {
   const { camera } = useThree()
   const intro   = useRef(true)
   const arrived = useRef(false)
   const lastKey = useRef('')
+  const focusDone = useRef(0)
 
   useFrame((_, dt) => {
     const ctl = controlsRef.current
     if (!ctl) return
     ctl.autoRotate = autoRotate
+
+    // Focus-matches: glide to frame the requested bounds, then release control.
+    if (focusReq && focusDone.current !== focusReq.key) {
+      intro.current = false
+      _vA.set(focusReq.center[0], focusReq.center[1], focusReq.center[2])
+      const dist = Math.max(6, focusReq.radius * 1.9 + 3)
+      _vDir.copy(camera.position).sub(ctl.target)
+      if (_vDir.lengthSq() < 0.01) _vDir.set(0, 0.4, 1)
+      _vDir.normalize()
+      _vB.copy(_vA).addScaledVector(_vDir, dist)
+      const k = 1 - Math.exp(-3 * dt)
+      ctl.target.lerp(_vA, k)
+      camera.position.lerp(_vB, k)
+      if (camera.position.distanceTo(_vB) < 0.15 && ctl.target.distanceTo(_vA) < 0.1) {
+        focusDone.current = focusReq.key
+      }
+      return
+    }
 
     const key = selectedPos ? selectedPos.join(',') : ''
     if (key !== lastKey.current) {
@@ -755,7 +787,7 @@ function CameraRig({
 
 function Scene({
   onNodeSelect, onNodeDoubleClick, onContextMenu, selectedId, hoveredId,
-  setHoveredId, autoRotate, controlsRef, interactedRef, reduced,
+  setHoveredId, autoRotate, controlsRef, interactedRef, reduced, filters,
 }: {
   onNodeSelect:      (id: string) => void
   onNodeDoubleClick: (id: string) => void
@@ -767,31 +799,63 @@ function Scene({
   controlsRef: React.RefObject<OrbitControlsImpl | null>
   interactedRef: React.RefObject<boolean>
   reduced: boolean
+  filters?: FleetFilters
 }) {
   const snapshot = useFleet()
   const stats    = useFleetStats()
+  const filtersOn = filters ? fleetFiltersActive(filters) : false
 
   const nodes = useMemo<NodeData[]>(() => {
     const devList = snapshot?.devices ?? []
     const jobById = new Map((snapshot?.jobs ?? []).map(j => [j.id, j]))
-    return devList.map((d, i) => {
-      const shell  = Math.floor(i / 10)
-      const radius = 4.6 + shell * 2.5 + (((i * 2654435761) >>> 16) % 100) / 100 * 0.7 - 0.35
-      const count  = Math.min(10, devList.length - shell * 10)
-      const angle  = (i % count) * (Math.PI * 2 / Math.max(1, count)) + shell * 0.62
-      const elev   = ((i % 7) - 3) * 0.85
-      const job    = d.jobId ? jobById.get(d.jobId) : undefined
-      return {
-        id:     d.id,
-        name:   d.name ?? d.id,
-        status: (d.status ?? 'offline') as DeviceStatus,
-        model:  d.model,
-        region: d.region,
-        job:    job?.type,
-        pos:    [Math.cos(angle) * radius, elev, Math.sin(angle) * radius] as [number, number, number],
+    return devList
+      .map((d, i) => {
+        const shell  = Math.floor(i / 10)
+        const radius = 4.6 + shell * 2.5 + (((i * 2654435761) >>> 16) % 100) / 100 * 0.7 - 0.35
+        const count  = Math.min(10, devList.length - shell * 10)
+        const angle  = (i % count) * (Math.PI * 2 / Math.max(1, count)) + shell * 0.62
+        const elev   = ((i % 7) - 3) * 0.85
+        const job    = d.jobId ? jobById.get(d.jobId) : undefined
+        const isMatch = !filtersOn || matchesDevice(filters!, d, job ?? null)
+        return {
+          id:     d.id,
+          name:   d.name ?? d.id,
+          status: (d.status ?? 'offline') as DeviceStatus,
+          model:  d.model,
+          region: d.region,
+          job:    job?.type,
+          dimmed: filtersOn && !isMatch,
+          pos:    [Math.cos(angle) * radius, elev, Math.sin(angle) * radius] as [number, number, number],
+        }
+      })
+      // "Hide non-matching" removes them from the scene entirely.
+      .filter(n => !(filters?.hideNonMatching && n.dimmed))
+  }, [snapshot.devices, snapshot.jobs, filters, filtersOn])
+
+  // Focus matches: frame all matching nodes with the camera (positions untouched).
+  const [focusReq, setFocusReq] = useState<{ center: [number, number, number]; radius: number; key: number } | null>(null)
+  useEffect(() => {
+    graphBus.focusMatches = () => {
+      const targets = nodes.filter(n => !n.dimmed)
+      if (targets.length === 0) return
+      const c: [number, number, number] = [0, 0, 0]
+      for (const n of targets) { c[0] += n.pos[0]; c[1] += n.pos[1]; c[2] += n.pos[2] }
+      c[0] /= targets.length; c[1] /= targets.length; c[2] /= targets.length
+      let r = 2
+      for (const n of targets) {
+        const dx = n.pos[0] - c[0], dy = n.pos[1] - c[1], dz = n.pos[2] - c[2]
+        r = Math.max(r, Math.sqrt(dx * dx + dy * dy + dz * dz))
       }
-    })
-  }, [snapshot.devices, snapshot.jobs])
+      setFocusReq(prev => ({ center: c, radius: r, key: (prev?.key ?? 0) + 1 }))
+    }
+    graphBus.fitView = () => {
+      setFocusReq(prev => ({ center: [0, 0, 0], radius: 13, key: (prev?.key ?? 0) + 1 }))
+    }
+    return () => {
+      graphBus.focusMatches = undefined
+      graphBus.fitView = undefined
+    }
+  }, [nodes])
 
   const selectedPos = useMemo<[number, number, number] | null>(() => {
     if (!selectedId) return null
@@ -816,6 +880,7 @@ function Scene({
         autoRotate={autoRotate}
         controlsRef={controlsRef}
         interactedRef={interactedRef}
+        focusReq={focusReq}
       />
 
       <OrchestratorCore
@@ -832,6 +897,7 @@ function Scene({
             status={node.status}
             selected={selectedId === node.id}
             hovered={hoveredId === node.id}
+            dimmed={node.dimmed}
           />
           <PhoneNode
             data={node}
@@ -1100,7 +1166,7 @@ class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { er
   }
 }
 
-function Fleet3DInner() {
+function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
   const openDrawer        = useUIStore(s => s.openDrawer)
   const setView           = useUIStore(s => s.setView)
   const openPhoneControl  = useUIStore(s => s.openPhoneControl)
@@ -1175,6 +1241,7 @@ function Fleet3DInner() {
             controlsRef={controlsRef}
             interactedRef={interactedRef}
             reduced={reduced}
+            filters={filters}
           />
         </Canvas>
       </Suspense>
@@ -1226,10 +1293,10 @@ function Fleet3DInner() {
   )
 }
 
-export function Fleet3D() {
+export function Fleet3D({ filters }: { filters?: FleetFilters }) {
   return (
     <Fleet3DErrorBoundary>
-      <Fleet3DInner />
+      <Fleet3DInner filters={filters} />
     </Fleet3DErrorBoundary>
   )
 }

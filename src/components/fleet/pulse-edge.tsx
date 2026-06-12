@@ -14,7 +14,10 @@ export const PulseEdge = memo(function PulseEdge({
   data,
 }: EdgeProps) {
   const [path] = getStraightPath({ sourceX: sourceX ?? 0, sourceY: sourceY ?? 0, targetX: targetX ?? 0, targetY: targetY ?? 0 })
-  const active = Boolean((data as { active?: boolean } | undefined)?.active)
+  const d = data as { active?: boolean; emphasized?: boolean; dimmed?: boolean } | undefined
+  const active = Boolean(d?.active)
+  const emphasized = Boolean(d?.emphasized)
+  const dimmed = Boolean(d?.dimmed)
   const reduce = useReducedMotion()
   // Skip render until positions are resolved
   if (!sourceX || !sourceY || !targetX || !targetY) return null
@@ -25,9 +28,10 @@ export const PulseEdge = memo(function PulseEdge({
         d={path}
         fill="none"
         style={{
-          stroke: active ? 'var(--status-busy)' : 'var(--border)',
-          strokeWidth: active ? 1.25 : 1,
-          opacity: active ? 0.5 : 0.85,
+          stroke: emphasized ? 'var(--accent)' : active ? 'var(--status-busy)' : 'var(--border)',
+          strokeWidth: emphasized ? 1.5 : active ? 1.25 : 1,
+          opacity: dimmed ? 0.15 : emphasized ? 0.75 : active ? 0.5 : 0.85,
+          transition: 'opacity 240ms ease, stroke 240ms ease',
         }}
       />
       {active && !reduce && (

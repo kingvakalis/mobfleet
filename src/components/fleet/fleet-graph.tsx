@@ -9,18 +9,22 @@ import {
   type Edge,
   type Node,
   type OnSelectionChangeParams,
+  type Viewport,
 } from '@xyflow/react'
 import { AnimatePresence } from 'framer-motion'
 import '@xyflow/react/dist/style.css'
 import { useFleet } from '@/hooks/use-fleet'
 import { client } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
-import { useUIStore } from '@/state/ui-store'
-import { hasWarped, positionFor, savePosition } from '@/lib/layout/constellation'
-import { STATUS } from '@/lib/status'
+import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
+import {
+  hasWarped, positionFor, savePosition,
+  orchestratorPos, saveOrchestratorPos,
+  savedViewport, saveViewport,
+} from '@/lib/layout/constellation'
+import { matchesDevice, groupColor } from '@/lib/fleet-filtering'
 import type { Device, Job } from '@/lib/provider/types'
 import { DeviceNode, NODE_H, NODE_W, type DeviceNodeData } from './device-node'
-import type { FleetFilters } from './fleet-controls'
 import { CORE_SIZE, OrchestratorNode } from './orchestrator-node'
 import { PulseEdge } from './pulse-edge'
 import { GraphControls } from './graph-controls'
@@ -33,17 +37,17 @@ const edgeTypes = { pulse: PulseEdge }
 const DISSOLVE_MS = 420
 
 function makeOrchestrator(): Node {
+  const p = orchestratorPos()
   return {
     id: 'orchestrator',
     type: 'orchestrator',
-    position: { x: -CORE_SIZE / 2, y: -CORE_SIZE / 2 },
+    position: { x: p.x - CORE_SIZE / 2, y: p.y - CORE_SIZE / 2 },
     data: {},
-    draggable: false,
     selectable: false,
   }
 }
 
-function deviceNode(d: Device, job: Job | null, opts: { isNew?: boolean; dimmed?: boolean }): Node {
+function deviceNode(d: Device, job: Job | null, opts: Partial<DeviceNodeData>): Node {
   const p = positionFor(d.id)
   const data: DeviceNodeData = { device: d, job, pos: p, ...opts }
   return {
@@ -54,40 +58,10 @@ function deviceNode(d: Device, job: Job | null, opts: { isNew?: boolean; dimmed?
   }
 }
 
-function buildAll(devices: Device[], jobsById: Map<string, Job>): Node[] {
-  const list: Node[] = [makeOrchestrator()]
-  for (const d of devices) {
-    const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
-    list.push(deviceNode(d, job, { isNew: !hasWarped(d.id) }))
-  }
-  return list
-}
-
-function Graph({ filters }: { filters?: FleetFilters }) {
+function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) {
   const snapshot = useFleet()
-  const groupFilter = useUIStore((s) => s.groupFilter)
   const { fitView } = useReactFlow()
-
-  // A device that fails any active filter is dimmed (not removed — layout stays stable).
-  const matches = useCallback(
-    (d: Device): boolean => {
-      if (groupFilter && d.group !== groupFilter) return false
-      if (!filters) return true
-      if (filters.group && d.group !== filters.group) return false
-      if (filters.status && STATUS[d.status].label !== filters.status) return false
-      if (filters.search && !d.name.toLowerCase().includes(filters.search.toLowerCase())) return false
-      return true
-    },
-    [groupFilter, filters],
-  )
-
-  // Expose fit-to-screen to the command palette.
-  useEffect(() => {
-    graphBus.fitView = () => void fitView({ padding: 0.28, duration: 400 })
-    return () => {
-      graphBus.fitView = undefined
-    }
-  }, [fitView])
+  const filtersOn = fleetFiltersActive(filters)
 
   const jobsById = useMemo(() => {
     const m = new Map<string, Job>()
@@ -95,15 +69,45 @@ function Graph({ filters }: { filters?: FleetFilters }) {
     return m
   }, [snapshot.jobs])
 
-  // Seed managed nodes synchronously so fitView has something to frame.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const initialNodes = useMemo(() => buildAll(snapshot.devices, jobsById), [])
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const matches = useCallback(
+    (d: Device): boolean => matchesDevice(filters, d, d.jobId ? jobsById.get(d.jobId) ?? null : null),
+    [filters, jobsById],
+  )
+
+  const matchingIds = useMemo(
+    () => snapshot.devices.filter(matches).map((d) => d.id),
+    [snapshot.devices, matches],
+  )
+
+  // Expose fit-to-screen + focus-matches to the command palette / filter bar.
+  useEffect(() => {
+    graphBus.fitView = () => void fitView({ padding: 0.28, duration: 400 })
+    graphBus.focusMatches = () => {
+      if (matchingIds.length === 0) return
+      void fitView({ nodes: matchingIds.map((id) => ({ id })), padding: 0.3, duration: 500 })
+    }
+    return () => {
+      graphBus.fitView = undefined
+      graphBus.focusMatches = undefined
+    }
+  }, [fitView, matchingIds])
+
+  const buildAll = useCallback((): Node[] => {
+    const list: Node[] = [makeOrchestrator()]
+    for (const d of snapshot.devices) {
+      const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
+      list.push(deviceNode(d, job, { isNew: !hasWarped(d.id) }))
+    }
+    return list
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Seed managed nodes synchronously so the initial frame has content.
+  const [nodes, setNodes, onNodesChange] = useNodesState(useMemo(() => buildAll(), [buildAll]))
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
-  // Sync the live snapshot into managed nodes: update data in place (keeps
-  // selection / hover / zIndex), warp in new devices, hold removed ones for the
-  // dissolve, then drop them.
+  // Sync the live snapshot + filters into managed nodes: update data in place
+  // (keeps selection / drag positions), warp in new devices, dissolve removed.
   useEffect(() => {
     const currentIds = new Set(snapshot.devices.map((d) => d.id))
     setNodes((prev) => {
@@ -112,12 +116,22 @@ function Graph({ filters }: { filters?: FleetFilters }) {
 
       for (const d of snapshot.devices) {
         const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
-        const dimmed = !matches(d)
+        const isMatch = matches(d)
+        const dimmed = filtersOn && !isMatch
+        const emphasized = filtersOn && isMatch
+        const gc = filters.groups.length > 1 ? groupColor(filters.groups, d.group) : null
+        const hidden = filters.hideNonMatching && dimmed
         const existing = byId.get(d.id)
         if (existing) {
-          next.push({ ...existing, data: { ...existing.data, device: d, job, exiting: false, dimmed } })
+          next.push({
+            ...existing,
+            hidden,
+            // Matching phones stack above dimmed ones; selection above all.
+            zIndex: existing.selected ? 30 : emphasized ? 20 : (existing.data as DeviceNodeData).hovered ? 25 : 0,
+            data: { ...existing.data, device: d, job, exiting: false, dimmed, emphasized, groupColor: gc },
+          })
         } else {
-          next.push(deviceNode(d, job, { isNew: !hasWarped(d.id), dimmed }))
+          next.push({ ...deviceNode(d, job, { isNew: !hasWarped(d.id), dimmed, emphasized, groupColor: gc }), hidden })
         }
       }
 
@@ -133,22 +147,30 @@ function Graph({ filters }: { filters?: FleetFilters }) {
       }
       return next
     })
-  }, [snapshot.devices, jobsById, setNodes, matches])
+  }, [snapshot.devices, jobsById, setNodes, matches, filtersOn, filters.groups, filters.hideNonMatching])
 
   const edges = useMemo<Edge[]>(
     () =>
       snapshot.devices
-        .filter((d) => d.status !== 'offline' && matches(d))
-        .map((d) => ({
-          id: `e-${d.id}`,
-          source: 'orchestrator',
-          target: d.id,
-          sourceHandle: 'core',
-          targetHandle: 'in',
-          type: 'pulse',
-          data: { active: d.status === 'busy' },
-        })),
-    [snapshot.devices, groupFilter],
+        .filter((d) => d.status !== 'offline')
+        .filter((d) => !(filters.hideNonMatching && filtersOn && !matches(d)))
+        .map((d) => {
+          const isMatch = matches(d)
+          return {
+            id: `e-${d.id}`,
+            source: 'orchestrator',
+            target: d.id,
+            sourceHandle: 'core',
+            targetHandle: 'in',
+            type: 'pulse',
+            data: {
+              active: d.status === 'busy',
+              emphasized: filtersOn && isMatch,
+              dimmed: filtersOn && !isMatch,
+            },
+          }
+        }),
+    [snapshot.devices, filtersOn, filters.hideNonMatching, matches],
   )
 
   // --- interaction ---------------------------------------------------------
@@ -158,9 +180,9 @@ function Graph({ filters }: { filters?: FleetFilters }) {
       if (node.type !== 'device') return
       setNodes((ns) =>
         ns.map((n) => {
-          if (n.id === node.id) return { ...n, zIndex: 1000, data: { ...n.data, hovered: true } }
+          if (n.id === node.id) return { ...n, zIndex: 25, data: { ...n.data, hovered: true } }
           if ((n.data as DeviceNodeData)?.hovered)
-            return { ...n, zIndex: n.selected ? 10 : 0, data: { ...n.data, hovered: false } }
+            return { ...n, zIndex: n.selected ? 30 : 0, data: { ...n.data, hovered: false } }
           return n
         }),
       )
@@ -173,7 +195,7 @@ function Graph({ filters }: { filters?: FleetFilters }) {
       setNodes((ns) =>
         ns.map((n) =>
           n.id === node.id
-            ? { ...n, zIndex: n.selected ? 10 : 0, data: { ...n.data, hovered: false } }
+            ? { ...n, zIndex: n.selected ? 30 : 0, data: { ...n.data, hovered: false } }
             : n,
         ),
       )
@@ -185,24 +207,43 @@ function Graph({ filters }: { filters?: FleetFilters }) {
     setSelectedIds(params.nodes.filter((n) => n.type === 'device').map((n) => n.id))
   }, [])
 
-  const openDrawer = useUIStore((s) => s.openDrawer)
+  // Double-click → full phone control page (single click only selects).
+  const openPhoneControl = useUIStore((s) => s.openPhoneControl)
   const onNodeDoubleClick = useCallback(
     (_: unknown, node: Node) => {
-      if (node.type === 'device') openDrawer(node.id)
+      if (node.type === 'device') openPhoneControl(node.id)
     },
-    [openDrawer],
+    [openPhoneControl],
   )
-
-  // Operator drag → persist the node's center as its custom layout position.
-  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
-    if (node.type !== 'device') return
-    savePosition(node.id, { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 })
-  }, [])
 
   const clearSelection = useCallback(
     () => setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))),
     [setNodes],
   )
+
+  // Escape clears selection / closes the contextual card.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') clearSelection()
+      // Keyboard access: Enter opens control for a single selected phone.
+      if (e.key === 'Enter' && selectedIds.length === 1) openPhoneControl(selectedIds[0])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [clearSelection, selectedIds, openPhoneControl])
+
+  // Operator drag → persist the node's center in graph coordinates.
+  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
+    if (node.type === 'orchestrator') {
+      saveOrchestratorPos({ x: node.position.x + CORE_SIZE / 2, y: node.position.y + CORE_SIZE / 2 })
+      return
+    }
+    savePosition(node.id, { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 })
+  }, [])
+
+  const onMoveEnd = useCallback((_: unknown, viewport: Viewport) => {
+    saveViewport(viewport)
+  }, [])
 
   const bulk = useMemo(
     () => ({
@@ -218,6 +259,8 @@ function Graph({ filters }: { filters?: FleetFilters }) {
     [selectedIds, clearSelection],
   )
 
+  const initialViewport = useMemo(() => savedViewport(), [])
+
   return (
     <ReactFlow
       nodes={nodes}
@@ -228,26 +271,30 @@ function Graph({ filters }: { filters?: FleetFilters }) {
       onSelectionChange={onSelectionChange}
       onNodeDoubleClick={onNodeDoubleClick}
       onPaneClick={clearSelection}
+      onNodeDragStop={onNodeDragStop}
+      onMoveEnd={onMoveEnd}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      onNodeDragStop={onNodeDragStop}
-      fitView
-      fitViewOptions={{ padding: 0.28 }}
+      {...(initialViewport
+        ? { defaultViewport: initialViewport }
+        : { fitView: true, fitViewOptions: { padding: 0.28 } })}
       minZoom={0.2}
       maxZoom={2}
-      nodesDraggable
+      nodesDraggable={!locked}
       nodeDragThreshold={6}
       nodesConnectable={false}
       elementsSelectable
       selectNodesOnDrag={false}
       zoomOnDoubleClick={false}
+      panOnDrag
+      panOnScroll={false}
       proOptions={{ hideAttribution: true }}
-      className="bg-canvas"
+      className="fleet-flow bg-canvas"
     >
       <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#1b2230" />
       <GraphControls />
       <AnimatePresence>
-        {selectedIds.length > 0 && (
+        {selectedIds.length > 1 && (
           <BulkActionBar
             count={selectedIds.length}
             onStart={bulk.start}
@@ -262,11 +309,11 @@ function Graph({ filters }: { filters?: FleetFilters }) {
   )
 }
 
-export function FleetGraph({ filters }: { filters?: FleetFilters }) {
+export function FleetGraph({ filters, locked }: { filters: FleetFilters; locked: boolean }) {
   return (
     <div className="h-full w-full">
       <ReactFlowProvider>
-        <Graph filters={filters} />
+        <Graph filters={filters} locked={locked} />
       </ReactFlowProvider>
     </div>
   )

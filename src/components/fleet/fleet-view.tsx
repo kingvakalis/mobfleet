@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Layers, X, Box, Network, Activity } from 'lucide-react'
+import { Layers, Box, Network, Activity, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
 import { EXPO_OUT } from '@/lib/motion'
+import { graphBus } from '@/lib/graph-bus'
+import { isLayoutLocked, setLayoutLocked, resetLayout } from '@/lib/layout/constellation'
 import { useUIStore } from '@/state/ui-store'
 import { FleetGraph } from './fleet-graph'
 import { Fleet3D } from './fleet-3d'
-import { FleetControls, type FleetFilters } from './fleet-controls'
+import { FleetControls } from './fleet-controls'
 import { FleetActivityDrawer } from './fleet-right-panel'
 
 type ViewMode = '2d' | '3d'
@@ -52,24 +54,30 @@ function FleetEmpty() {
 }
 
 export function FleetView() {
-  const snapshot       = useFleet()
-  const stats          = useFleetStats()
-  const groupFilterUI  = useUIStore((s) => s.groupFilter)
-  const setGroupFilterUI = useUIStore((s) => s.setGroupFilter)
+  const snapshot = useFleet()
+  const stats    = useFleetStats()
+  // Filters live in the UI store so they survive 2D↔3D switches and
+  // phone-control round-trips (session-scoped, not permanently saved).
+  const filters    = useUIStore((s) => s.fleetFilters)
+  const setFilters = useUIStore((s) => s.setFleetFilters)
 
-  const [mode, setMode]           = useState<ViewMode>('2d')
-  const [filters, setFilters]     = useState<FleetFilters>({ search: '', status: null, group: null })
+  const [mode, setMode] = useState<ViewMode>('2d')
   const [activityOpen, setActivityOpen] = useState(false)
+  const [locked, setLockedState] = useState(() => isLayoutLocked())
+  const [layoutEpoch, setLayoutEpoch] = useState(0)
 
-  const devices = snapshot?.devices
-  const groups = useMemo(
-    () => [...new Set((devices ?? []).map((d) => d.group))].sort(),
-    [devices],
-  )
+  const setLocked = (v: boolean) => {
+    setLayoutLocked(v)
+    setLockedState(v)
+  }
 
-  const inGroup = groupFilterUI
-    ? (snapshot?.devices ?? []).filter((d) => d.group === groupFilterUI).length
-    : stats.total
+  const handleResetPositions = () => {
+    if (!window.confirm('Reset all phone positions? This deletes your custom arrangement.')) return
+    resetLayout()
+    // Remount the graph so phyllotaxis re-applies, then refit.
+    setLayoutEpoch((e) => e + 1)
+    setTimeout(() => graphBus.fitView?.(), 80)
+  }
 
   return (
     <AnimatePresence mode="wait">
@@ -128,26 +136,30 @@ export function FleetView() {
                   {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
                 </div>
               </div>
-              {groupFilterUI && (
-                <button
-                  type="button"
-                  onClick={() => setGroupFilterUI(null)}
-                  className="mt-2 inline-flex items-center gap-2 rounded-control border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2.5 py-1.5 transition-colors hover:bg-[var(--accent-soft)]"
-                >
-                  <span className="label text-[var(--accent-text)]">{groupFilterUI}</span>
-                  <span className="mono text-[10px] text-fg-muted">{inGroup}</span>
-                  <X size={12} className="text-fg-muted" />
-                </button>
+              {locked && (
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-control border border-amber-400/35 bg-amber-400/10 px-2.5 py-1.5">
+                  <Lock size={10} className="text-amber-400" />
+                  <span className="mono text-[9px] uppercase tracking-wider text-amber-400">Layout locked</span>
+                </div>
               )}
             </div>
 
-            {/* Floating controls bar */}
+            {/* Floating filter + layout bar */}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-              <FleetControls filters={filters} setFilters={setFilters} groups={groups} />
+              <FleetControls
+                filters={filters}
+                setFilters={setFilters}
+                locked={locked}
+                setLocked={setLocked}
+                onResetPositions={handleResetPositions}
+                onFocusMatches={() => graphBus.focusMatches?.()}
+              />
             </div>
 
             {/* Visualization */}
-            {mode === '3d' ? <Fleet3D /> : <FleetGraph filters={filters} />}
+            {mode === '3d'
+              ? <Fleet3D filters={filters} />
+              : <FleetGraph key={layoutEpoch} filters={filters} locked={locked} />}
           </div>
 
           {/* Collapsible activity / health drawer */}
