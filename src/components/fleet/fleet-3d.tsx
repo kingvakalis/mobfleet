@@ -3,23 +3,7 @@ import React, {
 } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Billboard, Text, Sphere, Environment } from '@react-three/drei'
-let EffectComposer: React.ComponentType<React.PropsWithChildren> | null = null
-let Bloom: React.ComponentType<{ intensity: number; luminanceThreshold: number; luminanceSmoothing: number; mipmapBlur: boolean }> | null = null
-let ChromaticAberration: React.ComponentType<{ blendFunction: number; offset: Vector2 }> | null = null
-let Vignette: React.ComponentType<{ eskil: boolean; offset: number; darkness: number }> | null = null
-let BlendFunction: { NORMAL: number } = { NORMAL: 0 }
-try {
-  // @ts-ignore
-  const pp = require('@react-three/postprocessing')
-  EffectComposer = pp.EffectComposer
-  Bloom = pp.Bloom
-  ChromaticAberration = pp.ChromaticAberration
-  Vignette = pp.Vignette
-  // @ts-ignore
-  const ppcore = require('postprocessing')
-  BlendFunction = ppcore.BlendFunction
-} catch (_) { /* postprocessing unavailable */ }
-import { Vector2 } from 'three'
+// postprocessing removed — caused dual Three.js instance / WebGL context failure
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -528,21 +512,7 @@ function Scene({
       })}
 
       <Environment preset="city" />
-      {EffectComposer && Bloom && ChromaticAberration && Vignette && (
-        <EffectComposer>
-          <Bloom
-            intensity={0.4}
-            luminanceThreshold={0.6}
-            luminanceSmoothing={0.9}
-            mipmapBlur
-          />
-          <ChromaticAberration
-            blendFunction={BlendFunction.NORMAL}
-            offset={new Vector2(0.0005, 0.0005)}
-          />
-          <Vignette eskil={false} offset={0.1} darkness={0.6} />
-        </EffectComposer>
-      )}
+      {/* postprocessing effects removed — used native R3F lighting instead */}
       <OrbitControls
         ref={controlsRef}
         enablePan
