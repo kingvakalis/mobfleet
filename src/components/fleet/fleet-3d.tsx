@@ -2,202 +2,451 @@ import React, {
   useRef, useState, useMemo, useCallback, useEffect, Suspense,
 } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Billboard, Text, Sphere, Environment } from '@react-three/drei'
-// postprocessing removed — caused dual Three.js instance / WebGL context failure
+import { OrbitControls, Billboard, Text, Environment, Lightformer } from '@react-three/drei'
+// Postprocessing uses three's OWN EffectComposer (three/examples/jsm) — single
+// Three.js instance, so the dual-instance WebGL crash from
+// @react-three/postprocessing cannot recur.
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
-  Maximize2, RotateCcw, Focus, Target,
+  Maximize2, RotateCcw, Target,
   Cpu, Activity,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
+import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
+import type { DeviceStatus } from '@/lib/status'
 
-// ─── Constants ─────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_COLOR: Record<string, string> = {
-  online:  '#22c55e',
-  running: '#3b82f6',
-  warning: '#f59e0b',
-  offline: '#ef4444',
-  booting: '#94a3b8',
+/** Status colors — the design-token palette (`--status-*`), not a generic one. */
+const STATUS_COLOR: Record<DeviceStatus, string> = {
+  online:  '#00ff88',
+  busy:    '#4fc3f7',
+  warming: '#ffb300',
+  offline: '#3d3d46',
+  error:   '#ff3b3b',
 }
-const STATUS_HEX: Record<string, number> = {
-  online:  0x22c55e,
-  running: 0x3b82f6,
-  warning: 0xf59e0b,
-  offline: 0xef4444,
-  booting: 0x94a3b8,
-}
-const DEFAULT_CAM: [number, number, number] = [0, 5, 15]
+const CORE_COLOR = '#4fc3f7'
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+const INTRO_CAM:   [number, number, number] = [0, 14, 27]
+const DEFAULT_CAM: [number, number, number] = [0, 5.5, 15]
+
+const easeOutExpo = (x: number) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x))
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x))
+
+// Per-frame scratch objects — never allocate inside useFrame.
+const _vA = new THREE.Vector3()
+const _vB = new THREE.Vector3()
+const _vDir = new THREE.Vector3()
+const _introEnd = new THREE.Vector3(...DEFAULT_CAM)
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface NodeData {
   id: string
   name: string
-  status: string
+  status: DeviceStatus
   pos: [number, number, number]
-  group?: string
+  model?: string
+  region?: string
   job?: string
 }
 
 interface ContextMenuState {
   nodeId: string
+  name: string
   x: number
   y: number
 }
 
-// ─── Shared geometry / material cache ───────────────────────────────────────
+// ─── Postprocessing — bloom via three's own composer ─────────────────────────
 
-// Geometries created lazily inside Canvas to ensure single Three.js instance
-function usePhoneGeos() {
-  return useMemo(() => ({
-    phone:  new THREE.BoxGeometry(0.26, 0.46, 0.06, 1, 1, 1),
-    screen: new THREE.PlaneGeometry(0.20, 0.34),
-    notch:  new THREE.CapsuleGeometry(0.012, 0.04, 4, 8),
-    button: new THREE.CapsuleGeometry(0.005, 0.05, 4, 8),
-    ring:   new THREE.TorusGeometry(0.22, 0.012, 8, 64),
-  }), [])
+function Effects() {
+  const { gl, scene, camera, size } = useThree()
+
+  const composer = useMemo(() => {
+    const target = new THREE.WebGLRenderTarget(size.width, size.height, {
+      type: THREE.HalfFloatType,
+      samples: 4,
+    })
+    const c = new EffectComposer(gl, target)
+    c.addPass(new RenderPass(scene, camera))
+    c.addPass(new UnrealBloomPass(new THREE.Vector2(size.width, size.height), 0.75, 0.55, 0.16))
+    c.addPass(new OutputPass())
+    return c
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl, scene, camera])
+
+  useEffect(() => {
+    composer.setPixelRatio(gl.getPixelRatio())
+    composer.setSize(size.width, size.height)
+  }, [composer, gl, size])
+
+  useEffect(() => () => composer.dispose(), [composer])
+
+  // Priority 1 takes over the render loop from R3F.
+  useFrame(() => composer.render(), 1)
+  return null
 }
 
-// ─── Particle along a line ───────────────────────────────────────────────────
+// ─── Starfield ───────────────────────────────────────────────────────────────
 
-function LineParticle({
-  from, to, color, speed, active,
-}: {
-  from: THREE.Vector3; to: THREE.Vector3
-  color: THREE.Color; speed: number; active: boolean
-}) {
-  const ref = useRef<THREE.Mesh>(null)
-  const t   = useRef(Math.random())
+function Starfield({ reduced }: { reduced: boolean }) {
+  const ref = useRef<THREE.Points>(null)
+
+  const positions = useMemo(() => {
+    const N = 850
+    const arr = new Float32Array(N * 3)
+    let seed = 1337
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647
+      return seed / 2147483647
+    }
+    for (let i = 0; i < N; i++) {
+      const r = 16 + rnd() * 42
+      const theta = rnd() * Math.PI * 2
+      const phi = Math.acos(2 * rnd() - 1)
+      arr[i * 3]     = r * Math.sin(phi) * Math.cos(theta)
+      arr[i * 3 + 1] = r * Math.cos(phi) * 0.6
+      arr[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta)
+    }
+    return arr
+  }, [])
 
   useFrame((_, dt) => {
-    if (!ref.current || !active) return
-    t.current = (t.current + dt * speed) % 1
-    ref.current.position.lerpVectors(from, to, t.current)
+    if (ref.current && !reduced) ref.current.rotation.y += dt * 0.005
   })
 
-  if (!active) return null
   return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[0.04, 6, 6]} />
-      <meshBasicMaterial color={color} transparent opacity={0.8} />
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.055}
+        sizeAttenuation
+        color="#9db8e8"
+        transparent
+        opacity={0.5}
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
+    </points>
+  )
+}
+
+// ─── Floor grid ──────────────────────────────────────────────────────────────
+
+function FloorGrid() {
+  const grid = useMemo(() => {
+    const g = new THREE.PolarGridHelper(17, 20, 7, 80, 0x1b1b24, 0x12121a)
+    const mat = g.material as THREE.LineBasicMaterial
+    mat.transparent = true
+    mat.opacity = 0.55
+    mat.depthWrite = false
+    return g
+  }, [])
+  useEffect(() => () => {
+    grid.geometry.dispose()
+    ;(grid.material as THREE.Material).dispose()
+  }, [grid])
+  return <primitive object={grid} position={[0, -4.2, 0]} />
+}
+
+// ─── Energy link (curved tube + shader pulse) ────────────────────────────────
+
+const LINK_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+
+const LINK_FRAG = /* glsl */ `
+  varying vec2 vUv;
+  uniform float uTime;
+  uniform vec3  uColor;
+  uniform float uBase;   // resting brightness
+  uniform float uPulse;  // pulse amplitude
+  uniform float uSpeed;  // pulse travel speed
+  uniform float uFlash;  // 1 = error flicker
+
+  float gauss(float x, float c, float w) {
+    float d = x - c;
+    return exp(-(d * d) / (w * w));
+  }
+
+  void main() {
+    float p = fract(uTime * uSpeed);
+    float e = gauss(vUv.x, p, 0.030)
+            + 0.55 * gauss(vUv.x, fract(p - 0.10), 0.045);
+    float flick = mix(1.0, 0.55 + 0.45 * sin(uTime * 11.0), uFlash);
+    float i = (uBase + uPulse * e) * flick;
+    i *= smoothstep(0.0, 0.05, vUv.x) * smoothstep(1.0, 0.96, vUv.x);
+    gl_FragColor = vec4(uColor * i * 2.4, i);
+  }
+`
+
+function linkTargets(status: DeviceStatus, selected: boolean, hovered: boolean) {
+  let base = 0.05, pulse = 0.35, speed = 0.10, flash = 0
+  switch (status) {
+    case 'busy':    base = 0.09; pulse = 0.95; speed = 0.50; break
+    case 'warming': base = 0.06; pulse = 0.45; speed = 0.22; break
+    case 'error':   base = 0.07; pulse = 0.50; speed = 0.30; flash = 1; break
+    case 'offline': base = 0.015; pulse = 0;   speed = 0;    break
+  }
+  if (hovered)  { base += 0.10; pulse += 0.30 }
+  if (selected) { base = Math.max(base, 0.26); pulse = Math.max(pulse, 1.1); speed = Math.max(speed, 0.6) }
+  return { base, pulse, speed, flash }
+}
+
+function EnergyLink({
+  to, status, selected, hovered,
+}: {
+  to: [number, number, number]
+  status: DeviceStatus
+  selected: boolean
+  hovered: boolean
+}) {
+  const matRef = useRef<THREE.ShaderMaterial>(null)
+  const targetColor = useMemo(() => new THREE.Color(STATUS_COLOR[status]), [status])
+
+  const geometry = useMemo(() => {
+    const end = new THREE.Vector3(...to)
+    const dir = end.clone().setY(0).normalize()
+    const start = dir.clone().multiplyScalar(0.95).setY(end.y * 0.08)
+    const mid = start.clone().add(end).multiplyScalar(0.5)
+    mid.y += end.distanceTo(start) * 0.10
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end)
+    return new THREE.TubeGeometry(curve, 36, 0.0085, 5, false)
+  }, [to])
+
+  const uniforms = useMemo(() => ({
+    uTime:  { value: 0 },
+    uColor: { value: new THREE.Color(STATUS_COLOR[status]) },
+    uBase:  { value: 0 },
+    uPulse: { value: 0 },
+    uSpeed: { value: 0.1 },
+    uFlash: { value: 0 },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
+
+  useEffect(() => () => {
+    geometry.dispose()
+  }, [geometry])
+
+  useFrame(({ clock }, dt) => {
+    const m = matRef.current
+    if (!m) return
+    const t = linkTargets(status, selected, hovered)
+    const k = 1 - Math.exp(-7 * dt)
+    m.uniforms.uTime.value = clock.elapsedTime
+    m.uniforms.uBase.value  += (t.base  - m.uniforms.uBase.value)  * k
+    m.uniforms.uPulse.value += (t.pulse - m.uniforms.uPulse.value) * k
+    m.uniforms.uSpeed.value += (t.speed - m.uniforms.uSpeed.value) * k
+    m.uniforms.uFlash.value += (t.flash - m.uniforms.uFlash.value) * k
+    ;(m.uniforms.uColor.value as THREE.Color).lerp(targetColor, k)
+  })
+
+  return (
+    <mesh geometry={geometry}>
+      <shaderMaterial
+        ref={matRef}
+        vertexShader={LINK_VERT}
+        fragmentShader={LINK_FRAG}
+        uniforms={uniforms}
+        transparent
+        blending={THREE.AdditiveBlending}
+        depthWrite={false}
+      />
     </mesh>
   )
 }
 
-// ─── Connection line ─────────────────────────────────────────────────────────
+// ─── Phone screen shader ─────────────────────────────────────────────────────
 
-function ConnectionLine({
-  from, to, status, selected, hovered,
-}: {
-  from: THREE.Vector3; to: THREE.Vector3
-  status: string; selected: boolean; hovered: boolean
-}) {
-  const lineRef = useRef<THREE.Line>(null)
-  const geom    = useMemo(() => new THREE.BufferGeometry().setFromPoints([from, to]), [from, to])
-  const color   = useMemo(() => new THREE.Color(STATUS_COLOR[status] ?? '#6b7280'), [status])
-  const particleColor = useMemo(() => new THREE.Color(STATUS_COLOR[status] ?? '#818cf8'), [status])
+const SCREEN_VERT = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
 
-  const active  = status === 'online' || status === 'running'
-  const opacity = selected ? 0.9 : hovered ? 0.6 : active ? 0.18 : 0.06
+const SCREEN_FRAG = /* glsl */ `
+  varying vec2 vUv;
+  uniform float uTime;
+  uniform vec3  uColor;
+  uniform float uActivity; // 0 dark → 1 busy
+  uniform float uBoost;    // hover / selection lift
+  uniform float uFlash;    // error strobe
 
-  useFrame(() => {
-    if (!lineRef.current) return
-    const mat = lineRef.current.material as THREE.LineBasicMaterial
-    mat.opacity = THREE.MathUtils.lerp(mat.opacity, opacity, 0.08)
-  })
+  void main() {
+    vec2 uv = vUv;
+    // bezel vignette
+    float vig = smoothstep(0.0, 0.10, uv.x) * smoothstep(1.0, 0.90, uv.x)
+              * smoothstep(0.0, 0.07, uv.y) * smoothstep(1.0, 0.93, uv.y);
+    // vertical sheen
+    float grad = mix(0.8, 1.25, uv.y);
+    // slow scan shimmer
+    float scan = 1.0 + 0.06 * sin(uv.y * 110.0 - uTime * 2.4);
+    // travelling activity band
+    float band = exp(-pow((fract(uv.y - uTime * (0.04 + uActivity * 0.22)) - 0.5) * 3.6, 2.0));
+    float flash = mix(1.0, 0.6 + 0.4 * sin(uTime * 9.0), uFlash);
+    vec3 c = uColor * (0.14 + 0.55 * uActivity * band + 0.45 * uBoost) * grad * scan * flash;
+    gl_FragColor = vec4(c * vig + vec3(0.012), 1.0);
+  }
+`
 
-  const mat = useMemo(
-    () => new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.1 }),
-    [color],
-  )
-  const lineObj = useMemo(() => new THREE.Line(geom, mat), [geom, mat])
+function screenActivity(status: DeviceStatus): number {
+  switch (status) {
+    case 'busy':    return 1
+    case 'online':  return 0.45
+    case 'warming': return 0.6
+    case 'error':   return 0.5
+    default:        return 0.04
+  }
+}
 
-  return (
-    <>
-      <primitive ref={lineRef} object={lineObj} />
-      {[0.0, 0.33, 0.66].map(offset => (
-        <LineParticle
-          key={offset}
-          from={from}
-          to={to}
-          color={particleColor}
-          speed={selected ? 0.6 : active ? 0.25 : 0.0}
-          active={active || selected}
-        />
-      ))}
-    </>
-  )
+// ─── Shared geometry cache (created inside Canvas — single three instance) ──
+
+function usePhoneGeos() {
+  const geos = useMemo(() => ({
+    body:   new RoundedBoxGeometry(0.28, 0.52, 0.055, 3, 0.035),
+    screen: new THREE.PlaneGeometry(0.225, 0.42),
+    notch:  new THREE.CapsuleGeometry(0.011, 0.045, 4, 8),
+    button: new THREE.CapsuleGeometry(0.005, 0.05, 4, 8),
+    led:    new THREE.SphereGeometry(0.016, 8, 8),
+    arcA:   new THREE.TorusGeometry(0.27, 0.008, 6, 48, Math.PI * 1.3),
+    arcB:   new THREE.TorusGeometry(0.315, 0.006, 6, 48, Math.PI * 0.85),
+  }), [])
+  useEffect(() => () => {
+    Object.values(geos).forEach(g => g.dispose())
+  }, [geos])
+  return geos
 }
 
 // ─── Phone node ──────────────────────────────────────────────────────────────
 
 function PhoneNode({
-  data, selected, hovered,
+  data, index, selected, hovered, reduced,
   onSelect, onHover, onDoubleClick, onRightClick,
 }: {
   data: NodeData
+  index: number
   selected: boolean
   hovered:  boolean
+  reduced:  boolean
   onSelect:      () => void
   onHover:       (v: boolean) => void
   onDoubleClick: () => void
   onRightClick:  (x: number, y: number) => void
 }) {
-  const groupRef = useRef<THREE.Group>(null)
-  const ringRef  = useRef<THREE.Mesh>(null)
-  const glowRef  = useRef<THREE.PointLight>(null)
-  const color    = STATUS_HEX[data.status] ?? 0x6b7280
-  const geos     = usePhoneGeos()
-  // Float animation
-  const floatOff = useMemo(() => Math.random() * Math.PI * 2, [])
+  const groupRef  = useRef<THREE.Group>(null)
+  const bodyRef   = useRef<THREE.MeshPhysicalMaterial>(null)
+  const ledRef    = useRef<THREE.MeshBasicMaterial>(null)
+  const arcARef   = useRef<THREE.Mesh>(null)
+  const arcBRef   = useRef<THREE.Mesh>(null)
+  const geos      = usePhoneGeos()
+  const mountT    = useRef<number | null>(null)
+  const floatOff  = useMemo(() => (index * 0.61803) % (Math.PI * 2), [index])
 
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return
-    const t = clock.getElapsedTime()
+  const targetColor = useMemo(() => new THREE.Color(STATUS_COLOR[data.status]), [data.status])
+  const color = useRef(new THREE.Color(STATUS_COLOR[data.status]))
 
-    // Float
-    const targetY = data.pos[1]
-      + Math.sin(t * 0.7 + floatOff) * 0.06
-      + (selected ? 0.35 : hovered ? 0.18 : 0)
-    groupRef.current.position.y = THREE.MathUtils.lerp(
-      groupRef.current.position.y, targetY, 0.06,
-    )
+  const screenRef = useRef<THREE.ShaderMaterial>(null)
+  const screenUniforms = useMemo(() => ({
+    uTime:     { value: 0 },
+    uColor:    { value: new THREE.Color(STATUS_COLOR[data.status]) },
+    uActivity: { value: screenActivity(data.status) },
+    uBoost:    { value: 0 },
+    uFlash:    { value: data.status === 'error' ? 1 : 0 },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
 
-    // Tilt toward camera on hover
-    const targetTilt = hovered ? 0.18 : 0
-    groupRef.current.rotation.x = THREE.MathUtils.lerp(
-      groupRef.current.rotation.x, targetTilt, 0.08,
-    )
+  useEffect(() => () => { document.body.style.cursor = 'default' }, [])
+
+  useFrame(({ clock }, dt) => {
+    const g = groupRef.current
+    if (!g) return
+    const t = clock.elapsedTime
+    if (mountT.current === null) mountT.current = t
+
+    // Warp-in: staggered scale-up, expo-out
+    const appear = easeOutExpo(clamp01((t - mountT.current - index * 0.04) / 0.75))
+
+    const k4 = 1 - Math.exp(-4 * dt)
+    const k7 = 1 - Math.exp(-7 * dt)
+
+    // Position — float + interaction lift, frame-rate independent
+    const floatY = reduced ? 0 : Math.sin(t * 0.6 + floatOff) * 0.05
+    const lift = selected ? 0.30 : hovered ? 0.14 : 0
+    g.position.x += (data.pos[0] - g.position.x) * k4
+    g.position.z += (data.pos[2] - g.position.z) * k4
+    g.position.y += (data.pos[1] + floatY + lift - g.position.y) * k4
 
     // Scale
-    const targetScale = selected ? 1.35 : hovered ? 1.15 : 1
-    groupRef.current.scale.setScalar(
-      THREE.MathUtils.lerp(groupRef.current.scale.x, targetScale, 0.1),
-    )
+    const targetScale = (selected ? 1.3 : hovered ? 1.12 : 1) * appear
+    const s = g.scale.x + (targetScale - g.scale.x) * k7
+    g.scale.setScalar(Math.max(s, 0.0001))
 
-    // Ring
-    if (ringRef.current) {
-      ringRef.current.rotation.z = t * (selected ? 1.5 : 0.4)
-      const mat = ringRef.current.material as THREE.MeshBasicMaterial
-      mat.opacity = selected ? 0.85 : hovered ? 0.4 : 0
+    // Tilt toward camera on hover; gentle idle sway otherwise
+    const tiltX = (hovered || selected) ? -0.12 : 0
+    const swayY = (hovered || selected) || reduced ? 0 : Math.sin(t * 0.22 + floatOff) * 0.18
+    g.rotation.x += (tiltX - g.rotation.x) * k7
+    g.rotation.y += (swayY - g.rotation.y) * (1 - Math.exp(-2.5 * dt))
+
+    // Status color crossfade
+    color.current.lerp(targetColor, 1 - Math.exp(-6 * dt))
+
+    if (bodyRef.current) {
+      bodyRef.current.emissive.copy(color.current)
+      const ei = selected ? 0.5 : hovered ? 0.3 : 0.12
+      bodyRef.current.emissiveIntensity += (ei - bodyRef.current.emissiveIntensity) * k7
+    }
+    if (ledRef.current) ledRef.current.color.copy(color.current)
+
+    if (screenRef.current) {
+      const u = screenRef.current.uniforms
+      u.uTime.value = t
+      ;(u.uColor.value as THREE.Color).copy(color.current)
+      u.uActivity.value += (screenActivity(data.status) - u.uActivity.value) * k4
+      u.uBoost.value += ((selected ? 1 : hovered ? 0.5 : 0) - u.uBoost.value) * k7
+      u.uFlash.value += ((data.status === 'error' ? 1 : 0) - u.uFlash.value) * k4
     }
 
-    // Glow
-    if (glowRef.current) {
-      const targetI = selected ? 5 : hovered ? 3 : 0.8
-      glowRef.current.intensity = THREE.MathUtils.lerp(glowRef.current.intensity, targetI, 0.1)
+    // Selection arcs — counter-rotate, fade with state
+    const arcOpacity = selected ? 0.9 : hovered ? 0.45 : 0
+    if (arcARef.current) {
+      arcARef.current.rotation.z = t * 1.4
+      const m = arcARef.current.material as THREE.MeshBasicMaterial
+      m.opacity += (arcOpacity - m.opacity) * k7
+      m.color.copy(color.current)
+    }
+    if (arcBRef.current) {
+      arcBRef.current.rotation.z = -t * 0.9
+      const m = arcBRef.current.material as THREE.MeshBasicMaterial
+      m.opacity += (arcOpacity * 0.7 - m.opacity) * k7
+      m.color.copy(color.current)
     }
   })
+
+  const statusColor = STATUS_COLOR[data.status]
 
   return (
     <group
       ref={groupRef}
       position={data.pos}
+      scale={0}
       onClick={(e) => { e.stopPropagation(); onSelect() }}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
       onPointerEnter={(e) => { e.stopPropagation(); onHover(true);  document.body.style.cursor = 'pointer' }}
@@ -209,81 +458,76 @@ function PhoneNode({
       }}
     >
       {/* Body */}
-      <mesh geometry={geos.phone} castShadow>
+      <mesh geometry={geos.body}>
         <meshPhysicalMaterial
-          color={'#1a1a2e'}
-          roughness={0.15}
-          metalness={0.9}
+          ref={bodyRef}
+          color="#101016"
+          roughness={0.18}
+          metalness={0.92}
           clearcoat={1}
-          clearcoatRoughness={0.1}
-          emissive={new THREE.Color(color)}
-          emissiveIntensity={selected ? 0.8 : hovered ? 0.4 : 0.12}
+          clearcoatRoughness={0.12}
+          emissive={statusColor}
+          emissiveIntensity={0.12}
         />
       </mesh>
 
       {/* Screen */}
-      <mesh geometry={geos.screen} position={[0, 0, 0.032]}>
-        <meshStandardMaterial
-          color={selected ? color : hovered ? 0x1e1e2e : 0x0a0a12}
-          roughness={0.0}
-          metalness={0.0}
-          emissive={color}
-          emissiveIntensity={selected ? 0.6 : hovered ? 0.3 : 0.08}
+      <mesh geometry={geos.screen} position={[0, 0, 0.0301]}>
+        <shaderMaterial
+          ref={screenRef}
+          vertexShader={SCREEN_VERT}
+          fragmentShader={SCREEN_FRAG}
+          uniforms={screenUniforms}
         />
       </mesh>
 
       {/* Notch */}
-      <mesh geometry={geos.notch} position={[0, 0.19, 0.034]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh geometry={geos.notch} position={[0, 0.185, 0.031]} rotation={[0, 0, Math.PI / 2]}>
         <meshBasicMaterial color={0x000000} />
       </mesh>
 
       {/* Side button */}
-      <mesh geometry={geos.button} position={[0.14, 0.06, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <meshStandardMaterial color={0x1a1a28} roughness={0.3} metalness={0.9} />
+      <mesh geometry={geos.button} position={[0.148, 0.07, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <meshStandardMaterial color={0x16161e} roughness={0.3} metalness={0.9} />
       </mesh>
 
-      {/* Status light */}
-      <mesh position={[0.07, -0.18, 0.034]}>
-        <sphereGeometry args={[0.018, 8, 8]} />
-        <meshBasicMaterial color={color} />
+      {/* Status LED */}
+      <mesh geometry={geos.led} position={[0.075, -0.2, 0.031]}>
+        <meshBasicMaterial ref={ledRef} color={statusColor} />
       </mesh>
 
-      {/* Selection ring */}
-      <mesh ref={ringRef} geometry={geos.ring} rotation={[Math.PI / 2, 0, 0]}>
-        <meshBasicMaterial color={color} transparent opacity={0} side={THREE.DoubleSide} />
+      {/* Selection arcs */}
+      <mesh ref={arcARef} geometry={geos.arcA} rotation={[Math.PI / 2, 0, 0]}>
+        <meshBasicMaterial color={statusColor} transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
-
-      {/* Glow light */}
-      <pointLight ref={glowRef} color={color} intensity={0.8} distance={2.5} decay={2} />
-
-      {/* Screen reflection glare */}
-      <mesh position={[-0.04, 0.08, 0.033]}>
-        <planeGeometry args={[0.06, 0.12]} />
-        <meshBasicMaterial color={0xffffff} transparent opacity={0.04} />
+      <mesh ref={arcBRef} geometry={geos.arcB} rotation={[Math.PI / 2, 0, 0]}>
+        <meshBasicMaterial color={statusColor} transparent opacity={0} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
 
       {/* Label */}
-      <Billboard position={[0, 0.38, 0]}>
+      <Billboard position={[0, 0.44, 0]}>
         <Text
-          fontSize={hovered || selected ? 0.13 : 0.09}
-          color={selected ? '#ffffff' : hovered ? '#e0e7ff' : '#94a3b8'}
+          font={monoFont}
+          fontSize={hovered || selected ? 0.105 : 0.085}
+          letterSpacing={0.1}
+          color={selected ? '#ffffff' : hovered ? '#e6ecff' : '#8a93a6'}
           anchorX="center"
           anchorY="middle"
-          font={undefined}
-          maxWidth={1.2}
+          maxWidth={1.6}
         >
-          {data.name.replace('iPhone-', 'P')}
+          {data.name.toUpperCase()}
         </Text>
         {(hovered || selected) && (
           <Text
-            fontSize={0.085}
-            color={STATUS_COLOR[data.status] ?? '#94a3b8'}
+            font={monoFont}
+            fontSize={0.075}
+            letterSpacing={0.12}
+            color={statusColor}
             anchorX="center"
             anchorY="middle"
-            position={[0, -0.16, 0]}
-            font={undefined}
+            position={[0, -0.14, 0]}
           >
-            {data.status.toUpperCase()} {data.job ? '· ' + data.job : ''}
+            {data.status.toUpperCase()}{data.job ? ` · ${data.job.toUpperCase()}` : ''}
           </Text>
         )}
       </Billboard>
@@ -291,38 +535,74 @@ function PhoneNode({
   )
 }
 
-// ─── Orchestrator ─────────────────────────────────────────────────────────────
+// ─── Orchestrator core ───────────────────────────────────────────────────────
 
-function OrchestratorNode({
-  totalActive, totalDevices, onClick,
+const FRESNEL_VERT = /* glsl */ `
+  varying vec3 vNormal;
+  varying vec3 vView;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vView = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`
+
+const FRESNEL_FRAG = /* glsl */ `
+  varying vec3 vNormal;
+  varying vec3 vView;
+  uniform vec3  uColor;
+  uniform float uIntensity;
+  void main() {
+    float f = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 2.6);
+    gl_FragColor = vec4(uColor, f * uIntensity);
+  }
+`
+
+function OrchestratorCore({
+  totalActive, totalDevices, reduced, onClick,
 }: {
-  totalActive: number; totalDevices: number; onClick: () => void
+  totalActive: number; totalDevices: number; reduced: boolean; onClick: () => void
 }) {
   const coreRef  = useRef<THREE.Mesh>(null)
-  const ring1Ref = useRef<THREE.Mesh>(null)
-  const ring2Ref = useRef<THREE.Mesh>(null)
-  const ring3Ref = useRef<THREE.Mesh>(null)
-  const pulseRef = useRef<THREE.Mesh>(null)
+  const coreMat  = useRef<THREE.MeshStandardMaterial>(null)
+  const wireRef  = useRef<THREE.Mesh>(null)
+  const ring1Ref = useRef<THREE.Group>(null)
+  const ring2Ref = useRef<THREE.Group>(null)
+  const ring3Ref = useRef<THREE.Group>(null)
   const [hovered, setHovered] = useState(false)
 
   const activityRatio = totalDevices > 0 ? totalActive / totalDevices : 0
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime()
-    if (ring1Ref.current) ring1Ref.current.rotation.y = t * 0.18
-    if (ring2Ref.current) ring2Ref.current.rotation.x = -t * 0.12
-    if (ring3Ref.current) {
-      ring3Ref.current.rotation.z = t * 0.22
-      ring3Ref.current.rotation.y = t * 0.09
+  const fresnelRef = useRef<THREE.ShaderMaterial>(null)
+  const fresnelUniforms = useMemo(() => ({
+    uColor:     { value: new THREE.Color(CORE_COLOR) },
+    uIntensity: { value: 0.9 },
+  }), [])
+
+  useFrame(({ clock }, dt) => {
+    const t = clock.elapsedTime
+    const spin = reduced ? 0.25 : 1
+    if (ring1Ref.current) ring1Ref.current.rotation.y = t * 0.22 * spin
+    if (ring2Ref.current) {
+      ring2Ref.current.rotation.x = -t * 0.15 * spin
+      ring2Ref.current.rotation.z = t * 0.07 * spin
+    }
+    if (ring3Ref.current) ring3Ref.current.rotation.z = t * 0.3 * spin
+    if (wireRef.current) {
+      wireRef.current.rotation.y = -t * 0.06 * spin
+      wireRef.current.rotation.x = Math.sin(t * 0.1) * 0.2
     }
     if (coreRef.current) {
-      const pulse = 1 + Math.sin(t * (1.2 + activityRatio * 2)) * 0.05
+      const pulse = 1 + Math.sin(t * (1.1 + activityRatio * 2)) * (reduced ? 0.015 : 0.045)
       coreRef.current.scale.setScalar(pulse)
     }
-    if (pulseRef.current) {
-      const mat = pulseRef.current.material as THREE.MeshBasicMaterial
-      mat.opacity = (Math.sin(t * 1.5) * 0.5 + 0.5) * (hovered ? 0.25 : 0.1)
-      pulseRef.current.scale.setScalar(1 + Math.sin(t * 1.5) * 0.12)
+    if (coreMat.current) {
+      const target = hovered ? 1.2 : 0.6
+      coreMat.current.emissiveIntensity += (target - coreMat.current.emissiveIntensity) * (1 - Math.exp(-6 * dt))
+    }
+    if (fresnelRef.current) {
+      fresnelRef.current.uniforms.uIntensity.value = (hovered ? 1.3 : 0.85) + Math.sin(t * 1.4) * 0.12
     }
   })
 
@@ -332,84 +612,135 @@ function OrchestratorNode({
       onPointerEnter={() => { setHovered(true);  document.body.style.cursor = 'pointer' }}
       onPointerLeave={() => { setHovered(false); document.body.style.cursor = 'default' }}
     >
-      {/* Pulse sphere */}
-      <mesh ref={pulseRef}>
-        <sphereGeometry args={[1.1, 16, 16]} />
-        <meshBasicMaterial color="#6366f1" transparent opacity={0.08} side={THREE.BackSide} />
-      </mesh>
-
-      {/* Rings */}
-      <mesh ref={ring1Ref}>
-        <torusGeometry args={[1.6, 0.018, 8, 80]} />
-        <meshBasicMaterial color="#6366f1" transparent opacity={0.35} />
-      </mesh>
-      <mesh ref={ring2Ref}>
-        <torusGeometry args={[2.1, 0.012, 8, 80]} />
-        <meshBasicMaterial color="#4f46e5" transparent opacity={0.2} />
-      </mesh>
-      <mesh ref={ring3Ref}>
-        <torusGeometry args={[1.35, 0.008, 8, 80]} />
-        <meshBasicMaterial color="#818cf8" transparent opacity={0.15} />
-      </mesh>
-
       {/* Core */}
-      <Sphere ref={coreRef} args={[0.55, 32, 32]}>
+      <mesh ref={coreRef}>
+        <icosahedronGeometry args={[0.55, 2]} />
         <meshStandardMaterial
-          color="#1e1b4b"
-          roughness={0.05}
-          metalness={0.9}
-          emissive="#4f46e5"
-          emissiveIntensity={hovered ? 0.7 : 0.35}
+          ref={coreMat}
+          color="#0a1018"
+          roughness={0.1}
+          metalness={0.85}
+          emissive={CORE_COLOR}
+          emissiveIntensity={0.6}
         />
-      </Sphere>
-
-      {/* Central light */}
-      <pointLight color="#6366f1" intensity={hovered ? 6 : 3} distance={6} decay={2} />
-
-      {/* Status arc glow */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.72, 0.04, 4, 48, Math.PI * 2 * activityRatio]} />
-        <meshBasicMaterial color="#22c55e" transparent opacity={0.6} />
       </mesh>
 
-      <Billboard position={[0, -0.85, 0]}>
-        <Text fontSize={0.18} color="#e0e7ff" anchorX="center" anchorY="middle" font={undefined}>
+      {/* Fresnel halo */}
+      <mesh>
+        <sphereGeometry args={[0.74, 32, 32]} />
+        <shaderMaterial
+          ref={fresnelRef}
+          vertexShader={FRESNEL_VERT}
+          fragmentShader={FRESNEL_FRAG}
+          uniforms={fresnelUniforms}
+          transparent
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          side={THREE.BackSide}
+        />
+      </mesh>
+
+      {/* Outer wireframe cage */}
+      <mesh ref={wireRef}>
+        <icosahedronGeometry args={[1.05, 1]} />
+        <meshBasicMaterial color={CORE_COLOR} wireframe transparent opacity={0.07} depthWrite={false} />
+      </mesh>
+
+      {/* Gyroscope rings — satellites ride inside the rotating groups */}
+      <group ref={ring1Ref}>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[1.55, 0.012, 6, 96]} />
+          <meshBasicMaterial color={CORE_COLOR} transparent opacity={0.3} depthWrite={false} />
+        </mesh>
+        <mesh position={[1.55, 0, 0]}>
+          <sphereGeometry args={[0.045, 8, 8]} />
+          <meshBasicMaterial color="#bfe8ff" />
+        </mesh>
+      </group>
+      <group ref={ring2Ref}>
+        <mesh rotation={[Math.PI / 2.6, 0.4, 0]}>
+          <torusGeometry args={[2.05, 0.008, 6, 96]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.12} depthWrite={false} />
+        </mesh>
+        <mesh position={[0, 1.45, 1.45]}>
+          <sphereGeometry args={[0.035, 8, 8]} />
+          <meshBasicMaterial color="#9adcff" />
+        </mesh>
+      </group>
+      <group ref={ring3Ref}>
+        <mesh rotation={[0, Math.PI / 2, Math.PI / 5]}>
+          <torusGeometry args={[1.3, 0.006, 6, 96]} />
+          <meshBasicMaterial color="#7dd3fc" transparent opacity={0.18} depthWrite={false} />
+        </mesh>
+      </group>
+
+      {/* Activity arc — busy ratio */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.92, 0.028, 4, 64, Math.PI * 2 * Math.max(0.02, activityRatio)]} />
+        <meshBasicMaterial color="#00ff88" transparent opacity={0.7} depthWrite={false} />
+      </mesh>
+
+      {/* Heart light */}
+      <pointLight color={CORE_COLOR} intensity={hovered ? 7 : 4} distance={9} decay={2} />
+
+      <Billboard position={[0, -1.05, 0]}>
+        <Text font={monoFont} fontSize={0.16} letterSpacing={0.25} color="#dce7f5" anchorX="center" anchorY="middle">
           ORCHESTRATOR
         </Text>
-        {hovered && (
-          <Text fontSize={0.12} color="#94a3b8" anchorX="center" anchorY="middle" position={[0, -0.22, 0]} font={undefined}>
-            {totalActive}/{totalDevices} ACTIVE
-          </Text>
-        )}
+        <Text font={monoFont} fontSize={0.095} letterSpacing={0.18} color="#5b6675" anchorX="center" anchorY="middle" position={[0, -0.21, 0]}>
+          {totalActive}/{totalDevices} ACTIVE
+        </Text>
       </Billboard>
     </group>
   )
 }
 
-// ─── Camera controller ───────────────────────────────────────────────────────
+// ─── Camera rig — intro flight + selection focus, damped ─────────────────────
 
-function CameraController({
-  selectedPos, autoRotate, controlsRef,
+function CameraRig({
+  selectedPos, autoRotate, controlsRef, interactedRef,
 }: {
   selectedPos: [number, number, number] | null
   autoRotate: boolean
   controlsRef: React.RefObject<OrbitControlsImpl | null>
+  interactedRef: React.RefObject<boolean>
 }) {
   const { camera } = useThree()
+  const intro   = useRef(true)
+  const arrived = useRef(false)
+  const lastKey = useRef('')
 
-  useFrame(() => {
-    if (selectedPos && controlsRef.current) {
-      const target = new THREE.Vector3(...selectedPos)
-      controlsRef.current.target.lerp(target, 0.05)
-      const desired = new THREE.Vector3(
-        selectedPos[0] * 0.3 + camera.position.x * 0.1,
-        selectedPos[1] + 2,
-        selectedPos[2] * 0.3 + 8,
-      )
-      camera.position.lerp(desired, 0.04)
+  useFrame((_, dt) => {
+    const ctl = controlsRef.current
+    if (!ctl) return
+    ctl.autoRotate = autoRotate
+
+    const key = selectedPos ? selectedPos.join(',') : ''
+    if (key !== lastKey.current) {
+      lastKey.current = key
+      arrived.current = false
     }
-    if (controlsRef.current) {
-      controlsRef.current.autoRotate = autoRotate
+
+    if (selectedPos && !arrived.current) {
+      intro.current = false
+      _vA.set(selectedPos[0], selectedPos[1], selectedPos[2])
+      _vDir.set(_vA.x, 0, _vA.z).normalize()
+      _vB.copy(_vA).addScaledVector(_vDir, 3.6)
+      _vB.y = _vA.y + 1.5
+      const k = 1 - Math.exp(-2.8 * dt)
+      ctl.target.lerp(_vA, k)
+      camera.position.lerp(_vB, k)
+      if (camera.position.distanceTo(_vB) < 0.12 && ctl.target.distanceTo(_vA) < 0.08) {
+        arrived.current = true
+      }
+    } else if (intro.current) {
+      if (interactedRef.current) {
+        intro.current = false
+        return
+      }
+      const k = 1 - Math.exp(-1.7 * dt)
+      camera.position.lerp(_introEnd, k)
+      if (camera.position.distanceTo(_introEnd) < 0.1) intro.current = false
     }
   })
 
@@ -420,109 +751,117 @@ function CameraController({
 
 function Scene({
   onNodeSelect, onNodeDoubleClick, onContextMenu, selectedId, hoveredId,
-  setHoveredId, autoRotate, controlsRef,
+  setHoveredId, autoRotate, controlsRef, interactedRef, reduced,
 }: {
   onNodeSelect:      (id: string) => void
   onNodeDoubleClick: (id: string) => void
-  onContextMenu:     (nodeId: string, x: number, y: number) => void
+  onContextMenu:     (nodeId: string, name: string, x: number, y: number) => void
   selectedId:  string | null
   hoveredId:   string | null
   setHoveredId:(id: string | null) => void
   autoRotate:  boolean
   controlsRef: React.RefObject<OrbitControlsImpl | null>
+  interactedRef: React.RefObject<boolean>
+  reduced: boolean
 }) {
   const snapshot = useFleet()
   const stats    = useFleetStats()
 
   const nodes = useMemo<NodeData[]>(() => {
     const devList = snapshot?.devices ?? []
+    const jobById = new Map((snapshot?.jobs ?? []).map(j => [j.id, j]))
     return devList.map((d, i) => {
       const shell  = Math.floor(i / 10)
-      const radius = 4.5 + shell * 2.4
+      const radius = 4.6 + shell * 2.5 + (((i * 2654435761) >>> 16) % 100) / 100 * 0.7 - 0.35
       const count  = Math.min(10, devList.length - shell * 10)
-      const angle  = (i % count) * (Math.PI * 2 / count) + shell * 0.5
-      const elev   = ((i % 7) - 3) * 0.9
+      const angle  = (i % count) * (Math.PI * 2 / Math.max(1, count)) + shell * 0.62
+      const elev   = ((i % 7) - 3) * 0.85
+      const job    = d.jobId ? jobById.get(d.jobId) : undefined
       return {
         id:     d.id,
-        name:   d.id,
-        status: d.status ?? 'offline',
-        job:    (d as unknown as Record<string, unknown>).job as string | undefined,
-        group:  d.group,
-        pos:    [
-          Math.cos(angle) * radius,
-          elev,
-          Math.sin(angle) * radius,
-        ],
+        name:   d.name ?? d.id,
+        status: (d.status ?? 'offline') as DeviceStatus,
+        model:  d.model,
+        region: d.region,
+        job:    job?.type,
+        pos:    [Math.cos(angle) * radius, elev, Math.sin(angle) * radius] as [number, number, number],
       }
     })
-  }, [snapshot.devices])
+  }, [snapshot.devices, snapshot.jobs])
 
-  const selectedPos = useMemo<[number,number,number] | null>(() => {
+  const selectedPos = useMemo<[number, number, number] | null>(() => {
     if (!selectedId) return null
     const n = nodes.find(n => n.id === selectedId)
     return n ? n.pos : null
   }, [selectedId, nodes])
 
-  const origin = useMemo(() => new THREE.Vector3(0, 0, 0), [])
-
   return (
     <>
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[12, 10, 6]} intensity={1.2} color="#dde4ff" />
-      <directionalLight position={[-10, -6, -8]} intensity={0.4} color="#818cf8" />
-      <pointLight position={[0, 8, 0]} intensity={0.8} color="#a5b4fc" distance={30} decay={2} />
-      <fog attach="fog" args={['#070712', 18, 38]} />
-      <gridHelper args={[50, 50, '#1a1a2e', '#1a1a2e']} position={[0, -4, 0]} />
+      <color attach="background" args={['#020206']} />
+      <fog attach="fog" args={['#04040c', 22, 52]} />
 
-      <CameraController
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[10, 12, 8]} intensity={1.0} color="#e8eeff" />
+      <directionalLight position={[-8, -4, -10]} intensity={0.25} color="#4fc3f7" />
+
+      <Starfield reduced={reduced} />
+      <FloorGrid />
+
+      <CameraRig
         selectedPos={selectedPos}
         autoRotate={autoRotate}
         controlsRef={controlsRef}
+        interactedRef={interactedRef}
       />
 
-      <OrchestratorNode
+      <OrchestratorCore
         totalActive={stats.busy}
         totalDevices={stats.total}
+        reduced={reduced}
         onClick={() => onNodeSelect('orchestrator')}
       />
 
-      {nodes.map(node => {
-        const fromVec = origin
-        const toVec   = new THREE.Vector3(...node.pos)
-        return (
-          <group key={node.id}>
-            <ConnectionLine
-              from={fromVec}
-              to={toVec}
-              status={node.status}
-              selected={selectedId === node.id}
-              hovered={hoveredId === node.id}
-            />
-            <PhoneNode
-              data={node}
-              selected={selectedId === node.id}
-              hovered={hoveredId === node.id}
-              onSelect={() => onNodeSelect(node.id)}
-              onHover={v => setHoveredId(v ? node.id : null)}
-              onDoubleClick={() => onNodeDoubleClick(node.id)}
-              onRightClick={(x, y) => onContextMenu(node.id, x, y)}
-            />
-          </group>
-        )
-      })}
+      {nodes.map((node, i) => (
+        <group key={node.id}>
+          <EnergyLink
+            to={node.pos}
+            status={node.status}
+            selected={selectedId === node.id}
+            hovered={hoveredId === node.id}
+          />
+          <PhoneNode
+            data={node}
+            index={i}
+            reduced={reduced}
+            selected={selectedId === node.id}
+            hovered={hoveredId === node.id}
+            onSelect={() => onNodeSelect(node.id)}
+            onHover={v => setHoveredId(v ? node.id : null)}
+            onDoubleClick={() => onNodeDoubleClick(node.id)}
+            onRightClick={(x, y) => onContextMenu(node.id, node.name, x, y)}
+          />
+        </group>
+      ))}
 
-      <Environment preset="city" />
-      {/* postprocessing effects removed — used native R3F lighting instead */}
+      {/* Procedural studio env — local, no CDN fetch, instant load */}
+      <Environment resolution={128} frames={1}>
+        <Lightformer intensity={2.2} color="#dfe9ff" position={[0, 6, -9]} scale={[12, 4, 1]} />
+        <Lightformer intensity={1.2} color="#4fc3f7" position={[-9, 2, 4]} rotation-y={Math.PI / 2} scale={[8, 2, 1]} />
+        <Lightformer intensity={0.8} color="#ffffff" position={[9, -2, 4]} rotation-y={-Math.PI / 2} scale={[8, 2, 1]} />
+        <Lightformer intensity={0.5} color="#00ff88" position={[0, -7, 0]} rotation-x={Math.PI / 2} scale={[6, 6, 1]} />
+      </Environment>
+      <Effects />
       <OrbitControls
         ref={controlsRef}
         enablePan
-        minDistance={4}
-        maxDistance={28}
-        maxPolarAngle={Math.PI * 0.78}
-        dampingFactor={0.09}
+        minDistance={3.5}
+        maxDistance={34}
+        maxPolarAngle={Math.PI * 0.8}
+        dampingFactor={0.08}
+        rotateSpeed={0.65}
         enableDamping
         autoRotate={autoRotate}
-        autoRotateSpeed={0.3}
+        autoRotateSpeed={0.25}
         makeDefault
       />
     </>
@@ -544,10 +883,10 @@ function ContextMenu({ state, onClose }: { state: ContextMenuState; onClose: () 
       exit={{ opacity: 0, scale: 0.94 }}
       transition={{ duration: 0.12 }}
       style={{ left: state.x, top: state.y }}
-      className="fixed z-50 min-w-[160px] rounded-xl border border-white/[0.08] bg-[#0e0e18]/95 backdrop-blur-xl shadow-2xl overflow-hidden py-1"
+      className="fixed z-50 min-w-[160px] rounded-xl border border-white/[0.08] bg-[#0a0a12]/95 backdrop-blur-xl shadow-2xl overflow-hidden py-1"
     >
       <div className="px-3 py-1.5 border-b border-white/[0.06] mb-1">
-        <span className="text-[10px] text-white/30 uppercase tracking-wider font-mono">{state.nodeId.replace('phone-', 'P')}</span>
+        <span className="text-[10px] text-white/30 uppercase tracking-wider font-mono">{state.name}</span>
       </div>
       {CTX_ITEMS.map(item => (
         <button
@@ -562,21 +901,29 @@ function ContextMenu({ state, onClose }: { state: ContextMenuState; onClose: () 
   )
 }
 
-// ─── Fleet health panel ───────────────────────────────────────────────────────
+// ─── Fleet health panel — real per-status counts ─────────────────────────────
 
-function FleetHealthBar({ stats, collapsed, onToggle }: {
-  stats: ReturnType<typeof useFleetStats>
+function FleetHealthBar({ collapsed, onToggle }: {
   collapsed: boolean
   onToggle: () => void
 }) {
+  const snapshot = useFleet()
+  const stats    = useFleetStats()
+
+  const counts = useMemo(() => {
+    const c: Record<DeviceStatus, number> = { online: 0, busy: 0, warming: 0, offline: 0, error: 0 }
+    for (const d of snapshot?.devices ?? []) c[d.status as DeviceStatus] = (c[d.status as DeviceStatus] ?? 0) + 1
+    return c
+  }, [snapshot])
+
   const items = [
-    { label: 'Total',   value: stats.total,                                    color: 'text-white/60' },
-    { label: 'Online',  value: stats.busy,                                     color: 'text-emerald-400' },
-    { label: 'Idle',    value: stats.idle,                                     color: 'text-blue-400' },
-    { label: 'Warning', value: Math.max(0, stats.total - stats.busy - stats.idle - 2), color: 'text-amber-400' },
-    { label: 'Offline', value: 2,                                              color: 'text-red-400' },
-    { label: 'Jobs',    value: stats.busy,                                     color: 'text-indigo-400' },
-    { label: 'Latency', value: '42ms',                                         color: 'text-cyan-400' },
+    { label: 'Total',   value: stats.total,    color: 'text-white/60' },
+    { label: 'Online',  value: counts.online,  color: 'text-[#00ff88]' },
+    { label: 'Busy',    value: counts.busy,    color: 'text-[#4fc3f7]' },
+    { label: 'Warming', value: counts.warming, color: 'text-[#ffb300]' },
+    { label: 'Offline', value: counts.offline, color: 'text-white/30' },
+    { label: 'Error',   value: counts.error,   color: 'text-[#ff3b3b]' },
+    { label: 'Queue',   value: stats.queue,    color: 'text-white/50' },
   ]
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
@@ -600,7 +947,7 @@ function FleetHealthBar({ stats, collapsed, onToggle }: {
           <div className="flex items-center gap-6 px-4 pb-3 flex-wrap">
             {items.map(s => (
               <div key={s.label} className="flex flex-col items-center gap-0.5">
-                <span className={['font-mono text-sm font-semibold', s.color].join(' ')}>{s.value}</span>
+                <span className={['font-mono text-sm font-semibold tabular-nums', s.color].join(' ')}>{s.value}</span>
                 <span className="text-[9px] text-white/25 uppercase tracking-wider">{s.label}</span>
               </div>
             ))}
@@ -614,33 +961,24 @@ function FleetHealthBar({ stats, collapsed, onToggle }: {
 // ─── Camera controls HUD ─────────────────────────────────────────────────────
 
 function CameraHUD({
-  onReset, onFitAll, onFocusSelected, selectedId, autoRotate, setAutoRotate,
+  onReset, onFitAll, autoRotate, setAutoRotate,
 }: {
   onReset: () => void
   onFitAll: () => void
-  onFocusSelected: () => void
-  selectedId: string | null
   autoRotate: boolean
   setAutoRotate: (v: boolean) => void
 }) {
   return (
-    <div className="absolute right-4 top-4 z-20 flex flex-col gap-1.5">
+    <div className="absolute right-4 top-16 z-20 flex flex-col gap-1.5">
       {[
-        { Icon: RotateCcw, label: 'Reset',  onClick: onReset },
+        { Icon: RotateCcw, label: 'Reset',   onClick: onReset },
         { Icon: Maximize2, label: 'Fit All', onClick: onFitAll },
-        { Icon: Focus,     label: 'Focus',  onClick: onFocusSelected, disabled: !selectedId },
-      ].map(({ Icon, label, onClick, disabled }) => (
+      ].map(({ Icon, label, onClick }) => (
         <button
           key={label}
           onClick={onClick}
-          disabled={disabled}
           title={label}
-          className={[
-            'flex items-center justify-center w-8 h-8 rounded-lg border transition-colors',
-            disabled
-              ? 'border-white/[0.04] bg-black/20 text-white/15 cursor-not-allowed'
-              : 'border-white/[0.08] bg-black/40 text-white/45 hover:text-white hover:bg-white/[0.08] backdrop-blur-sm',
-          ].join(' ')}
+          className="flex items-center justify-center w-8 h-8 rounded-lg border border-white/[0.08] bg-black/40 text-white/45 hover:text-white hover:bg-white/[0.08] backdrop-blur-sm transition-colors"
         >
           <Icon size={13} />
         </button>
@@ -649,10 +987,10 @@ function CameraHUD({
         onClick={() => setAutoRotate(!autoRotate)}
         title="Auto-rotate"
         className={[
-          'flex items-center justify-center w-8 h-8 rounded-lg border transition-colors',
+          'flex items-center justify-center w-8 h-8 rounded-lg border transition-colors backdrop-blur-sm',
           autoRotate
-            ? 'border-indigo-500/40 bg-indigo-600/20 text-indigo-400'
-            : 'border-white/[0.08] bg-black/40 text-white/30 hover:text-white/60 backdrop-blur-sm',
+            ? 'border-[#4fc3f7]/40 bg-[#4fc3f7]/15 text-[#7dd3fc]'
+            : 'border-white/[0.08] bg-black/40 text-white/30 hover:text-white/60',
         ].join(' ')}
       >
         <Target size={13} />
@@ -672,7 +1010,7 @@ function SelectedPanel({
   const d = (snapshot?.devices ?? []).find(x => x.id === nodeId)
   if (!d) return null
 
-  const statusColor = STATUS_COLOR[d.status] ?? '#6b7280'
+  const statusColor = STATUS_COLOR[d.status as DeviceStatus] ?? '#6b7280'
 
   return (
     <motion.div
@@ -681,30 +1019,45 @@ function SelectedPanel({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
       transition={{ duration: 0.2 }}
-      className="absolute left-4 bottom-4 z-20 w-56"
+      className="absolute left-4 bottom-4 z-20 w-60"
     >
-      <div className="rounded-xl border border-white/[0.08] bg-black/60 backdrop-blur-xl p-3 flex flex-col gap-2">
+      <div className="rounded-xl border border-white/[0.08] bg-black/60 backdrop-blur-xl p-3 flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: statusColor }} />
-            <span className="text-xs font-semibold text-white/85">{d.id.replace('phone-', 'P-')}</span>
+            <span className="text-xs font-semibold text-white/85">{d.name}</span>
           </span>
           <button onClick={onClose} className="text-white/25 hover:text-white/70 text-lg leading-none">×</button>
         </div>
-        <div className="grid grid-cols-2 gap-1 text-[10px]">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]">
           {[
-            ['Status', d.status],
+            ['Status', d.status.toUpperCase()],
+            ['Model',  d.model ?? '—'],
+            ['Region', (d.region ?? '—').toUpperCase()],
             ['Group',  d.group ?? '—'],
+            ['Proxy',  d.proxy ?? '—'],
+            ['Battery', `${d.battery ?? '—'}%`],
           ].map(([k, v]) => (
             <div key={k}>
-              <div className="text-white/25">{k}</div>
-              <div className="text-white/70 font-mono">{v}</div>
+              <div className="text-white/25 uppercase tracking-wider text-[9px]">{k}</div>
+              <div className="text-white/70 font-mono truncate">{v}</div>
             </div>
           ))}
         </div>
+        {typeof d.battery === 'number' && (
+          <div className="h-0.5 w-full bg-white/[0.06] overflow-hidden rounded-full">
+            <div
+              className="h-full transition-all duration-500"
+              style={{
+                width: `${d.battery}%`,
+                background: d.battery > 40 ? '#00ff88' : d.battery > 15 ? '#ffb300' : '#ff3b3b',
+              }}
+            />
+          </div>
+        )}
         <button
           onClick={onControl}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-300 text-xs transition-colors border border-indigo-500/20"
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[#4fc3f7]/15 hover:bg-[#4fc3f7]/30 text-[#7dd3fc] text-xs transition-colors border border-[#4fc3f7]/25"
         >
           <Cpu size={11} /> Control Device
         </button>
@@ -713,18 +1066,18 @@ function SelectedPanel({
   )
 }
 
-// ─── Loader ───────────────────────────────────────────────────────────────────
+// ─── Loader ──────────────────────────────────────────────────────────────────
 
 function Loader() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3">
-      <div className="w-8 h-8 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" />
-      <span className="text-xs text-white/30">Initialising 3D Scene…</span>
+      <div className="w-8 h-8 rounded-full border-2 border-[#4fc3f7]/30 border-t-[#4fc3f7] animate-spin" />
+      <span className="text-xs text-white/30 font-mono tracking-wider">INITIALISING 3D SCENE</span>
     </div>
   )
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Main export ─────────────────────────────────────────────────────────────
 
 class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { err: string | null }> {
   constructor(p: React.PropsWithChildren) { super(p); this.state = { err: null } }
@@ -744,21 +1097,24 @@ class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { er
 }
 
 function Fleet3DInner() {
-  const stats      = useFleetStats()
   const openDrawer        = useUIStore(s => s.openDrawer)
   const setView           = useUIStore(s => s.setView)
   const openPhoneControl  = useUIStore(s => s.openPhoneControl)
+  const reduced           = useReducedMotion() ?? false
 
   const [selectedId,  setSelectedId]  = useState<string | null>(null)
   const [hoveredId,   setHoveredId]   = useState<string | null>(null)
-  const [autoRotate,  setAutoRotate]  = useState(true)
+  const [autoRotate,  setAutoRotate]  = useState(!reduced)
   const [ctxMenu,     setCtxMenu]     = useState<ContextMenuState | null>(null)
   const [statsCollapsed, setStatsCollapsed] = useState(false)
 
-  const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  const controlsRef   = useRef<OrbitControlsImpl | null>(null)
+  const interactedRef = useRef(false)
 
-  // Stop auto-rotate on interaction
-  const handleUserInteract = useCallback(() => setAutoRotate(false), [])
+  const handleUserInteract = useCallback(() => {
+    interactedRef.current = true
+    setAutoRotate(false)
+  }, [])
 
   const handleNodeSelect = useCallback((id: string) => {
     setSelectedId(prev => prev === id ? null : id)
@@ -781,12 +1137,8 @@ function Fleet3DInner() {
   const handleFitAll = useCallback(() => {
     if (!controlsRef.current) return
     controlsRef.current.target.set(0, 0, 0)
-    controlsRef.current.object.position.set(0, 8, 18)
+    controlsRef.current.object.position.set(0, 9, 20)
     setSelectedId(null)
-  }, [])
-
-  const handleFocusSelected = useCallback(() => {
-    // CameraController handles smooth lerp when selectedPos is set
   }, [])
 
   // Dismiss context menu on click elsewhere
@@ -801,27 +1153,34 @@ function Fleet3DInner() {
       {/* 3D Canvas */}
       <Suspense fallback={<Loader />}>
         <Canvas
-          camera={{ position: DEFAULT_CAM, fov: 52 }}
-          gl={{ antialias: true, alpha: true }}
-          shadows
-          style={{ background: 'transparent' }}
+          camera={{ position: INTRO_CAM, fov: 50 }}
+          dpr={[1, 2]}
+          gl={{ antialias: false, alpha: false, powerPreference: 'high-performance' }}
+          style={{ background: '#020206' }}
         >
           <Scene
             onNodeSelect={handleNodeSelect}
             onNodeDoubleClick={handleDoubleClick}
-            onContextMenu={(nodeId, x, y) => setCtxMenu({ nodeId, x, y })}
+            onContextMenu={(nodeId, name, x, y) => setCtxMenu({ nodeId, name, x, y })}
             selectedId={selectedId}
             hoveredId={hoveredId}
             setHoveredId={setHoveredId}
             autoRotate={autoRotate}
             controlsRef={controlsRef}
+            interactedRef={interactedRef}
+            reduced={reduced}
           />
         </Canvas>
       </Suspense>
 
+      {/* Cinematic vignette */}
+      <div
+        className="pointer-events-none absolute inset-0 z-10"
+        style={{ background: 'radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,0.5) 100%)' }}
+      />
+
       {/* Fleet status bar */}
       <FleetHealthBar
-        stats={stats}
         collapsed={statsCollapsed}
         onToggle={() => setStatsCollapsed(p => !p)}
       />
@@ -830,8 +1189,6 @@ function Fleet3DInner() {
       <CameraHUD
         onReset={handleReset}
         onFitAll={handleFitAll}
-        onFocusSelected={handleFocusSelected}
-        selectedId={selectedId}
         autoRotate={autoRotate}
         setAutoRotate={setAutoRotate}
       />
