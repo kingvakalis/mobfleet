@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Plus, RefreshCw, Trash2, Copy, AlertTriangle } from 'lucide-react'
 import { useProxiesData } from '@/lib/fleet-adapter'
+import { fadeIn, staggerContainer } from '@/lib/motion'
 
 const statusStyle: Record<string, string> = {
   healthy:    'bg-emerald-400/10 text-emerald-400',
@@ -78,9 +80,9 @@ export function ProxiesView() {
               <th className="text-right pb-3 font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/[0.03]">
+          <motion.tbody variants={staggerContainer} initial="hidden" animate="show" className="divide-y divide-white/[0.03]">
             {visible.map(p => (
-              <tr key={p.id} className="hover:bg-white/[0.02] transition-colors group">
+              <motion.tr key={p.id} variants={fadeIn} className="hover:bg-white/[0.02] transition-colors group">
                 <td className="py-3 pr-4 font-mono text-white/70">{p.ip}:{p.port}</td>
                 <td className="py-3 pr-4 text-white/50">{p.region}</td>
                 <td className="py-3 pr-4 text-white/50">{p.provider}</td>
@@ -114,9 +116,9 @@ export function ProxiesView() {
                     </button>
                   </div>
                 </td>
-              </tr>
+              </motion.tr>
             ))}
-          </tbody>
+          </motion.tbody>
         </table>
       </div>
     </div>

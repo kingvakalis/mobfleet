@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import { Search, Clock } from 'lucide-react'
 import { type LogEntry, type LogLevel } from '@/lib/fleet-data'
 import { useLiveLogs } from '@/lib/fleet-adapter'
+import { fadeIn, staggerContainer } from '@/lib/motion'
 
 const levelStyle: Record<LogLevel, string> = {
   INFO:  'text-white/40',
@@ -106,18 +108,18 @@ export function LogsView() {
           <span className="flex-1">Message</span>
           <span className="w-24 text-right shrink-0">Meta</span>
         </div>
-        <div className="font-mono text-[11px] space-y-0.5">
+        <motion.div variants={staggerContainer} initial="hidden" animate="show" className="font-mono text-[11px] space-y-0.5">
           {visible.map(l => (
-            <div key={l.id} className="flex items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.02] transition-colors">
+            <motion.div key={l.id} variants={fadeIn} className="flex items-center gap-3 px-3 py-1.5 rounded-md hover:bg-white/[0.02] transition-colors">
               <span className="text-white/20 w-20 shrink-0">{l.ts}</span>
               <span className={['px-1.5 py-0.5 rounded text-[9px] font-semibold w-12 text-center shrink-0', levelBg[l.level]].join(' ')}>{l.level}</span>
               <span className="text-white/35 w-24 shrink-0 truncate">{l.device}</span>
               <span className="text-indigo-400/50 w-24 shrink-0 truncate">{(l as typeof l & { job: string }).job}</span>
               <span className={['flex-1 truncate', levelStyle[l.level]].join(' ')}>{l.message}</span>
               <span className="text-white/15 w-24 text-right shrink-0 truncate">{(l as typeof l & { meta: string }).meta}</span>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
     </div>
   )

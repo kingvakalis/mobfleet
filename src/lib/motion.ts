@@ -21,6 +21,13 @@ export const fadeRise: Variants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.26, ease: EXPO_OUT } },
 }
 
+/** Opacity-only item enter — safe for table rows / live-updating lists (no
+ *  transform, so no reflow on frequently-changing data). */
+export const fadeIn: Variants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { duration: 0.22, ease: EXPO_OUT } },
+}
+
 export const DUR = {
   fast: 0.2,
   base: 0.28,
