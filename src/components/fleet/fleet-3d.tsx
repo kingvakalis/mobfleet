@@ -68,11 +68,16 @@ interface ContextMenuState {
 
 // ─── Shared geometry / material cache ───────────────────────────────────────
 
-const PHONE_GEO  = new THREE.BoxGeometry(0.26, 0.46, 0.06, 1, 1, 1)
-const SCREEN_GEO = new THREE.PlaneGeometry(0.20, 0.34)
-const NOTCH_GEO  = new THREE.CapsuleGeometry(0.012, 0.04, 4, 8)
-const BUTTON_GEO = new THREE.CapsuleGeometry(0.005, 0.05, 4, 8)
-const RING_GEO   = new THREE.TorusGeometry(0.22, 0.012, 8, 64)
+// Geometries created lazily inside Canvas to ensure single Three.js instance
+function usePhoneGeos() {
+  return useMemo(() => ({
+    phone:  new THREE.BoxGeometry(0.26, 0.46, 0.06, 1, 1, 1),
+    screen: new THREE.PlaneGeometry(0.20, 0.34),
+    notch:  new THREE.CapsuleGeometry(0.012, 0.04, 4, 8),
+    button: new THREE.CapsuleGeometry(0.005, 0.05, 4, 8),
+    ring:   new THREE.TorusGeometry(0.22, 0.012, 8, 64),
+  }), [])
+}
 
 // ─── Particle along a line ───────────────────────────────────────────────────
 
@@ -163,6 +168,7 @@ function PhoneNode({
   const ringRef  = useRef<THREE.Mesh>(null)
   const glowRef  = useRef<THREE.PointLight>(null)
   const color    = STATUS_HEX[data.status] ?? 0x6b7280
+  const geos     = usePhoneGeos()
   // Float animation
   const floatOff = useMemo(() => Math.random() * Math.PI * 2, [])
 
@@ -219,7 +225,7 @@ function PhoneNode({
       }}
     >
       {/* Body */}
-      <mesh geometry={PHONE_GEO} castShadow>
+      <mesh geometry={geos.phone} castShadow>
         <meshPhysicalMaterial
           color={'#1a1a2e'}
           roughness={0.15}
@@ -232,7 +238,7 @@ function PhoneNode({
       </mesh>
 
       {/* Screen */}
-      <mesh geometry={SCREEN_GEO} position={[0, 0, 0.032]}>
+      <mesh geometry={geos.screen} position={[0, 0, 0.032]}>
         <meshStandardMaterial
           color={selected ? color : hovered ? 0x1e1e2e : 0x0a0a12}
           roughness={0.0}
@@ -243,12 +249,12 @@ function PhoneNode({
       </mesh>
 
       {/* Notch */}
-      <mesh geometry={NOTCH_GEO} position={[0, 0.19, 0.034]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh geometry={geos.notch} position={[0, 0.19, 0.034]} rotation={[0, 0, Math.PI / 2]}>
         <meshBasicMaterial color={0x000000} />
       </mesh>
 
       {/* Side button */}
-      <mesh geometry={BUTTON_GEO} position={[0.14, 0.06, 0]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh geometry={geos.button} position={[0.14, 0.06, 0]} rotation={[0, 0, Math.PI / 2]}>
         <meshStandardMaterial color={0x1a1a28} roughness={0.3} metalness={0.9} />
       </mesh>
 
@@ -259,7 +265,7 @@ function PhoneNode({
       </mesh>
 
       {/* Selection ring */}
-      <mesh ref={ringRef} geometry={RING_GEO} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh ref={ringRef} geometry={geos.ring} rotation={[Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color={color} transparent opacity={0} side={THREE.DoubleSide} />
       </mesh>
 
