@@ -204,11 +204,11 @@ function PhoneNode({
       {/* Body */}
       <mesh geometry={PHONE_GEO} castShadow>
         <meshStandardMaterial
-          color={0x111118}
-          roughness={0.15}
-          metalness={0.85}
+          color={0x22223a}
+          roughness={0.2}
+          metalness={0.75}
           emissive={color}
-          emissiveIntensity={selected ? 0.15 : hovered ? 0.08 : 0.03}
+          emissiveIntensity={selected ? 0.35 : hovered ? 0.18 : 0.07}
         />
       </mesh>
 
@@ -457,9 +457,10 @@ function Scene({
 
   return (
     <>
-      <ambientLight intensity={0.12} />
-      <directionalLight position={[12, 10, 6]} intensity={0.35} color="#dde4ff" />
-      <directionalLight position={[-10, -6, -8]} intensity={0.08} color="#818cf8" />
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[12, 10, 6]} intensity={1.2} color="#dde4ff" />
+      <directionalLight position={[-10, -6, -8]} intensity={0.4} color="#818cf8" />
+      <pointLight position={[0, 8, 0]} intensity={0.8} color="#a5b4fc" distance={30} decay={2} />
       <fog attach="fog" args={['#070712', 18, 38]} />
       <gridHelper args={[50, 50, '#1a1a2e', '#1a1a2e']} position={[0, -4, 0]} />
 

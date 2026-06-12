@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { phones } from '@/lib/fleet-data'
+import { client } from '@/lib/provider'
 
 export interface ActivityEvent {
   id: string
@@ -39,8 +39,12 @@ export function useActivityFeed(paused: boolean) {
   return events
 }
 
+// Device names from live snapshot, fallback to generic
+const FALLBACK_NAMES = ['DEV-A1','DEV-B2','DEV-C3','DEV-D4','DEV-E5','DEV-F6','DEV-G7','DEV-H8']
+
 function makeEvent(seed: number): ActivityEvent {
-  const pool = phones
+  const snapshot = client.getSnapshot()
+  const pool = snapshot.devices.length > 0 ? snapshot.devices.map(d => ({ name: d.name })) : FALLBACK_NAMES.map(n => ({ name: n }))
   const device = pool[seed % pool.length]
   const evt = EVENT_POOL[seed % EVENT_POOL.length]
   const now = new Date()

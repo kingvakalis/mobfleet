@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useFleet } from '@/hooks/use-fleet'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   X,
@@ -15,7 +16,6 @@ import {
   UserPlus,
   Download,
 } from 'lucide-react'
-import { phones } from '@/lib/fleet-data'
 import { useActivityFeed, type ActivityEvent } from './fleet-activity'
 
 export interface FleetRightPanelProps {
@@ -97,7 +97,8 @@ function ActivityPanel({ onClose }: { onClose: () => void }) {
 }
 
 function DevicePanel({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
-  const device = phones.find(p => p.id === deviceId)
+  const snapshot = useFleet()
+  const device = snapshot.devices.find(d => d.id === deviceId)
   if (!device) return null
 
   return (
@@ -114,10 +115,10 @@ function DevicePanel({ deviceId, onClose }: { deviceId: string; onClose: () => v
           {[
             { label: 'Status',  value: device.status },
             { label: 'Model',   value: device.model },
-            { label: 'OS',      value: device.os },
+            { label: 'OS',      value: device.osVersion },
             { label: 'Group',   value: device.group },
-            { label: 'Proxy',   value: device.proxyIp },
-            { label: 'Job',     value: device.job },
+            { label: 'Proxy',   value: device.proxy },
+            { label: 'User',    value: device.assignedUser ?? 'Unassigned' },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between">
               <span className="text-[10px] text-white/30 uppercase tracking-wider">{label}</span>
@@ -200,10 +201,12 @@ function BulkPanel({ count, onClose }: { count: number; onClose: () => void }) {
 }
 
 function FleetHealthPanel({ onClose }: { onClose: () => void }) {
+  const snapshot = useFleet()
+  const phones   = snapshot.devices
   const total   = phones.length
-  const online  = phones.filter(p => p.status === 'online' || p.status === 'running').length
-  const running = phones.filter(p => p.status === 'running').length
-  const warning = phones.filter(p => p.status === 'warning').length
+  const online  = phones.filter(p => p.status === 'online' || p.status === 'busy' || p.status === 'warming').length
+  const running = phones.filter(p => p.status === 'busy').length
+  const warning = phones.filter(p => p.status === 'error').length
   const offline = phones.filter(p => p.status === 'offline').length
   const onlinePct = Math.round((online / total) * 100)
   const circumference = 2 * Math.PI * 36
