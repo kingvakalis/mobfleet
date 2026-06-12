@@ -1,4 +1,4 @@
-import type { Device, FleetSnapshot, Job, Proxy } from '../../src/shared/types'
+import type { Automation, Device, FleetSnapshot, Job, Proxy } from '../../src/shared/types'
 import { repo } from './repo'
 import { seedFleet } from './seed'
 
@@ -12,6 +12,7 @@ export class FleetStore {
   private devices = new Map<string, Device>()
   private jobs = new Map<string, Job>()
   private proxies = new Map<string, Proxy>()
+  private automations = new Map<string, Automation>()
   ready = false
 
   private listeners = new Set<() => void>()
@@ -25,12 +26,23 @@ export class FleetStore {
       seeded.devices.forEach((d) => this.devices.set(d.id, d))
       seeded.jobs.forEach((j) => this.jobs.set(j.id, j))
       seeded.proxies.forEach((p) => this.proxies.set(p.ip, p))
-      await repo.persist(this.raw())
+      seeded.automations.forEach((a) => this.automations.set(a.id, a))
+      await repo.persist(this.persistData())
     } else {
       data.devices.forEach((d) => this.devices.set(d.id, d))
       data.jobs.forEach((j) => this.jobs.set(j.id, j))
       data.proxies.forEach((p) => this.proxies.set(p.ip, p))
+      data.automations.forEach((a) => this.automations.set(a.id, a))
     }
+    // Backfill automations for DBs created before the feature existed.
+    if (this.automations.size === 0) {
+      seedFleet().automations.forEach((a) => this.automations.set(a.id, a))
+      await repo.persist(this.persistData())
+    }
+  }
+
+  private persistData() {
+    return { ...this.raw(), automations: [...this.automations.values()] }
   }
 
   // --- reads ---
@@ -43,6 +55,7 @@ export class FleetStore {
   listDevices() { return [...this.devices.values()] }
   listJobs() { return [...this.jobs.values()] }
   listProxies() { return [...this.proxies.values()] }
+  listAutomations() { return [...this.automations.values()] }
   getDevice(id: string) { return this.devices.get(id) }
   getJob(id: string) { return this.jobs.get(id) }
   getProxy(ip: string) { return this.proxies.get(ip) }
@@ -56,6 +69,15 @@ export class FleetStore {
   removeJob(id: string) { this.jobs.delete(id); this.changed() }
   putProxy(p: Proxy) { this.proxies.set(p.ip, p); this.changed() }
   setReady(v: boolean) { this.ready = v; this.changed() }
+
+  /** Record an automation run by its name (the job's task label). Persist-only,
+   *  no WS broadcast (automations aren't part of the live snapshot). */
+  bumpAutomationRun(name: string) {
+    const a = [...this.automations.values()].find((x) => x.name === name)
+    if (!a) return
+    this.automations.set(a.id, { ...a, runs: a.runs + 1, lastRun: 'just now' })
+    this.scheduleSave()
+  }
 
   /** Apply many mutations, emit a single change at the end. */
   runBatch(fn: () => void) {
@@ -80,7 +102,7 @@ export class FleetStore {
     if (this.saveTimer) return
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
-      repo.persist(this.raw()).catch((e) => console.error('[persist]', e))
+      repo.persist(this.persistData()).catch((e) => console.error('[persist]', e))
     }, 800)
   }
 }

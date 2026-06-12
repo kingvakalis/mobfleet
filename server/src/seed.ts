@@ -1,4 +1,13 @@
-import type { Device, Job, Proxy, TaskType } from '../../src/shared/types'
+import type { Automation, Device, Job, Proxy, TaskType } from '../../src/shared/types'
+
+const AUTOMATIONS_SEED: Automation[] = [
+  { id: 'ig-warmup', name: 'Instagram Warmup', description: 'Human-like browsing, likes, and story views to age accounts safely.', taskType: 'warmup', successRate: 98, runs: 1240, lastRun: '4 min ago' },
+  { id: 'tiktok-warmup', name: 'TikTok Warmup', description: 'Scroll, watch, and engage loop tuned per region and device.', taskType: 'warmup', successRate: 95, runs: 880, lastRun: '12 min ago' },
+  { id: 'content-upload', name: 'Content Upload', description: 'Publishes queued media with captions across assigned accounts.', taskType: 'upload', successRate: 96, runs: 2025, lastRun: 'just now' },
+  { id: 'account-check', name: 'Account Check', description: 'Verifies login state, shadow-ban signals, and challenge prompts.', taskType: 'engage', successRate: 99, runs: 3010, lastRun: '1 hour ago' },
+  { id: 'app-install', name: 'App Install Flow', description: 'Installs and configures target apps from a clean state.', taskType: 'post', successRate: 92, runs: 410, lastRun: 'yesterday' },
+  { id: 'proxy-rotation', name: 'Proxy Rotation', description: 'Rotates proxies on schedule with health verification.', taskType: 'engage', successRate: 100, runs: 2200, lastRun: '30 min ago' },
+]
 
 // Self-contained server seed (mirrors the frontend mock seed) so a fresh DB
 // boots with a believable fleet. Deterministic PRNG → stable across reseeds.
@@ -49,6 +58,7 @@ export interface SeedData {
   devices: Device[]
   jobs: Job[]
   proxies: Proxy[]
+  automations: Automation[]
 }
 
 export function seedFleet(now: number = Date.now()): SeedData {
@@ -119,5 +129,5 @@ export function seedFleet(now: number = Date.now()): SeedData {
     jobs.push({ id: jid(), deviceId: pick(rng, devices).id, type: pick(rng, TASK_TYPES), status: failed ? 'failed' : 'succeeded', progress: failed ? +rng().toFixed(2) : 1, createdAt: finishedAt - int(rng, 30, 300) * 1000, startedAt: finishedAt - int(rng, 20, 280) * 1000, finishedAt, error: failed ? 'UPLOAD_TIMEOUT · proxy reset' : null })
   }
 
-  return { devices, jobs, proxies }
+  return { devices, jobs, proxies, automations: AUTOMATIONS_SEED.map((a) => ({ ...a })) }
 }

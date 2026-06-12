@@ -181,12 +181,14 @@ export class SimulatedDeviceAdapter implements DeviceProvider {
       this.store.putJob(job)
       if (canRun) this.store.putDevice({ ...dev, status: 'busy', jobId: job.id })
     })
+    if (task.label) this.store.bumpAutomationRun(task.label)
     return job
   }
 
   async enqueueTask(task: TaskSpec) {
     const job = this.makeJob(task.type, Date.now(), null)
     this.store.putJob(job)
+    if (task.label) this.store.bumpAutomationRun(task.label)
     return job
   }
 

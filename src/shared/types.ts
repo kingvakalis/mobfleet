@@ -68,6 +68,17 @@ export interface CreateDevicesOptions {
   region?: string
 }
 
+/** A reusable automation flow run across devices (persisted server-side). */
+export interface Automation {
+  id: string
+  name: string
+  description: string
+  taskType: TaskType
+  successRate: number
+  runs: number
+  lastRun: string
+}
+
 /**
  * The single seam between the UI and the backend. Implemented by the in-memory
  * mock (createMockProvider) and the HTTP+WS client (createHttpProvider).
@@ -84,6 +95,7 @@ export interface ProviderClient {
   enqueueTask(task: TaskSpec): Promise<Job>
   retryJob(jobId: string): Promise<Job>
   listJobs(): Promise<Job[]>
+  listAutomations(): Promise<Automation[]>
   assignGroup(ids: string[], group: string): Promise<void>
   rotateProxy(deviceId: string): Promise<void>
   testProxy(ip: string): Promise<Proxy>

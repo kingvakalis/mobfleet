@@ -1,15 +1,6 @@
-import type { TaskType } from '@/lib/provider/types'
+import type { Automation } from '@/shared/types'
 
-export interface Automation {
-  id: string
-  name: string
-  description: string
-  /** Maps to the underlying job task type. */
-  taskType: TaskType
-  successRate: number
-  runs: number
-  lastRun: string
-}
+export type { Automation }
 
 /** Pre-built flows operators run across devices or groups. */
 export const AUTOMATIONS: Automation[] = [

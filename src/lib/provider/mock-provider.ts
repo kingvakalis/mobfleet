@@ -1,4 +1,5 @@
 import { REGIONS } from '@/data/regions'
+import { AUTOMATIONS } from '@/data/automations'
 import { seedFleet } from './seed'
 import type {
   CreateDevicesOptions,
@@ -371,6 +372,11 @@ export function createMockProvider(): ProviderClient {
     async listJobs() {
       await delay(80)
       return jobs
+    },
+
+    async listAutomations() {
+      await delay(60)
+      return AUTOMATIONS
     },
 
     subscribe(listener) {

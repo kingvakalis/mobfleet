@@ -47,3 +47,13 @@ model Proxy {
   latency    Int
   lastCheck  Float
 }
+
+model Automation {
+  id          String @id
+  name        String
+  description String
+  taskType    String
+  successRate Float
+  runs        Int
+  lastRun     String
+}

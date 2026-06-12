@@ -60,6 +60,9 @@ export function registerRoutes(app: FastifyInstance, store: FleetStore, provider
     return provider.retryJob(id)
   })
 
+  // automations
+  app.get('/v1/automations', async () => store.listAutomations())
+
   // proxies
   app.get('/v1/proxies', async () => store.listProxies())
   app.post('/v1/proxies/:ip/test', async (req) => {

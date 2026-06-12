@@ -2,7 +2,8 @@ import { Download, Play, RefreshCw, ShieldCheck, Upload, Zap, type LucideIcon } 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { AUTOMATIONS, type Automation } from '@/data/automations'
+import type { Automation } from '@/data/automations'
+import { useAutomations } from '@/hooks/use-automations'
 import { useFleetStats } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
 
@@ -57,19 +58,20 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export function AutomationsView() {
   const stats = useFleetStats()
+  const automations = useAutomations()
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-line px-6 py-4">
         <div>
           <Label className="text-fg">Automations</Label>
           <div className="mono mt-1 text-[11px] text-fg-muted">
-            {AUTOMATIONS.length} FLOWS · {stats.idle} DEVICES IDLE
+            {automations.length} FLOWS · {stats.idle} DEVICES IDLE
           </div>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {AUTOMATIONS.map((a) => (
+          {automations.map((a) => (
             <AutomationCard key={a.id} a={a} />
           ))}
         </div>

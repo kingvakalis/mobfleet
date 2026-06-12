@@ -1,4 +1,5 @@
 import type {
+  Automation,
   CreateDevicesOptions,
   Device,
   DeviceStatus,
@@ -122,6 +123,7 @@ export function createHttpProvider(): ProviderClient {
     enqueueTask: (task) => api<Job>('/v1/tasks', { method: 'POST', body: JSON.stringify(task) }),
     retryJob: (jobId) => api<Job>(`/v1/jobs/${jobId}/retry`, { method: 'POST' }),
     listJobs: () => api<Job[]>('/v1/jobs'),
+    listAutomations: () => api<Automation[]>('/v1/automations'),
     async assignGroup(ids, group) {
       await api('/v1/groups/assign', { method: 'POST', body: JSON.stringify({ ids, group }) })
     },
