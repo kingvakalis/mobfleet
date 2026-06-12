@@ -47,8 +47,8 @@ export function AppShell({ children }: AppShellProps) {
             <Grid2x2 size={12} className="text-white/70" />
           </div>
           <div className="flex flex-col">
-            <span className="mono text-[13px] font-bold tracking-widest text-white leading-tight">PFA</span>
-            <span className="mono text-[8px] text-white/30 tracking-wider uppercase">MISSION CONTROL v2.1</span>
+            <span className="mono text-[13px] font-bold tracking-widest text-white leading-tight">MOBFLEET</span>
+            <span className="mono text-[8px] text-white/30 tracking-wider uppercase">CONTROL PLANE v2.1</span>
           </div>
         </div>
 
