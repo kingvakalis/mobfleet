@@ -16,7 +16,7 @@ import * as THREE from 'three'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import {
   Maximize2, RotateCcw, Target,
-  Cpu, Activity,
+  Activity,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
 import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
@@ -1069,73 +1069,6 @@ function CameraHUD({
   )
 }
 
-// ─── Selected device panel ───────────────────────────────────────────────────
-
-function SelectedPanel({
-  nodeId, onControl, onClose,
-}: {
-  nodeId: string; onControl: () => void; onClose: () => void
-}) {
-  const snapshot = useFleet()
-  const d = (snapshot?.devices ?? []).find(x => x.id === nodeId)
-  if (!d) return null
-
-  const statusColor = STATUS_COLOR[d.status as DeviceStatus] ?? '#6b7280'
-
-  return (
-    <motion.div
-      key={nodeId}
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
-      transition={{ duration: 0.2 }}
-      className="absolute left-4 bottom-4 z-20 w-60"
-    >
-      <div className="rounded-xl border border-white/[0.08] bg-black/60 backdrop-blur-xl p-3 flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: statusColor }} />
-            <span className="text-xs font-semibold text-white/85">{d.name}</span>
-          </span>
-          <button onClick={onClose} className="text-white/25 hover:text-white/70 text-lg leading-none">×</button>
-        </div>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]">
-          {[
-            ['Status', d.status.toUpperCase()],
-            ['Model',  d.model ?? '—'],
-            ['Region', (d.region ?? '—').toUpperCase()],
-            ['Group',  d.group ?? '—'],
-            ['OS',     d.osVersion ?? '—'],
-            ['Battery', `${d.battery ?? '—'}%`],
-          ].map(([k, v]) => (
-            <div key={k}>
-              <div className="text-white/25 uppercase tracking-wider text-[9px]">{k}</div>
-              <div className="text-white/70 font-mono truncate">{v}</div>
-            </div>
-          ))}
-        </div>
-        {typeof d.battery === 'number' && (
-          <div className="h-0.5 w-full bg-white/[0.06] overflow-hidden rounded-full">
-            <div
-              className="h-full transition-all duration-500"
-              style={{
-                width: `${d.battery}%`,
-                background: d.battery > 40 ? '#00ff88' : d.battery > 15 ? '#ffb300' : '#ff3b3b',
-              }}
-            />
-          </div>
-        )}
-        <button
-          onClick={onControl}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[#4fc3f7]/15 hover:bg-[#4fc3f7]/30 text-[#7dd3fc] text-xs transition-colors border border-[#4fc3f7]/25"
-        >
-          <Cpu size={11} /> Control Device
-        </button>
-      </div>
-    </motion.div>
-  )
-}
-
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
 function Loader() {
@@ -1168,8 +1101,6 @@ class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { er
 
 function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
   const openDrawer        = useUIStore(s => s.openDrawer)
-  const setView           = useUIStore(s => s.setView)
-  const openPhoneControl  = useUIStore(s => s.openPhoneControl)
   const performanceMode   = useSettings(s => s.performanceMode)
   const forceReduce       = useSettings(s => s.reduceMotion)
   const reduced           = (useReducedMotion() ?? false) || forceReduce
@@ -1194,9 +1125,11 @@ function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
     if (id !== 'orchestrator') openDrawer(id)
   }, [openDrawer])
 
+  // Double-click matches single click: the shared device sidebar opens first;
+  // full phone control is reached through its explicit action.
   const handleDoubleClick = useCallback((id: string) => {
-    openPhoneControl(id)
-  }, [openPhoneControl])
+    if (id !== 'orchestrator') openDrawer(id)
+  }, [openDrawer])
 
   const handleReset = useCallback(() => {
     if (!controlsRef.current) return
@@ -1265,17 +1198,6 @@ function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
         autoRotate={autoRotate}
         setAutoRotate={setAutoRotate}
       />
-
-      {/* Selected panel */}
-      <AnimatePresence>
-        {selectedId && selectedId !== 'orchestrator' && (
-          <SelectedPanel
-            nodeId={selectedId}
-            onControl={() => { setView('phones'); openDrawer(selectedId) }}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Context menu */}
       <AnimatePresence>

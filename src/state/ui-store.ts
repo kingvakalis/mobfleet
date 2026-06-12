@@ -34,6 +34,9 @@ interface UIState {
   drawerDeviceId: string | null
   openDrawer: (id: string) => void
   closeDrawer: () => void
+  /** Pinned: the device drawer stays open while exploring the graph. */
+  drawerPinned: boolean
+  toggleDrawerPinned: () => void
 
   scaleOpen: boolean
   openScale: () => void
@@ -66,6 +69,8 @@ export const useUIStore = create<UIState>((set) => ({
   drawerDeviceId: null,
   openDrawer: (id) => set({ drawerDeviceId: id }),
   closeDrawer: () => set({ drawerDeviceId: null }),
+  drawerPinned: false,
+  toggleDrawerPinned: () => set((s) => ({ drawerPinned: !s.drawerPinned })),
 
   scaleOpen: false,
   openScale: () => set({ scaleOpen: true }),

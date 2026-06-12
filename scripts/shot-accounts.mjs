@@ -1,0 +1,13 @@
+import { chromium } from 'playwright'
+const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] })
+const page = await browser.newPage({ viewport: { width: 1700, height: 950 } })
+await page.goto('http://localhost:5177', { waitUntil: 'networkidle' })
+await page.waitForTimeout(2500)
+await page.getByRole('button', { name: 'ACCOUNT DATABASE' }).click()
+await page.waitForTimeout(2000)
+await page.screenshot({ path: 'shot-accounts.png', timeout: 60000 })
+await page.locator('tbody tr').first().click()
+await page.waitForTimeout(1200)
+await page.screenshot({ path: 'shot-account-drawer.png', timeout: 60000 })
+console.log('done')
+await browser.close()

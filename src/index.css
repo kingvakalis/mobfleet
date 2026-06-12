@@ -287,6 +287,22 @@
 .fleet-flow .react-flow__pane.dragging { cursor: grabbing; }
 .fleet-flow, .fleet-flow * { user-select: none; -webkit-user-select: none; }
 
+/* While the CORE is dragged the constellation trails it with a whisper of
+   elasticity — short transform transition on the follower nodes only. The
+   class is removed on release so phones settle instantly (no bounce/float). */
+.fleet-flow.core-dragging .react-flow__node:not([data-id="orchestrator"]) {
+  transition: transform 90ms ease-out;
+}
+
+/* A dragged phone lifts slightly above the field. */
+.fleet-flow .react-flow__node.dragging {
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleet-flow.core-dragging .react-flow__node:not([data-id="orchestrator"]) { transition: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

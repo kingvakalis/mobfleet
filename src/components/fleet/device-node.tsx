@@ -1,4 +1,4 @@
-import { memo, useEffect, type CSSProperties } from 'react'
+import { memo, useEffect } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { markWarped } from '@/lib/layout/constellation'
@@ -6,37 +6,10 @@ import { EXPO_OUT } from '@/lib/motion'
 import { STATUS } from '@/lib/status'
 import type { Device, Job } from '@/lib/provider/types'
 import { cn } from '@/lib/utils'
-import { TelemetryCard } from './telemetry-card'
 
 // Portrait phone footprint (the node bounding box).
 export const NODE_W = 50
 export const NODE_H = 88
-
-const CARD_WIDTH = 280
-const CARD_EST_HEIGHT = 250
-const CARD_GAP = 16
-
-/**
- * Anchor the selection card beside the phone (toward the constellation centre),
- * never over it. The gap is padding on the wrapper, not empty space, so the
- * pointer stays inside the node subtree while moving to the card.
- */
-function cardAnchor(pos?: { x: number; y: number }): CSSProperties {
-  const x = pos?.x ?? 0
-  const y = pos?.y ?? 0
-  if (Math.abs(x) >= Math.abs(y)) {
-    // Beside the phone, vertically centred on it.
-    const top = NODE_H / 2 - CARD_EST_HEIGHT / 2
-    return x > 0
-      ? { right: NODE_W, top, paddingRight: CARD_GAP }
-      : { left: NODE_W, top, paddingLeft: CARD_GAP }
-  }
-  // Above or below the phone, horizontally centred on it.
-  const left = NODE_W / 2 - CARD_WIDTH / 2
-  return y > 0
-    ? { bottom: NODE_H, left, paddingBottom: CARD_GAP }
-    : { top: NODE_H, left, paddingTop: CARD_GAP }
-}
 
 // `type` (not `interface`) so it's assignable to React Flow's node data record.
 export type DeviceNodeData = {
@@ -108,7 +81,7 @@ function MiniScreen({ device, job }: { device: Device; job?: Job | null }) {
  * full phone control (handled by the graph).
  */
 export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }: NodeProps) {
-  const { device, job, isNew, exiting, hovered, pos, dimmed, emphasized, groupColor } =
+  const { device, job, isNew, exiting, hovered, dimmed, emphasized, groupColor } =
     data as unknown as DeviceNodeData
   const reduce = useReducedMotion()
   const color = STATUS[device.status].color
@@ -240,22 +213,6 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }:
         )}
       </div>
 
-      {/* selection → contextual telemetry card (info appears on click, not hover) */}
-      <AnimatePresence>
-        {selected && !exiting && !dragging && (
-          <motion.div
-            key="card"
-            className="absolute z-50"
-            style={cardAnchor(pos)}
-            initial={{ opacity: 0, scale: 0.92, y: 4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 2 }}
-            transition={{ duration: 0.2, ease: EXPO_OUT }}
-          >
-            <TelemetryCard device={device} job={job} noMatch={dimmed} />
-          </motion.div>
-        )}
-      </AnimatePresence>
     </motion.div>
   )
 })

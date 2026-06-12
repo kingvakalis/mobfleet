@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -207,39 +207,83 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     setSelectedIds(params.nodes.filter((n) => n.type === 'device').map((n) => n.id))
   }, [])
 
-  // Double-click → full phone control page (single click only selects).
-  const openPhoneControl = useUIStore((s) => s.openPhoneControl)
-  const onNodeDoubleClick = useCallback(
+  // Click OR double-click → select + open the shared device sidebar (same
+  // experience as the 3D view). Full phone control is reached only through
+  // the sidebar's explicit action. Drags never reach here (6px threshold).
+  const openDrawer = useUIStore((s) => s.openDrawer)
+  const closeDrawer = useUIStore((s) => s.closeDrawer)
+  const onNodeClick = useCallback(
     (_: unknown, node: Node) => {
-      if (node.type === 'device') openPhoneControl(node.id)
+      if (node.type === 'device') openDrawer(node.id)
     },
-    [openPhoneControl],
+    [openDrawer],
   )
+  const onNodeDoubleClick = onNodeClick
 
-  const clearSelection = useCallback(
-    () => setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))),
-    [setNodes],
-  )
+  const clearSelection = useCallback(() => {
+    setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)))
+    // Empty-canvas click also closes the sidebar — unless the operator pinned it.
+    if (!useUIStore.getState().drawerPinned) closeDrawer()
+  }, [setNodes, closeDrawer])
 
-  // Escape clears selection / closes the contextual card.
+  // Escape clears selection / closes the sidebar (the drawer handles its own
+  // Escape when focused; this covers graph-focused Escape).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clearSelection()
-      // Keyboard access: Enter opens control for a single selected phone.
-      if (e.key === 'Enter' && selectedIds.length === 1) openPhoneControl(selectedIds[0])
+      // Keyboard access: Enter opens the sidebar for a single selected phone.
+      if (e.key === 'Enter' && selectedIds.length === 1) openDrawer(selectedIds[0])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [clearSelection, selectedIds, openPhoneControl])
+  }, [clearSelection, selectedIds, openDrawer])
 
-  // Operator drag → persist the node's center in graph coordinates.
+  // Dragging the CORE carries the whole constellation: every device node
+  // shifts by the same delta so the formation stays intact.
+  const orchDragLast = useRef<{ x: number; y: number } | null>(null)
+  const [coreDragging, setCoreDragging] = useState(false)
+
+  const onNodeDragStart = useCallback((_: unknown, node: Node) => {
+    if (node.type === 'orchestrator') {
+      orchDragLast.current = { ...node.position }
+      setCoreDragging(true)
+    }
+  }, [orchDragLast])
+
+  const onNodeDrag = useCallback((_: unknown, node: Node) => {
+    if (node.type !== 'orchestrator' || !orchDragLast.current) return
+    const dx = node.position.x - orchDragLast.current.x
+    const dy = node.position.y - orchDragLast.current.y
+    if (dx === 0 && dy === 0) return
+    orchDragLast.current = { ...node.position }
+    setNodes((ns) =>
+      ns.map((n) =>
+        n.type === 'device'
+          ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
+          : n,
+      ),
+    )
+  }, [orchDragLast, setNodes])
+
+  // Operator drag → persist centers in graph coordinates.
   const onNodeDragStop = useCallback((_: unknown, node: Node) => {
     if (node.type === 'orchestrator') {
+      orchDragLast.current = null
+      setCoreDragging(false)
       saveOrchestratorPos({ x: node.position.x + CORE_SIZE / 2, y: node.position.y + CORE_SIZE / 2 })
+      // The constellation moved with the core — persist every phone's new spot.
+      setNodes((ns) => {
+        for (const n of ns) {
+          if (n.type === 'device') {
+            savePosition(n.id, { x: n.position.x + NODE_W / 2, y: n.position.y + NODE_H / 2 })
+          }
+        }
+        return ns
+      })
       return
     }
     savePosition(node.id, { x: node.position.x + NODE_W / 2, y: node.position.y + NODE_H / 2 })
-  }, [])
+  }, [orchDragLast, setNodes])
 
   const onMoveEnd = useCallback((_: unknown, viewport: Viewport) => {
     saveViewport(viewport)
@@ -269,8 +313,11 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
       onNodeMouseEnter={onNodeMouseEnter}
       onNodeMouseLeave={onNodeMouseLeave}
       onSelectionChange={onSelectionChange}
+      onNodeClick={onNodeClick}
       onNodeDoubleClick={onNodeDoubleClick}
       onPaneClick={clearSelection}
+      onNodeDragStart={onNodeDragStart}
+      onNodeDrag={onNodeDrag}
       onNodeDragStop={onNodeDragStop}
       onMoveEnd={onMoveEnd}
       nodeTypes={nodeTypes}
@@ -289,7 +336,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
       panOnDrag
       panOnScroll={false}
       proOptions={{ hideAttribution: true }}
-      className="fleet-flow bg-canvas"
+      className={`fleet-flow bg-canvas${coreDragging ? ' core-dragging' : ''}`}
     >
       <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#1b2230" />
       <GraphControls />

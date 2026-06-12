@@ -9,6 +9,8 @@
  * `load`/`persist` for client calls — `FleetLayout` is the typed contract.
  */
 
+import { useToastStore } from '@/state/toast-store'
+
 export type Pos = { x: number; y: number }
 export type Viewport = { x: number; y: number; zoom: number }
 
@@ -69,7 +71,9 @@ function persist() {
       layout.updatedAt = new Date().toISOString()
       localStorage.setItem(STORAGE_KEY, JSON.stringify(layout))
     } catch {
-      /* storage unavailable — layout stays session-only */
+      // Storage unavailable — keep the UI stable, surface it, allow retry on
+      // the next movement instead of silently reverting the graph.
+      useToastStore.getState().addToast('Could not save fleet layout — storage unavailable', 'error')
     }
   }, 250)
 }
