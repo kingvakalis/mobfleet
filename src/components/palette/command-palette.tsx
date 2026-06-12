@@ -21,14 +21,20 @@ import { graphBus } from '@/lib/graph-bus'
 import { REGIONS, regionLabel } from '@/data/regions'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
-import { VIEWS, type View } from '@/lib/views'
+import { VIEWS, type ViewId } from '@/lib/views'
 
-const VIEW_ICON: Record<View, LucideIcon> = {
+const VIEW_ICON: Record<ViewId, LucideIcon> = {
   fleet: LayoutGrid,
   jobs: Table2,
   automations: Zap,
   proxies: Globe,
-  groups: Boxes,
+  groups:      Layers,
+  phones:      Boxes,
+  scale:       Maximize,
+  logs:        Minus,
+  accounts:    Table2,
+  settings:    Minus,
+  'phone-control': Minus,
 }
 
 function Palette({ onClose }: { onClose: () => void }) {

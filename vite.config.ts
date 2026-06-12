@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+    dedupe: ['three', '@react-three/fiber', '@react-three/drei'],
   },
   server: {
     // Dev: proxy the API + live socket to the backend so the browser stays

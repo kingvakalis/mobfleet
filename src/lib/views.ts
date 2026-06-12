@@ -1,9 +1,23 @@
-export type View = 'fleet' | 'jobs' | 'automations' | 'proxies' | 'groups'
+export type ViewId =
+  | 'fleet' | 'phones' | 'accounts' | 'groups' | 'proxies'
+  | 'automations' | 'jobs' | 'scale' | 'logs' | 'settings' | 'phone-control'
 
-export const VIEWS: { id: View; label: string }[] = [
-  { id: 'fleet', label: 'FLEET' },
-  { id: 'jobs', label: 'JOBS' },
-  { id: 'automations', label: 'AUTOMATIONS' },
-  { id: 'proxies', label: 'PROXIES' },
-  { id: 'groups', label: 'GROUPS' },
+export type View = ViewId
+
+export interface ViewMeta {
+  id: ViewId
+  label: string
+  icon: string
+}
+
+export const VIEWS: ViewMeta[] = [
+  { id: 'fleet',       label: 'Fleet',            icon: 'network' },
+  { id: 'phones',      label: 'Phones',           icon: 'smartphone' },
+  { id: 'accounts',   label: 'Account Database', icon: 'database' },
+  { id: 'groups',      label: 'Groups',           icon: 'layers' },
+  { id: 'proxies',     label: 'Proxies',          icon: 'shield' },
+  { id: 'automations', label: 'Automations',      icon: 'zap' },
+  { id: 'jobs',        label: 'Jobs',             icon: 'briefcase' },
+  { id: 'logs',        label: 'Logs',             icon: 'terminal' },
+  { id: 'settings',   label: 'Settings',         icon: 'settings' },
 ]

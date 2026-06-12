@@ -13,9 +13,11 @@ export const PulseEdge = memo(function PulseEdge({
   targetY,
   data,
 }: EdgeProps) {
-  const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY })
+  const [path] = getStraightPath({ sourceX: sourceX ?? 0, sourceY: sourceY ?? 0, targetX: targetX ?? 0, targetY: targetY ?? 0 })
   const active = Boolean((data as { active?: boolean } | undefined)?.active)
   const reduce = useReducedMotion()
+  // Skip render until positions are resolved
+  if (!sourceX || !sourceY || !targetX || !targetY) return null
 
   return (
     <>

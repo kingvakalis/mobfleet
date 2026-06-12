@@ -6,29 +6,40 @@ import { ScalePanel } from '@/components/scale/scale-panel'
 import { CommandPalette } from '@/components/palette/command-palette'
 import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
+const PhoneControlPage = lazy(() => import('@/components/phone/phone-control-page').then(m => ({ default: m.PhoneControlPage })))
 import { Spinner } from '@/components/ui/spinner'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
-import type { View } from '@/lib/views'
+import type { ViewId } from '@/lib/views'
 
-// Split the heavy view chunks (React Flow lives in FleetView) out of first paint.
-const FleetView = lazy(() => import('@/components/fleet/fleet-view').then((m) => ({ default: m.FleetView })))
-const JobsView = lazy(() => import('@/components/jobs/jobs-view').then((m) => ({ default: m.JobsView })))
-const AutomationsView = lazy(() =>
-  import('@/components/automations/automations-view').then((m) => ({ default: m.AutomationsView })),
-)
-const ProxiesView = lazy(() => import('@/components/proxies/proxies-view').then((m) => ({ default: m.ProxiesView })))
-const GroupsView = lazy(() => import('@/components/groups/groups-view').then((m) => ({ default: m.GroupsView })))
+const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
+const JobsView        = lazy(() => import('@/components/jobs/jobs-view').then(m => ({ default: m.JobsView })))
+const AutomationsView = lazy(() => import('@/components/automations/automations-view').then(m => ({ default: m.AutomationsView })))
+const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').then(m => ({ default: m.ProxiesView })))
+const GroupsView      = lazy(() => import('@/components/groups/groups-view').then(m => ({ default: m.GroupsView })))
+const PhonesView      = lazy(() => import('@/components/phones/phones-view').then(m => ({ default: m.PhonesView })))
+const LogsView        = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.LogsView })))
+const AccountsView    = lazy(() => import('@/components/accounts/accounts-view').then(m => ({ default: m.AccountsView })))
 
-const VIEW_MAP: Record<View, ComponentType> = {
-  fleet: FleetView,
-  jobs: JobsView,
-  automations: AutomationsView,
-  proxies: ProxiesView,
-  groups: GroupsView,
+function Soon({ label }: { label: string }) {
+  return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
 }
 
-// `#style` escape hatch → the Slice-0 design-system page (dev reference).
+const VIEW_MAP: Record<ViewId, ComponentType> = {
+  'phone-control': PhoneControlPage,
+  fleet:       FleetView,
+  phones:      PhonesView,
+  accounts:    AccountsView,
+  groups:      GroupsView,
+  proxies:     ProxiesView,
+  automations: AutomationsView,
+  jobs:        JobsView,
+  scale:       () => <Soon label="Scale — coming soon" />,
+
+  logs:        LogsView,
+  settings:    () => <Soon label="Settings — coming soon" />,
+}
+
 function subscribeHash(cb: () => void) {
   window.addEventListener('hashchange', cb)
   return () => window.removeEventListener('hashchange', cb)
@@ -36,23 +47,17 @@ function subscribeHash(cb: () => void) {
 function useHash() {
   return useSyncExternalStore(subscribeHash, () => window.location.hash)
 }
-
 function ViewFallback() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <Spinner size={22} />
-    </div>
-  )
+  return <div className="flex h-full items-center justify-center"><Spinner size={22} /></div>
 }
 
 export default function App() {
   const hash = useHash()
-  const view = useUIStore((s) => s.view)
-  const Current = VIEW_MAP[view]
-
+  const view = useUIStore(s => s.view)
+  const Current = VIEW_MAP[view] ?? VIEW_MAP.fleet
   if (hash === '#style') return <StyleGuide />
-
   return (
+    <>
     <AppShell>
       <AnimatePresence mode="wait">
         <motion.div
@@ -73,5 +78,6 @@ export default function App() {
       <SubmitJobDialog />
       <CommandPalette />
     </AppShell>
+    </>  
   )
 }

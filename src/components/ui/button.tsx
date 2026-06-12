@@ -3,28 +3,25 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 rounded-control font-medium whitespace-nowrap select-none transition-colors duration-200 ease-expo-out disabled:opacity-40 disabled:pointer-events-none',
+  'inline-flex items-center justify-center gap-2 rounded-sm font-mono text-xs uppercase tracking-wider whitespace-nowrap select-none transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] relative overflow-hidden',
   {
     variants: {
       variant: {
-        // Vercel primary: high-contrast white on black.
-        primary: 'bg-fg text-canvas hover:bg-white/90',
-        outline: 'border border-line bg-transparent text-fg hover:bg-elevated',
-        ghost: 'bg-transparent text-fg-secondary hover:text-fg hover:bg-elevated',
-        danger:
-          'border border-status-error/40 bg-transparent text-status-error hover:bg-status-error/10',
-        accent:
-          'border border-accent/30 bg-transparent text-accent hover:bg-accent/10',
+        primary: 'bg-transparent text-white border border-white/30 hover:bg-white hover:text-black',
+        outline: 'bg-transparent text-white/70 border border-white/[0.12] hover:border-white/40 hover:text-white',
+        ghost:   'bg-transparent text-white/35 hover:text-white/70 border border-transparent',
+        danger:  'bg-transparent text-[#ff3b3b] border border-[rgba(255,59,59,0.3)] hover:bg-[rgba(255,59,59,0.1)]',
+        accent:  'bg-transparent text-white/60 border border-white/[0.15] hover:border-white/50 hover:text-white',
       },
       size: {
-        sm: 'h-8 px-3 text-xs',
-        md: 'h-9 px-4 text-sm',
+        sm:   'h-8 px-3 text-[10px]',
+        md:   'h-9 px-4 text-[10px]',
         icon: 'h-9 w-9',
       },
     },
     defaultVariants: {
       variant: 'outline',
-      size: 'md',
+      size:    'md',
     },
   },
 )
