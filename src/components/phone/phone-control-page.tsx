@@ -1,500 +1,641 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
 import {
-  Lock, Unlock, Home, CornerDownLeft, Grid2x2,
-  Camera, RefreshCw, Power, Volume2, VolumeX,
+  ChevronLeft, ChevronRight, AlertTriangle,
+  Lock, Home, CornerDownLeft, Grid2x2,
+  Camera, RefreshCw, Power,
+  Send, Copy, X, Maximize2, Rocket, FileText,
+  Video,
 } from 'lucide-react'
 import { useFleet } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface LogEntry {
-  id: string
-  ts: Date
-  type: 'command' | 'gesture' | 'screenshot' | 'error' | 'system'
-  text: string
-  typeLabel: string
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function uid() { return Math.random().toString(36).slice(2, 9) }
 function fmt(d: Date) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
-function uid() { return Math.random().toString(36).slice(2, 9) }
 
-const LOG_COLORS: Record<LogEntry['type'], string> = {
-  command:    'var(--accent-blue)',
-  gesture:    'var(--accent-amber)',
-  screenshot: 'var(--accent-green)',
-  error:      'var(--accent-red)',
-  system:     'rgba(255,255,255,0.35)',
+interface LogEntry {
+  id: string; ts: Date; type: 'command'|'gesture'|'screenshot'|'error'|'system'; text: string
 }
 
-// ─── Live stat ────────────────────────────────────────────────────────────────
-function LiveStat({ label, unit, min, max, decimals = 0, flashColor }: {
-  label: string; unit: string; min: number; max: number; decimals?: number; flashColor?: string
-}) {
-  const [val, setVal] = useState(min + Math.random() * (max - min))
-  const [flash, setFlash] = useState(false)
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVal(v => {
-        const d = (Math.random() - 0.5) * (max - min) * 0.15
-        return Math.min(max, Math.max(min, v + d))
-      })
-      setFlash(true)
-      setTimeout(() => setFlash(false), 400)
-    }, 1200)
-    return () => clearInterval(id)
-  }, [min, max])
-  const color = flashColor
-    ? (val < min + (max - min) * 0.5 ? 'var(--accent-green)' : val < min + (max - min) * 0.8 ? 'var(--accent-amber)' : 'var(--accent-red)')
-    : 'rgba(255,255,255,0.8)'
-  return (
-    <div className="flex flex-col gap-1 p-2.5" style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#0a0a0a' }}>
-      <span className="mono text-[8px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.3)' }}>{label}</span>
-      <span
-        className="mono text-sm font-bold tabular-nums transition-colors duration-300"
-        style={{ color: flash ? 'rgba(255,255,255,0.9)' : color }}
-      >
-        {val.toFixed(decimals)} <span className="text-[9px] font-normal opacity-50">{unit}</span>
-      </span>
-    </div>
-  )
-}
-
-// ─── Mock phone screen ─────────────────────────────────────────────────────────
-const MOCK_APPS = [
-  { name: 'Instagram', bg: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
-  { name: 'Camera',    bg: '#1a1a1a', border: 'rgba(255,255,255,0.15)' },
-  { name: 'Safari',    bg: 'linear-gradient(135deg,#0080ff,#00c6ff)' },
-  { name: 'Messages',  bg: '#22c55e' },
-  { name: 'TikTok',    bg: '#000', border: '#ff0050' },
-  { name: 'Settings',  bg: '#636366' },
-  { name: 'Maps',      bg: 'linear-gradient(135deg,#34c759,#007aff)' },
-  { name: 'X',         bg: '#000', border: 'rgba(255,255,255,0.2)' },
-  { name: 'Mail',      bg: '#0a84ff' },
-  { name: 'Music',     bg: 'linear-gradient(135deg,#ff2d55,#ff9500)' },
-  { name: 'Photos',    bg: 'linear-gradient(135deg,#ff9500,#ff2d55,#af52de,#32ade6)' },
-  { name: 'WhatsApp',  bg: '#25d366' },
-  { name: 'Chrome',    bg: 'linear-gradient(135deg,#4285f4,#ea4335)' },
-  { name: 'Telegram',  bg: '#2aabee' },
-  { name: 'YT',        bg: '#ff0000' },
-  { name: 'Spotify',   bg: '#1db954' },
-  { name: 'Amazon',    bg: '#ff9900' },
-  { name: 'Discord',   bg: '#5865f2' },
-  { name: 'Snapchat',  bg: '#fffc00', textColor: '#000' },
-  { name: 'LinkedIn',  bg: '#0077b5' },
+// ─── App icon definitions ─────────────────────────────────────────────────────
+const GRID_APPS = [
+  { name: 'Messages',  abbr: 'Me', bg: '#22c55e' },
+  { name: 'Safari',    abbr: 'Sa', bg: 'linear-gradient(135deg,#0ea5e9,#2dd4bf)' },
+  { name: 'Instagram', abbr: 'In', bg: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
+  { name: 'TikTok',    abbr: 'Ti', bg: '#000', border: '#ff0050' },
+  { name: 'Telegram',  abbr: 'Te', bg: '#2aabee' },
+  { name: 'WhatsApp',  abbr: 'Wh', bg: '#25d366' },
+  { name: 'Facebook',  abbr: 'Fb', bg: '#1877f2' },
+  { name: 'Photos',    abbr: 'Ph', bg: 'linear-gradient(135deg,#ff9500,#ff2d55,#af52de,#32ade6)' },
+  { name: 'Settings',  abbr: 'Se', bg: '#636366' },
+  { name: 'Mail',      abbr: 'Ma', bg: '#0a84ff' },
+  { name: 'Notes',     abbr: 'No', bg: '#ffd60a', textColor: '#000' },
+  { name: 'Files',     abbr: 'Fi', bg: '#1d6ce6' },
+]
+const DOCK_APPS = [
+  { name: 'Phone',    abbr: 'Ph', bg: '#22c55e' },
+  { name: 'Safari',   abbr: 'Sa', bg: '#0a84ff' },
+  { name: 'Messages', abbr: 'Me', bg: '#22c55e' },
+  { name: 'Music',    abbr: 'Mu', bg: 'linear-gradient(135deg,#ff2d55,#ff9500)' },
 ]
 
-function PhoneScreen() {
-  const [tilt, setTilt] = useState({ x: 0, y: 0 })
-  const frameRef = useRef<HTMLDivElement>(null)
+const INSTALLED_APPS = [
+  { name: 'Instagram', abbr: 'In', bg: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
+  { name: 'TikTok',    abbr: 'Ti', bg: '#000', border: '#ff0050' },
+  { name: 'Telegram',  abbr: 'Te', bg: '#2aabee' },
+  { name: 'WhatsApp',  abbr: 'Wh', bg: '#25d366' },
+  { name: 'Facebook',  abbr: 'Fb', bg: '#1877f2' },
+  { name: 'Safari',    abbr: 'Sa', bg: '#0a84ff' },
+  { name: 'Settings',  abbr: 'Se', bg: '#636366' },
+  { name: 'Photos',    abbr: 'Ph', bg: 'linear-gradient(135deg,#ff9500,#ff2d55,#af52de)' },
+]
 
-  function handleMouseMove(e: React.MouseEvent) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const cx = r.left + r.width / 2
-    const cy = r.top + r.height / 2
-    const mx = (e.clientX - cx) / (r.width / 2)
-    const my = (e.clientY - cy) / (r.height / 2)
-    setTilt({ x: my * -6, y: mx * 6 })
-  }
+const MOCK_SESSIONS = [
+  { date: 'Today, 09:14', duration: '1h 23m', operator: 'M. Chen' },
+  { date: 'Today, 07:52', duration: '0h 47m', operator: 'J. Rivera' },
+  { date: 'Yesterday, 22:10', duration: '2h 05m', operator: 'M. Chen' },
+  { date: 'Yesterday, 18:33', duration: '0h 31m', operator: 'K. Park' },
+]
 
+const MOCK_LOGS = [
+  '[09:14:02] SYS  Device stream initialised',
+  '[09:14:03] SYS  Proxy tunnel established — 10.0.0.0:8080',
+  '[09:14:05] CMD  Screen unlocked',
+  '[09:14:06] SYS  Session ready · latency 38ms',
+  '[09:15:12] CMD  Launched: Instagram',
+  '[09:15:44] GES  Gesture: Tap at (188,422)',
+  '[09:16:03] GES  Gesture: Swipe UP',
+  '[09:18:55] CMD  Screenshot captured',
+  '[09:20:01] SYS  FPS stabilised at 18',
+]
+
+// ─── Slider component ─────────────────────────────────────────────────────────
+function TealSlider({ value, min, max, onChange }: {
+  value: number; min: number; max: number; onChange: (v: number) => void
+}) {
+  const pct = ((value - min) / (max - min)) * 100
   return (
-    <div
-      ref={frameRef}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => setTilt({ x: 0, y: 0 })}
-      style={{
-        perspective: '1000px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-      }}
-    >
-      {/* Phone outer frame */}
-      <motion.div
-        animate={{ rotateX: tilt.x, rotateY: tilt.y }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+    <div className="relative mt-2">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full appearance-none h-1 rounded-full outline-none cursor-pointer"
         style={{
-          width: 240,
-          border: '1px solid rgba(255,255,255,0.15)',
-          background: '#050505',
-          padding: '6px',
-          boxShadow: '0 0 60px rgba(0,0,0,0.8), inset 0 0 20px rgba(255,255,255,0.02)',
+          background: `linear-gradient(to right, #2dd4bf 0%, #2dd4bf ${pct}%, rgba(255,255,255,0.12) ${pct}%, rgba(255,255,255,0.12) 100%)`,
         }}
-      >
-        {/* Status bar */}
-        <div className="flex items-center justify-between px-3 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <span className="mono text-[8px] text-white/70 font-bold">09:41</span>
-          <span className="mono text-[8px] text-white/50">●●●●● WiFi 🔋91%</span>
-        </div>
-
-        {/* App grid */}
-        <div className="grid grid-cols-4 gap-1.5 p-2">
-          {MOCK_APPS.slice(0, 16).map((app) => (
-            <div key={app.name} className="flex flex-col items-center gap-0.5">
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-[7px] font-bold"
-                style={{
-                  background: app.bg,
-                  border: app.border ? `1px solid ${app.border}` : 'none',
-                  color: app.textColor ?? 'white',
-                }}
-              >
-                {app.name.slice(0, 2).toUpperCase()}
-              </div>
-              <span className="mono text-[6px] text-white/50 text-center leading-tight">{app.name}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Dock */}
-        <div
-          className="flex items-center justify-around px-3 py-2 mx-1 mb-1"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          {MOCK_APPS.slice(16, 20).map((app) => (
-            <div key={app.name} className="flex flex-col items-center gap-0.5">
-              <div
-                className="w-9 h-9 rounded-xl"
-                style={{ background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none' }}
-              />
-            </div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Live label */}
-      <div className="flex items-center gap-2 mt-3">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500 status-dot-pulse" />
-        <span className="mono text-[9px] text-white/40 uppercase tracking-widest">LIVE FEED · 1080p · H.264</span>
-      </div>
+      />
+      <style>{`
+        input[type=range]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px; height: 14px;
+          border-radius: 50%;
+          background: #2dd4bf;
+          cursor: pointer;
+          box-shadow: 0 0 6px rgba(45,212,191,0.6);
+        }
+        input[type=range]::-moz-range-thumb {
+          width: 14px; height: 14px;
+          border-radius: 50%;
+          background: #2dd4bf;
+          border: none;
+          cursor: pointer;
+        }
+      `}</style>
     </div>
   )
 }
 
-// ─── Session timer ─────────────────────────────────────────────────────────────
-function SessionTimer() {
-  const [sec, setSec] = useState(0)
-  useEffect(() => {
-    const id = setInterval(() => setSec(s => s + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
+// ─── Card wrapper ─────────────────────────────────────────────────────────────
+function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
   return (
-    <span className="mono text-[11px] text-white/40 tabular-nums">
-      {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
-    </span>
-  )
-}
-
-// ─── Uptime timer ─────────────────────────────────────────────────────────────
-function UptimeDisplay() {
-  const [sec, setSec] = useState(Math.floor(Math.random() * 7200))
-  useEffect(() => {
-    const id = setInterval(() => setSec(s => s + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
-  return (
-    <div className="flex flex-col gap-1 p-2.5" style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#0a0a0a' }}>
-      <span className="mono text-[8px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.3)' }}>UPTIME</span>
-      <span className="mono text-sm font-bold tabular-nums" style={{ color: 'rgba(255,255,255,0.8)' }}>
-        {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
-      </span>
+    <div className={`rounded-xl border border-white/[0.08] bg-[#111318] ${className}`}>
+      {title && (
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+        </div>
+      )}
+      <div className="p-4">{children}</div>
     </div>
   )
 }
 
-// ─── Card wrapper ──────────────────────────────────────────────────────────────
-function TelCard({ title, children }: { title: string; children: React.ReactNode }) {
+// ─── iPhone Mockup ────────────────────────────────────────────────────────────
+function iPhoneMockup() {
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.08)', background: '#0a0a0a' }}>
-      <div className="px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <span className="mono text-[9px] uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.3)' }}>{title}</span>
+    <div className="relative" style={{
+      width: 260,
+      background: '#0d0d0d',
+      border: '2px solid #1a1a1a',
+      borderRadius: 36,
+      boxShadow: '0 24px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.07)',
+      overflow: 'hidden',
+    }}>
+      {/* Fullscreen icon */}
+      <button className="absolute top-3 right-3 z-10 p-1 rounded opacity-40 hover:opacity-80 transition-opacity" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <Maximize2 size={12} color="white" />
+      </button>
+
+      {/* iOS status bar */}
+      <div className="flex items-center justify-between px-5 pt-3 pb-1">
+        <span className="text-white text-[12px] font-semibold" style={{ fontFamily: 'system-ui' }}>9:41</span>
+        <div className="flex items-center gap-1.5">
+          {/* Signal bars */}
+          <div className="flex items-end gap-[2px]">
+            {[3,5,7,9].map((h, i) => (
+              <div key={i} className="w-[3px] rounded-sm" style={{ height: h, background: i < 3 ? 'white' : 'rgba(255,255,255,0.3)' }} />
+            ))}
+          </div>
+          {/* WiFi */}
+          <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
+            <path d="M7 8.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z" fill="white"/>
+            <path d="M4 6.5C4.9 5.6 5.9 5 7 5s2.1.6 3 1.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
+            <path d="M1.5 4C3 2.5 5 1.5 7 1.5s4 1 5.5 2.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5"/>
+          </svg>
+          {/* Battery */}
+          <div className="flex items-center gap-[1px]">
+            <div className="rounded-sm border border-white/60" style={{ width: 20, height: 10, padding: 1.5, boxSizing: 'border-box' }}>
+              <div className="h-full rounded-sm bg-white" style={{ width: '30%' }} />
+            </div>
+            <div className="rounded-sm bg-white/50" style={{ width: 2, height: 5 }} />
+          </div>
+        </div>
       </div>
-      <div className="p-3">{children}</div>
+
+      {/* Dynamic Island */}
+      <div className="flex justify-center mb-2">
+        <div className="rounded-full bg-black" style={{ width: 88, height: 26 }} />
+      </div>
+
+      {/* App grid */}
+      <div className="grid grid-cols-4 gap-y-3 gap-x-2 px-4 pb-3">
+        {GRID_APPS.map(app => (
+          <div key={app.name} className="flex flex-col items-center gap-1">
+            <div className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center text-[10px] font-bold"
+              style={{ background: app.bg, border: (app as any).border ? `1.5px solid ${(app as any).border}` : 'none', color: (app as any).textColor ?? 'white', fontSize: 11 }}>
+              {app.abbr}
+            </div>
+            <span className="text-[9px] text-white/50 text-center leading-tight truncate w-full text-center">{app.name}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Dock */}
+      <div className="mx-4 mb-3 px-3 py-2 rounded-2xl flex items-center justify-around"
+        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+        {DOCK_APPS.map(app => (
+          <div key={app.name} className="flex flex-col items-center gap-1">
+            <div className="w-[50px] h-[50px] rounded-2xl flex items-center justify-center text-[10px] font-bold text-white"
+              style={{ background: app.bg }}>
+              {app.abbr}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Home indicator */}
+      <div className="flex justify-center pb-2">
+        <div className="rounded-full bg-white/30" style={{ width: 100, height: 4 }} />
+      </div>
     </div>
   )
 }
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
-  const snapshot = useFleet()
-  const { devices } = snapshot
+  const { devices } = useFleet()
   const phoneControlDeviceId = useUIStore(s => s.phoneControlDeviceId)
   const closePhoneControl    = useUIStore(s => s.closePhoneControl)
 
-  const device = phoneControlDeviceId
-    ? devices.find(d => d.id === phoneControlDeviceId) ?? null
-    : devices[0] ?? null
+  // Device navigation
+  const initialIndex = Math.max(0, devices.findIndex(d => d.id === phoneControlDeviceId))
+  const [currentIndex, setCurrentIndex] = useState(initialIndex)
+  const device = devices[currentIndex] ?? devices[0] ?? null
 
-  const [qualityIdx, setQualityIdx] = useState(0)
-  const [fpsIdx, setFpsIdx]         = useState(1)
-  const [latency, setLatency]       = useState(34)
-  const [logs, setLogs]             = useState<LogEntry[]>(() => [
-    { id: uid(), ts: new Date(Date.now() - 8000), type: 'system',     typeLabel: 'SYS',     text: 'Device stream initialised' },
-    { id: uid(), ts: new Date(Date.now() - 5000), type: 'system',     typeLabel: 'SYS',     text: 'Proxy tunnel established' },
-    { id: uid(), ts: new Date(Date.now() - 2000), type: 'command',    typeLabel: 'CMD',     text: 'Screen unlocked' },
-    { id: uid(), ts: new Date(Date.now() - 800),  type: 'system',     typeLabel: 'SYS',     text: 'Session ready' },
-  ])
+  // UI state
+  const [quality, setQuality]       = useState(22)
+  const [fps, setFps]               = useState(18)
+  const [gesture, setGesture]       = useState('tap')
+  const [sendText, setSendText]     = useState('')
+  const [notes, setNotes]           = useState('')
+  const [activeTab, setActiveTab]   = useState<'apps'|'automations'|'sessions'|'logs'>('apps')
+  const [logs, setLogs]             = useState<LogEntry[]>(() => MOCK_LOGS.map(t => ({
+    id: uid(), ts: new Date(Date.now() - Math.random() * 600000), type: 'system' as const, text: t
+  })))
 
+  // Live telemetry
+  const [latency, setLatency] = useState(41)
+  const [liveFps, setLiveFps] = useState(18)
   const logRef = useRef<HTMLDivElement>(null)
 
-  const addLog = useCallback((type: LogEntry['type'], typeLabel: string, text: string) => {
-    setLogs(l => [...l, { id: uid(), ts: new Date(), type, typeLabel, text }].slice(-200))
+  const addLog = useCallback((text: string, type: LogEntry['type'] = 'command') => {
+    setLogs(l => [...l, { id: uid(), ts: new Date(), type, text }].slice(-500))
   }, [])
 
-  // Latency jitter
   useEffect(() => {
-    const id = setInterval(() => setLatency(l => Math.min(120, Math.max(12, l + (Math.random() - 0.5) * 20))), 1200)
-    return () => clearInterval(id)
+    const id1 = setInterval(() => setLatency(v => Math.min(80, Math.max(20, v + (Math.random() - 0.5) * 14))), 1200)
+    const id2 = setInterval(() => setLiveFps(v => Math.min(32, Math.max(15, v + (Math.random() - 0.5) * 3 | 0))), 2000)
+    return () => { clearInterval(id1); clearInterval(id2) }
   }, [])
 
-  // Auto-scroll log
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-  }, [logs])
+  }, [logs, activeTab])
 
   if (!device) return (
-    <div className="flex h-full items-center justify-center bg-black">
+    <div className="flex h-full items-center justify-center bg-[#0a0b0e]">
       <span className="mono text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE SELECTED</span>
     </div>
   )
 
-  const QUALITY_OPTIONS = ['ULTRA', 'HIGH', 'MED', 'LOW']
-  const FPS_OPTIONS     = ['60', '30', '24', '15']
-
-  const latColor = latency < 50 ? 'var(--accent-green)' : latency < 100 ? 'var(--accent-amber)' : 'var(--accent-red)'
+  const GESTURES = ['Tap','Precise Tap','Double Tap','Long Press','Swipe','Scroll','Pinch / Rotate']
+  const latColor = latency < 50 ? '#4ade80' : latency < 70 ? '#fbbf24' : '#f87171'
 
   const quickControls = [
-    { label: 'LOCK',   icon: <Lock size={13} />,           type: 'command' as const, text: 'Screen locked' },
-    { label: 'UNLOCK', icon: <Unlock size={13} />,         type: 'command' as const, text: 'Screen unlocked' },
-    { label: 'HOME',   icon: <Home size={13} />,           type: 'command' as const, text: 'Home button pressed' },
-    { label: 'BACK',   icon: <CornerDownLeft size={13} />, type: 'command' as const, text: 'Back pressed' },
-    { label: 'APPS',   icon: <Grid2x2 size={13} />,        type: 'command' as const, text: 'App switcher opened' },
-    { label: 'SHOT',   icon: <Camera size={13} />,         type: 'screenshot' as const, text: 'Screenshot captured' },
-    { label: 'STREAM', icon: <RefreshCw size={13} />,      type: 'command' as const, text: 'Stream restarted' },
-    { label: 'REBOOT', icon: <Power size={13} />,          type: 'error' as const,   text: 'Device reboot sent', danger: true },
-    { label: 'VOL+',   icon: <Volume2 size={13} />,        type: 'command' as const, text: 'Volume up' },
-    { label: 'VOL-',   icon: <VolumeX size={13} />,        type: 'command' as const, text: 'Volume down' },
+    { label: 'Lock',       icon: <Lock size={18} />,           action: () => addLog('Lock button pressed') },
+    { label: 'Home',       icon: <Home size={18} />,           action: () => addLog('Home button pressed') },
+    { label: 'Back',       icon: <CornerDownLeft size={18} />, action: () => addLog('Back pressed') },
+    { label: 'Switcher',   icon: <Grid2x2 size={18} />,        action: () => addLog('App switcher opened') },
+    { label: 'Screenshot', icon: <Camera size={18} />,         action: () => addLog('Screenshot captured', 'screenshot') },
+    { label: 'Restart',    icon: <RefreshCw size={18} />,      action: () => addLog('Stream restarted') },
+    { label: 'Reboot',     icon: <Power size={18} />,          action: () => addLog('Device reboot sent', 'error'), danger: true },
   ]
 
-  const gestures = ['TAP', 'DBL TAP', 'SWIPE↑', 'SWIPE↓', 'SWIPE←', 'SWIPE→', 'PINCH', 'HOLD']
-
-  const statusColor =
-    device.status === 'busy'    ? 'var(--status-busy)' :
-    device.status === 'online'  ? 'var(--status-online)' :
-    device.status === 'offline' ? 'var(--status-offline)' : 'var(--status-warming)'
+  const avatarLetters = device.name.slice(0, 2).toUpperCase()
 
   return (
-    <div className="flex flex-col h-full bg-black">
-      {/* ── Header bar ───────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 py-3 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: '#000' }}>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={closePhoneControl}
-            className="mono text-[10px] uppercase tracking-widest text-white/30 hover:text-white/70 transition-colors flex items-center gap-1.5"
-          >
-            ← FLEET
+    <div className="flex flex-col h-full bg-[#0a0b0e] overflow-hidden">
+
+      {/* ── HEADER BAR ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0 border-b border-white/[0.07]" style={{ background: '#0d0f14' }}>
+        {/* Left */}
+        <div className="flex items-center gap-3">
+          <button onClick={closePhoneControl} className="flex items-center gap-1.5 text-white/50 hover:text-white/80 transition-colors text-sm">
+            <ChevronLeft size={16} />
+            <span className="text-[13px]">Phones</span>
           </button>
-          <div className="w-px h-4 bg-white/[0.08]" />
-          <span className="mono text-sm font-bold tracking-widest text-white uppercase">{device.name}</span>
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full status-dot-pulse" style={{ background: statusColor }} />
-            <span className="mono text-[9px] uppercase tracking-widest" style={{ color: statusColor }}>{device.status.toUpperCase()}</span>
+          <div className="w-px h-5 bg-white/[0.08]" />
+          {/* Avatar */}
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
+            style={{ background: 'linear-gradient(135deg,#2dd4bf,#0891b2)' }}>
+            {avatarLetters}
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[13px] font-bold text-white leading-tight">{device.name}</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ boxShadow: '0 0 4px #4ade80' }} />
+                <span className="text-[10px] text-green-400">Online</span>
+              </div>
+              <span className="text-[10px] text-white/30">{device.id.slice(0, 10)}</span>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="mono text-[9px] text-white/25 uppercase tracking-widest">SESSION</span>
-            <SessionTimer />
-          </div>
+
+        {/* Right */}
+        <div className="flex items-center gap-3">
+          {/* Nav arrows */}
           <div className="flex items-center gap-1">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="rounded-sm" style={{ width: 3, height: 4 + i * 3, background: i <= 3 ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)' }} />
-            ))}
+            <button
+              onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
+              disabled={currentIndex === 0}
+              className="p-1 rounded hover:bg-white/[0.08] disabled:opacity-25 transition-colors"
+            >
+              <ChevronLeft size={16} color="white" />
+            </button>
+            <span className="text-[12px] text-white/60 tabular-nums px-1">{currentIndex + 1}/{devices.length}</span>
+            <button
+              onClick={() => setCurrentIndex(i => Math.min(devices.length - 1, i + 1))}
+              disabled={currentIndex >= devices.length - 1}
+              className="p-1 rounded hover:bg-white/[0.08] disabled:opacity-25 transition-colors"
+            >
+              <ChevronRight size={16} color="white" />
+            </button>
           </div>
+          {/* Report button */}
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-amber-400 hover:bg-amber-400/10 transition-colors"
+            style={{ border: '1px solid rgba(251,191,36,0.4)' }}>
+            <AlertTriangle size={13} />
+            Report Problem
+          </button>
         </div>
       </div>
 
-      {/* ── Three-column layout ───────────────────────────────────────────────── */}
+      {/* ── THREE-COLUMN BODY ───────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* LEFT COLUMN — 280px */}
+        {/* ── LEFT COLUMN (280px) ───────────────────────────────────────────── */}
         <div className="w-[280px] shrink-0 flex flex-col gap-3 p-3 overflow-y-auto" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
 
-          {/* Device Telemetry */}
-          <TelCard title="DEVICE TELEMETRY">
-            <div className="flex flex-col gap-0">
+          {/* Device Info */}
+          <Card title="Device Info">
+            <div className="flex flex-col">
               {[
+                { label: 'PHONE',    value: device.name },
                 { label: 'MODEL',    value: device.model },
                 { label: 'OS',       value: device.osVersion },
+                { label: 'STATUS',   value: 'Online' },
+                { label: 'BATTERY',  value: `${device.battery}%` },
                 { label: 'REGION',   value: device.region },
                 { label: 'GROUP',    value: device.group },
-                { label: 'PROXY',    value: device.proxy.split(':')[0] },
+                { label: 'ASSIGNED', value: device.assignedUser ?? 'M. Chen' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between items-center py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span className="mono text-[9px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.3)' }}>{label}</span>
-                  <span className="mono text-[10px]" style={{ color: 'rgba(255,255,255,0.75)' }}>{value}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>{label}</span>
+                  <span className="font-mono text-[11px] text-white/80">{value}</span>
                 </div>
               ))}
-              {/* Battery */}
-              <div className="flex items-center justify-between py-2">
-                <span className="mono text-[9px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.3)' }}>BATTERY</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-16 h-0.5 overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                    <div className="h-full" style={{
-                      width: device.battery + '%',
-                      background: device.battery > 30 ? 'var(--accent-green)' : 'var(--accent-red)',
-                    }} />
-                  </div>
-                  <span className="mono text-[10px]" style={{ color: device.battery > 30 ? 'var(--accent-green)' : 'var(--accent-red)' }}>{device.battery}%</span>
-                </div>
+              {/* Proxy IP - clickable */}
+              <div className="flex justify-between items-center py-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>PROXY IP</span>
+                <button
+                  className="font-mono text-[11px] text-[#2dd4bf] hover:text-[#5eead4] transition-colors"
+                  onClick={() => { navigator.clipboard?.writeText('10.0.0.0'); addLog('Copied proxy IP: 10.0.0.0') }}
+                  title="Click to copy"
+                >
+                  10.0.0.0
+                </button>
               </div>
             </div>
-          </TelCard>
+          </Card>
 
-          {/* Stream Config */}
-          <TelCard title="STREAM CONFIG">
-            <div className="mb-3">
-              <p className="mono text-[8px] text-white/25 mb-1.5 tracking-wider">QUALITY</p>
-              <div className="flex gap-1">
-                {QUALITY_OPTIONS.map((q, i) => (
-                  <button
-                    key={q}
-                    onClick={() => setQualityIdx(i)}
-                    className="mono text-[9px] px-2 py-1 flex-1 tracking-wider transition-colors"
-                    style={{
-                      background: qualityIdx === i ? 'rgba(255,255,255,0.9)' : 'transparent',
-                      color: qualityIdx === i ? '#000' : 'rgba(255,255,255,0.35)',
-                      border: `1px solid ${qualityIdx === i ? 'transparent' : 'rgba(255,255,255,0.12)'}`,
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
+          {/* Quality Settings */}
+          <Card title="Quality Settings">
+            <p className="text-[11px] text-white/35 mb-4 leading-relaxed">Higher quality and FPS improve visibility but may increase latency.</p>
+            <div className="mb-4">
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">QUALITY</span>
+                <span className="font-mono text-[13px] font-semibold text-white">{quality}</span>
               </div>
+              <TealSlider value={quality} min={0} max={100} onChange={setQuality} />
             </div>
             <div>
-              <p className="mono text-[8px] text-white/25 mb-1.5 tracking-wider">FPS</p>
-              <div className="flex gap-1">
-                {FPS_OPTIONS.map((f, i) => (
-                  <button
-                    key={f}
-                    onClick={() => setFpsIdx(i)}
-                    className="mono text-[9px] px-2 py-1 flex-1 tracking-wider transition-colors"
-                    style={{
-                      background: fpsIdx === i ? 'rgba(255,255,255,0.9)' : 'transparent',
-                      color: fpsIdx === i ? '#000' : 'rgba(255,255,255,0.35)',
-                      border: `1px solid ${fpsIdx === i ? 'transparent' : 'rgba(255,255,255,0.12)'}`,
-                    }}
-                  >
-                    {f}
-                  </button>
-                ))}
+              <div className="flex justify-between items-center">
+                <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">FPS</span>
+                <span className="font-mono text-[13px] font-semibold text-white">{fps}</span>
               </div>
+              <TealSlider value={fps} min={5} max={60} onChange={setFps} />
             </div>
-          </TelCard>
+          </Card>
 
-          {/* Quick Controls */}
-          <TelCard title="QUICK CONTROLS">
-            <div className="grid grid-cols-5 gap-1">
-              {quickControls.map(({ label, icon, type, text, danger }) => (
-                <button
-                  key={label}
-                  onClick={() => addLog(type, type === 'command' ? 'CMD' : type === 'screenshot' ? 'CAP' : type.toUpperCase(), text)}
-                  className="flex flex-col items-center gap-1 py-2 px-1 transition-all duration-100 group"
-                  style={{
-                    border: `1px solid ${danger ? 'rgba(255,59,59,0.25)' : 'rgba(255,255,255,0.08)'}`,
-                    background: 'transparent',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = danger ? 'rgba(255,59,59,0.1)' : 'rgba(255,255,255,0.05)'; (e.currentTarget as HTMLElement).style.borderColor = danger ? 'rgba(255,59,59,0.6)' : 'rgba(255,255,255,0.3)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.borderColor = danger ? 'rgba(255,59,59,0.25)' : 'rgba(255,255,255,0.08)' }}
-                >
-                  <span style={{ color: danger ? 'var(--accent-red)' : 'rgba(255,255,255,0.6)' }}>{icon}</span>
-                  <span className="mono text-[7px] uppercase tracking-wider" style={{ color: danger ? 'var(--accent-red)' : 'rgba(255,255,255,0.3)' }}>{label}</span>
-                </button>
-              ))}
+          {/* Gesture Controls */}
+          <Card title="Gesture Controls">
+            <div className="flex flex-wrap gap-2">
+              {GESTURES.map(g => {
+                const active = gesture === g.toLowerCase().replace(/\s+/g, '-').replace(/\//g, '')
+                const key = g.toLowerCase().replace(/\s+/g, '-').replace(/\//g, '')
+                return (
+                  <button
+                    key={g}
+                    onClick={() => setGesture(key)}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-medium transition-all"
+                    style={active
+                      ? { background: '#2dd4bf', color: '#0d1117', border: '1px solid #2dd4bf' }
+                      : { background: 'transparent', color: 'white', border: '1px solid rgba(255,255,255,0.2)' }
+                    }
+                  >
+                    {g}
+                  </button>
+                )
+              })}
             </div>
-          </TelCard>
+          </Card>
+
+          {/* Send Text */}
+          <Card title="Send Text">
+            <textarea
+              value={sendText}
+              onChange={e => setSendText(e.target.value)}
+              placeholder="Type message here..."
+              rows={3}
+              className="w-full resize-none rounded-lg text-[12px] text-white/80 placeholder-white/25 bg-white/[0.04] border border-white/[0.08] p-2.5 outline-none focus:border-[#2dd4bf]/50 transition-colors"
+            />
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => { addLog(`Send text: "${sendText}"`); setSendText('') }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium text-[#0d1117] transition-colors hover:bg-[#5eead4]"
+                style={{ background: '#2dd4bf' }}
+              >
+                <Send size={13} />Send
+              </button>
+              <button
+                onClick={() => { navigator.clipboard?.writeText(sendText); addLog('Text copied') }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] text-white/60 border border-white/[0.12] hover:border-white/30 transition-colors"
+              >
+                <Copy size={13} />Copy
+              </button>
+              <button
+                onClick={() => setSendText('')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] text-white/40 border border-white/[0.08] hover:border-white/20 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </Card>
         </div>
 
-        {/* CENTER COLUMN */}
-        <div className="flex-1 flex flex-col items-center justify-center gap-5 overflow-y-auto py-6">
-          <PhoneScreen />
+        {/* ── CENTER COLUMN ───────────────────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col items-center overflow-y-auto py-5 px-4">
 
-          {/* Gesture controls */}
-          <div className="flex flex-wrap justify-center gap-1.5 max-w-xs">
-            {gestures.map(g => (
+          {/* Status bar */}
+          <div className="flex items-center gap-5 mb-5 px-4 py-2.5 rounded-xl border border-white/[0.08] bg-[#111318]">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-green-400" style={{ boxShadow: '0 0 5px #4ade80' }} />
+              <span className="text-[11px] text-green-400">Online</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">⚡ LATENCY</span>
+              <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">📷 FPS</span>
+              <span className="font-mono text-[12px] font-bold text-white">{liveFps}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">🛡 PROXY</span>
+              <span className="font-mono text-[12px] text-green-400">Healthy</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">🔋 BATTERY</span>
+              <span className="font-mono text-[12px] text-white">{device.battery}%</span>
+            </div>
+          </div>
+
+          {/* iPhone */}
+          {iPhoneMockup()}
+
+          {/* Bottom action bar */}
+          <div className="flex gap-2 mt-5">
+            <button
+              onClick={() => addLog('Launching app...')}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] hover:bg-[#5eead4] transition-colors"
+              style={{ background: '#2dd4bf' }}
+            >
+              <Rocket size={14} />Launch App
+            </button>
+            {[
+              { label: 'Screenshot', icon: <Camera size={14} />, action: () => addLog('Screenshot captured', 'screenshot') },
+              { label: 'Record',     icon: <Video size={14} />,  action: () => addLog('Recording started') },
+              { label: 'Open Logs',  icon: <FileText size={14} />, action: () => setActiveTab('logs') },
+              { label: 'Restart Stream', icon: <RefreshCw size={14} />, action: () => addLog('Stream restarted') },
+            ].map(({ label, icon, action }) => (
               <button
-                key={g}
-                onClick={() => addLog('gesture', 'GESTURE', `Gesture: ${g}`)}
-                className="mono text-[9px] uppercase tracking-wider px-2.5 py-1.5 transition-all duration-100"
-                style={{ border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)', background: 'transparent' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.9)'; (e.currentTarget as HTMLElement).style.color = '#000'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.4)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)' }}
+                key={label}
+                onClick={action}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] hover:border-white/30 hover:text-white transition-colors"
               >
-                {g}
+                {icon}{label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* RIGHT COLUMN — 300px */}
-        <div className="w-[300px] shrink-0 flex flex-col" style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+        {/* ── RIGHT COLUMN (300px) ──────────────────────────────────────────── */}
+        <div className="w-[300px] shrink-0 flex flex-col gap-3 p-3 overflow-y-auto" style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
 
-          {/* Command Log */}
-          <div className="flex-1 flex flex-col min-h-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <span className="mono text-[9px] uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.3)' }}>COMMAND LOG</span>
-            </div>
-            <div
-              ref={logRef}
-              className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5"
-              style={{ background: '#000', fontFamily: 'ui-monospace, monospace' }}
-            >
-              {logs.map(entry => (
-                <div key={entry.id} className="flex items-start gap-2 text-[10px] leading-relaxed">
-                  <span style={{ color: 'rgba(255,255,255,0.2)' }} className="shrink-0">[{fmt(entry.ts)}]</span>
-                  <span className="shrink-0 w-[52px]" style={{ color: LOG_COLORS[entry.type] }}>{entry.typeLabel}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>{entry.text}</span>
-                </div>
+          {/* Quick Controls */}
+          <Card title="Quick Controls">
+            <div className="grid grid-cols-4 gap-2">
+              {quickControls.map(({ label, icon, action, danger }) => (
+                <button
+                  key={label}
+                  onClick={action}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all"
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    borderColor: danger ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.08)',
+                    color: danger ? '#f87171' : 'rgba(255,255,255,0.6)',
+                  }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget as HTMLElement
+                    el.style.borderColor = danger ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.25)'
+                    el.style.background = danger ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.07)'
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget as HTMLElement
+                    el.style.borderColor = danger ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.08)'
+                    el.style.background = 'rgba(255,255,255,0.03)'
+                  }}
+                >
+                  {icon}
+                  <span className="text-[10px] font-medium">{label}</span>
+                </button>
               ))}
-              <div className="flex items-center gap-1 mt-1">
-                <span style={{ color: 'rgba(255,255,255,0.4)' }} className="mono text-[10px]">▋</span>
-              </div>
+            </div>
+          </Card>
+
+          {/* Phone Notes */}
+          <Card title="Phone Notes">
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Write notes about this device..."
+              rows={3}
+              className="w-full resize-none rounded-lg text-[12px] text-white/80 placeholder-white/25 bg-white/[0.04] border border-white/[0.08] p-2.5 outline-none focus:border-[#2dd4bf]/40 transition-colors"
+            />
+            <button
+              onClick={() => addLog('Notes saved')}
+              className="w-full mt-2 py-2 rounded-lg text-[12px] text-white/70 border border-white/[0.12] hover:border-white/25 hover:text-white transition-colors"
+              style={{ background: 'rgba(255,255,255,0.03)' }}
+            >
+              Save Notes
+            </button>
+          </Card>
+
+          {/* Tabs */}
+          <div className="rounded-xl border border-white/[0.08] bg-[#111318] flex flex-col flex-1">
+            {/* Tab bar */}
+            <div className="flex border-b border-white/[0.06]">
+              {(['apps','automations','sessions','logs'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className="flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors"
+                  style={{
+                    color: activeTab === tab ? '#2dd4bf' : 'rgba(255,255,255,0.35)',
+                    borderBottom: activeTab === tab ? '2px solid #2dd4bf' : '2px solid transparent',
+                  }}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-3 flex-1 overflow-y-auto">
+              {/* Apps tab */}
+              {activeTab === 'apps' && (
+                <div className="grid grid-cols-2 gap-2">
+                  {INSTALLED_APPS.map(app => (
+                    <div key={app.name} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                        style={{ background: app.bg, border: (app as any).border ? `1px solid ${(app as any).border}` : 'none' }}>
+                        {app.abbr}
+                      </div>
+                      <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
+                      <button
+                        onClick={() => addLog(`Launched: ${app.name}`)}
+                        className="text-[10px] text-[#2dd4bf] hover:text-[#5eead4] shrink-0 transition-colors px-1 py-0.5 rounded hover:border hover:border-[#2dd4bf]/40"
+                      >
+                        Launch
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Automations tab */}
+              {activeTab === 'automations' && (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <span className="text-[12px] text-white/30">No automations configured</span>
+                  <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] text-[#2dd4bf] border border-[#2dd4bf]/30 hover:bg-[#2dd4bf]/10 transition-colors">
+                    + Add Automation
+                  </button>
+                </div>
+              )}
+
+              {/* Sessions tab */}
+              {activeTab === 'sessions' && (
+                <div className="flex flex-col gap-2">
+                  {MOCK_SESSIONS.map((s, i) => (
+                    <div key={i} className="p-2.5 rounded-lg border border-white/[0.06]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-white/70">{s.date}</span>
+                        <span className="font-mono text-[10px] text-[#2dd4bf]">{s.duration}</span>
+                      </div>
+                      <span className="text-[10px] text-white/35">{s.operator}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Logs tab */}
+              {activeTab === 'logs' && (
+                <div
+                  ref={logRef}
+                  className="flex flex-col gap-0.5 overflow-y-auto"
+                  style={{ maxHeight: 260, fontFamily: 'ui-monospace, monospace' }}
+                >
+                  {logs.map(entry => (
+                    <div key={entry.id} className="text-[10px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                      <span className="text-white/25">[{fmt(entry.ts)}]</span>{' '}
+                      <span style={{
+                        color: entry.type === 'error' ? '#f87171'
+                          : entry.type === 'screenshot' ? '#4ade80'
+                          : entry.type === 'gesture' ? '#fbbf24'
+                          : 'rgba(255,255,255,0.55)'
+                      }}>{entry.text}</span>
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-white/30">▋</div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Stream Telemetry */}
-          <div className="flex-shrink-0">
-            <div className="px-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <span className="mono text-[9px] uppercase tracking-[0.18em]" style={{ color: 'rgba(255,255,255,0.3)' }}>STREAM TELEMETRY</span>
-            </div>
-            <div className="grid grid-cols-2 gap-0 p-2" style={{ gap: '4px' }}>
-              <div className="flex flex-col gap-1 p-2.5" style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#0a0a0a' }}>
-                <span className="mono text-[8px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.3)' }}>RESOLUTION</span>
-                <span className="mono text-sm font-bold" style={{ color: 'rgba(255,255,255,0.8)' }}>1920×1080</span>
-              </div>
-              <div className="flex flex-col gap-1 p-2.5" style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#0a0a0a' }}>
-                <span className="mono text-[8px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.3)' }}>CODEC</span>
-                <span className="mono text-sm font-bold" style={{ color: 'rgba(255,255,255,0.8)' }}>H.264</span>
-              </div>
-              <LiveStat label="BITRATE" unit="Kbps" min={1200} max={2400} />
-              <LiveStat label="FRAMERATE" unit="fps" min={28} max={32} />
-              <div className="flex flex-col gap-1 p-2.5" style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#0a0a0a' }}>
-                <span className="mono text-[8px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.3)' }}>LATENCY</span>
-                <span className="mono text-sm font-bold tabular-nums transition-colors duration-300" style={{ color: latColor }}>{Math.round(latency)}ms</span>
-              </div>
-              <UptimeDisplay />
-            </div>
-          </div>
         </div>
       </div>
     </div>
