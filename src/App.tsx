@@ -6,6 +6,7 @@ import { ScalePanel } from '@/components/scale/scale-panel'
 import { CommandPalette } from '@/components/palette/command-palette'
 import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
+const PhoneControlPage = lazy(() => import('@/components/phone/phone-control-page').then(m => ({ default: m.PhoneControlPage })))
 import { Spinner } from '@/components/ui/spinner'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
@@ -25,6 +26,7 @@ function Soon({ label }: { label: string }) {
 }
 
 const VIEW_MAP: Record<ViewId, ComponentType> = {
+  'phone-control': PhoneControlPage,
   fleet:       FleetView,
   phones:      PhonesView,
   accounts:    AccountsView,
@@ -33,6 +35,7 @@ const VIEW_MAP: Record<ViewId, ComponentType> = {
   automations: AutomationsView,
   jobs:        JobsView,
   scale:       () => <Soon label="Scale — coming soon" />,
+
   logs:        LogsView,
   settings:    () => <Soon label="Settings — coming soon" />,
 }

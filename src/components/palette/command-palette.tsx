@@ -34,6 +34,7 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
   logs:        Minus,
   accounts:    Table2,
   settings:    Minus,
+  'phone-control': Minus,
 }
 
 function Palette({ onClose }: { onClose: () => void }) {

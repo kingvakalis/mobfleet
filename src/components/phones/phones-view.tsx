@@ -27,7 +27,7 @@ export function PhonesView() {
   const snapshot           = useFleet()
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const openDrawer            = useUIStore((s) => s.openDrawer)
+  const openPhoneControl      = useUIStore((s) => s.openPhoneControl)
 
   const devices = snapshot.devices
 
@@ -169,7 +169,7 @@ export function PhonesView() {
                   <td className="px-3 py-3 text-white/35 font-mono">{job ? job.type : '—'}</td>
                   <td className="px-3 py-3">
                     <button
-                      onClick={e => { e.stopPropagation(); openDrawer(d.id) }}
+                      onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}
                       className="px-2 py-1 rounded text-[10px] text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
                     >
                       Control →

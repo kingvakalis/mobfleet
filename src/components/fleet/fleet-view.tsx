@@ -57,7 +57,7 @@ export function FleetView() {
   const groupFilterUI  = useUIStore((s) => s.groupFilter)
   const setGroupFilterUI = useUIStore((s) => s.setGroupFilter)
 
-  const [mode, setMode]               = useState<ViewMode>('3d')
+  const [mode, setMode]               = useState<ViewMode>('2d')
   const [search, setSearch]           = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [groupFilter, setGroupFilter] = useState<string | null>(null)

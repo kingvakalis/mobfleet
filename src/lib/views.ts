@@ -1,6 +1,6 @@
 export type ViewId =
   | 'fleet' | 'phones' | 'accounts' | 'groups' | 'proxies'
-  | 'automations' | 'jobs' | 'scale' | 'logs' | 'settings'
+  | 'automations' | 'jobs' | 'scale' | 'logs' | 'settings' | 'phone-control'
 
 export type View = ViewId
 

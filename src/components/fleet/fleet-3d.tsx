@@ -716,8 +716,9 @@ function Loader() {
 
 export function Fleet3D() {
   const stats      = useFleetStats()
-  const openDrawer = useUIStore(s => s.openDrawer)
-  const setView    = useUIStore(s => s.setView)
+  const openDrawer        = useUIStore(s => s.openDrawer)
+  const setView           = useUIStore(s => s.setView)
+  const openPhoneControl  = useUIStore(s => s.openPhoneControl)
 
   const [selectedId,  setSelectedId]  = useState<string | null>(null)
   const [hoveredId,   setHoveredId]   = useState<string | null>(null)
@@ -737,9 +738,8 @@ export function Fleet3D() {
   }, [openDrawer])
 
   const handleDoubleClick = useCallback((id: string) => {
-    setView('phones')
-    openDrawer(id)
-  }, [setView, openDrawer])
+    openPhoneControl(id)
+  }, [openPhoneControl])
 
   const handleReset = useCallback(() => {
     if (!controlsRef.current) return

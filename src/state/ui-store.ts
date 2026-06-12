@@ -30,6 +30,10 @@ interface UIState {
   openPalette: () => void
   closePalette: () => void
   togglePalette: () => void
+
+  phoneControlDeviceId: string | null
+  openPhoneControl: (id: string) => void
+  closePhoneControl: () => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -57,4 +61,8 @@ export const useUIStore = create<UIState>((set) => ({
   openPalette: () => set({ paletteOpen: true }),
   closePalette: () => set({ paletteOpen: false }),
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
+
+  phoneControlDeviceId: null,
+  openPhoneControl: (id) => set({ phoneControlDeviceId: id, view: 'phone-control' }),
+  closePhoneControl: () => set({ phoneControlDeviceId: null, view: 'phones' }),
 }))
