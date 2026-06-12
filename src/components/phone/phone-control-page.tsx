@@ -4,10 +4,14 @@ import {
   ChevronLeft, ChevronRight, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
   Camera, RefreshCw, Power,
-  Send, Copy, X, Maximize2, Rocket, FileText,
-  Video,
+  Send, Copy, X, Rocket, FileText,
+  Video, Zap, Shield, BatteryMedium, Gauge,
 } from 'lucide-react'
+import type { AppDef } from '@/components/phone/app-catalog'
+import { LivePhone, type LivePhoneHandle } from '@/components/phone/live-phone'
+import type { LogLevel } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
+import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -21,28 +25,7 @@ interface LogEntry {
 }
 
 // ─── App icon definitions ─────────────────────────────────────────────────────
-const GRID_APPS = [
-  { name: 'Messages',  abbr: 'Me', bg: '#22c55e' },
-  { name: 'Safari',    abbr: 'Sa', bg: 'linear-gradient(135deg,#0ea5e9,#2dd4bf)' },
-  { name: 'Instagram', abbr: 'In', bg: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
-  { name: 'TikTok',    abbr: 'Ti', bg: '#000', border: '#ff0050' },
-  { name: 'Telegram',  abbr: 'Te', bg: '#2aabee' },
-  { name: 'WhatsApp',  abbr: 'Wh', bg: '#25d366' },
-  { name: 'Facebook',  abbr: 'Fb', bg: '#1877f2' },
-  { name: 'Photos',    abbr: 'Ph', bg: 'linear-gradient(135deg,#ff9500,#ff2d55,#af52de,#32ade6)' },
-  { name: 'Settings',  abbr: 'Se', bg: '#636366' },
-  { name: 'Mail',      abbr: 'Ma', bg: '#0a84ff' },
-  { name: 'Notes',     abbr: 'No', bg: '#ffd60a', textColor: '#000' },
-  { name: 'Files',     abbr: 'Fi', bg: '#1d6ce6' },
-]
-const DOCK_APPS = [
-  { name: 'Phone',    abbr: 'Ph', bg: '#22c55e' },
-  { name: 'Safari',   abbr: 'Sa', bg: '#0a84ff' },
-  { name: 'Messages', abbr: 'Me', bg: '#22c55e' },
-  { name: 'Music',    abbr: 'Mu', bg: 'linear-gradient(135deg,#ff2d55,#ff9500)' },
-]
-
-const INSTALLED_APPS = [
+const INSTALLED_APPS: AppDef[] = [
   { name: 'Instagram', abbr: 'In', bg: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
   { name: 'TikTok',    abbr: 'Ti', bg: '#000', border: '#ff0050' },
   { name: 'Telegram',  abbr: 'Te', bg: '#2aabee' },
@@ -125,90 +108,9 @@ function Card({ title, children, className = '' }: { title?: string; children: R
   )
 }
 
-// ─── iPhone Mockup ────────────────────────────────────────────────────────────
-function iPhoneMockup() {
-  return (
-    <div className="relative" style={{
-      width: 260,
-      background: '#0d0d0d',
-      border: '2px solid #1a1a1a',
-      borderRadius: 36,
-      boxShadow: '0 24px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.07)',
-      overflow: 'hidden',
-    }}>
-      {/* Fullscreen icon */}
-      <button className="absolute top-3 right-3 z-10 p-1 rounded opacity-40 hover:opacity-80 transition-opacity" style={{ background: 'rgba(255,255,255,0.08)' }}>
-        <Maximize2 size={12} color="white" />
-      </button>
-
-      {/* iOS status bar */}
-      <div className="flex items-center justify-between px-5 pt-3 pb-1">
-        <span className="text-white text-[12px] font-semibold" style={{ fontFamily: 'system-ui' }}>9:41</span>
-        <div className="flex items-center gap-1.5">
-          {/* Signal bars */}
-          <div className="flex items-end gap-[2px]">
-            {[3,5,7,9].map((h, i) => (
-              <div key={i} className="w-[3px] rounded-sm" style={{ height: h, background: i < 3 ? 'white' : 'rgba(255,255,255,0.3)' }} />
-            ))}
-          </div>
-          {/* WiFi */}
-          <svg width="14" height="10" viewBox="0 0 14 10" fill="none">
-            <path d="M7 8.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z" fill="white"/>
-            <path d="M4 6.5C4.9 5.6 5.9 5 7 5s2.1.6 3 1.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
-            <path d="M1.5 4C3 2.5 5 1.5 7 1.5s4 1 5.5 2.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.5"/>
-          </svg>
-          {/* Battery */}
-          <div className="flex items-center gap-[1px]">
-            <div className="rounded-sm border border-white/60" style={{ width: 20, height: 10, padding: 1.5, boxSizing: 'border-box' }}>
-              <div className="h-full rounded-sm bg-white" style={{ width: '30%' }} />
-            </div>
-            <div className="rounded-sm bg-white/50" style={{ width: 2, height: 5 }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Dynamic Island */}
-      <div className="flex justify-center mb-2">
-        <div className="rounded-full bg-black" style={{ width: 88, height: 26 }} />
-      </div>
-
-      {/* App grid */}
-      <div className="grid grid-cols-4 gap-y-3 gap-x-2 px-4 pb-3">
-        {GRID_APPS.map(app => (
-          <div key={app.name} className="flex flex-col items-center gap-1">
-            <div className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center text-[10px] font-bold"
-              style={{ background: app.bg, border: (app as any).border ? `1.5px solid ${(app as any).border}` : 'none', color: (app as any).textColor ?? 'white', fontSize: 11 }}>
-              {app.abbr}
-            </div>
-            <span className="text-[9px] text-white/50 text-center leading-tight truncate w-full text-center">{app.name}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Dock */}
-      <div className="mx-4 mb-3 px-3 py-2 rounded-2xl flex items-center justify-around"
-        style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
-        {DOCK_APPS.map(app => (
-          <div key={app.name} className="flex flex-col items-center gap-1">
-            <div className="w-[50px] h-[50px] rounded-2xl flex items-center justify-center text-[10px] font-bold text-white"
-              style={{ background: app.bg }}>
-              {app.abbr}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Home indicator */}
-      <div className="flex justify-center pb-2">
-        <div className="rounded-full bg-white/30" style={{ width: 100, height: 4 }} />
-      </div>
-    </div>
-  )
-}
-
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
-  const { devices } = useFleet()
+  const { devices, jobs } = useFleet()
   const phoneControlDeviceId = useUIStore(s => s.phoneControlDeviceId)
   const closePhoneControl    = useUIStore(s => s.closePhoneControl)
 
@@ -216,6 +118,7 @@ export function PhoneControlPage() {
   const initialIndex = Math.max(0, devices.findIndex(d => d.id === phoneControlDeviceId))
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const device = devices[currentIndex] ?? devices[0] ?? null
+  const job = device?.jobId ? jobs.find(j => j.id === device.jobId) ?? null : null
 
   // UI state
   const [quality, setQuality]       = useState(22)
@@ -232,10 +135,18 @@ export function PhoneControlPage() {
   const [latency, setLatency] = useState(41)
   const [liveFps, setLiveFps] = useState(18)
   const logRef = useRef<HTMLDivElement>(null)
+  const phoneRef = useRef<LivePhoneHandle>(null)
 
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'command') => {
     setLogs(l => [...l, { id: uid(), ts: new Date(), type, text }].slice(-500))
   }, [])
+
+  // Adapter: LivePhone emits LogLevel, the page log uses its own categories.
+  const phoneLog = useCallback((level: LogLevel, text: string) => {
+    const type: LogEntry['type'] =
+      level === 'error' ? 'error' : level === 'ok' ? 'screenshot' : level === 'warn' ? 'gesture' : 'command'
+    addLog(text, type)
+  }, [addLog])
 
   useEffect(() => {
     const id1 = setInterval(() => setLatency(v => Math.min(80, Math.max(20, v + (Math.random() - 0.5) * 14))), 1200)
@@ -255,16 +166,30 @@ export function PhoneControlPage() {
 
   const GESTURES = ['Tap','Precise Tap','Double Tap','Long Press','Swipe','Scroll','Pinch / Rotate']
   const latColor = latency < 50 ? '#4ade80' : latency < 70 ? '#fbbf24' : '#f87171'
+  const meta = STATUS[device.status]
 
   const quickControls = [
-    { label: 'Lock',       icon: <Lock size={18} />,           action: () => addLog('Lock button pressed') },
-    { label: 'Home',       icon: <Home size={18} />,           action: () => addLog('Home button pressed') },
-    { label: 'Back',       icon: <CornerDownLeft size={18} />, action: () => addLog('Back pressed') },
-    { label: 'Switcher',   icon: <Grid2x2 size={18} />,        action: () => addLog('App switcher opened') },
-    { label: 'Screenshot', icon: <Camera size={18} />,         action: () => addLog('Screenshot captured', 'screenshot') },
-    { label: 'Restart',    icon: <RefreshCw size={18} />,      action: () => addLog('Stream restarted') },
-    { label: 'Reboot',     icon: <Power size={18} />,          action: () => addLog('Device reboot sent', 'error'), danger: true },
+    { key: 'lock',       label: 'Lock',       icon: <Lock size={18} /> },
+    { key: 'home',       label: 'Home',       icon: <Home size={18} /> },
+    { key: 'back',       label: 'Back',       icon: <CornerDownLeft size={18} /> },
+    { key: 'switcher',   label: 'Switcher',   icon: <Grid2x2 size={18} /> },
+    { key: 'screenshot', label: 'Screenshot', icon: <Camera size={18} /> },
+    { key: 'restart',    label: 'Restart',    icon: <RefreshCw size={18} /> },
+    { key: 'reboot',     label: 'Reboot',     icon: <Power size={18} />, danger: true },
   ]
+
+  const runQuick = (key: string) => {
+    const p = phoneRef.current
+    switch (key) {
+      case 'lock':       p?.lock(); break
+      case 'home':       p?.home(); break
+      case 'back':       p?.back(); break
+      case 'switcher':   p?.switcher(); break
+      case 'screenshot': p?.screenshot(); break
+      case 'restart':    addLog('Stream restarted'); break
+      case 'reboot':     addLog('Device reboot sent', 'error'); break
+    }
+  }
 
   const avatarLetters = device.name.slice(0, 2).toUpperCase()
 
@@ -289,8 +214,8 @@ export function PhoneControlPage() {
             <span className="text-[13px] font-bold text-white leading-tight">{device.name}</span>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ boxShadow: '0 0 4px #4ade80' }} />
-                <span className="text-[10px] text-green-400">Online</span>
+                <div className="w-1.5 h-1.5 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 4px ${meta.color}` }} />
+                <span className="text-[10px]" style={{ color: meta.color }}>{meta.label}</span>
               </div>
               <span className="text-[10px] text-white/30">{device.id.slice(0, 10)}</span>
             </div>
@@ -339,7 +264,7 @@ export function PhoneControlPage() {
                 { label: 'PHONE',    value: device.name },
                 { label: 'MODEL',    value: device.model },
                 { label: 'OS',       value: device.osVersion },
-                { label: 'STATUS',   value: 'Online' },
+                { label: 'STATUS',   value: meta.label },
                 { label: 'BATTERY',  value: `${device.battery}%` },
                 { label: 'REGION',   value: device.region },
                 { label: 'GROUP',    value: device.group },
@@ -355,10 +280,10 @@ export function PhoneControlPage() {
                 <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>PROXY IP</span>
                 <button
                   className="font-mono text-[11px] text-[#2dd4bf] hover:text-[#5eead4] transition-colors"
-                  onClick={() => { navigator.clipboard?.writeText('10.0.0.0'); addLog('Copied proxy IP: 10.0.0.0') }}
+                  onClick={() => { navigator.clipboard?.writeText(device.proxy); addLog(`Copied proxy IP: ${device.proxy}`) }}
                   title="Click to copy"
                 >
-                  10.0.0.0
+                  {device.proxy}
                 </button>
               </div>
             </div>
@@ -445,34 +370,47 @@ export function PhoneControlPage() {
           {/* Status bar */}
           <div className="flex items-center gap-5 mb-5 px-4 py-2.5 rounded-xl border border-white/[0.08] bg-[#111318]">
             <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-green-400" style={{ boxShadow: '0 0 5px #4ade80' }} />
-              <span className="text-[11px] text-green-400">Online</span>
+              <div className="w-2 h-2 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 5px ${meta.color}` }} />
+              <span className="text-[11px]" style={{ color: meta.color }}>{meta.label}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">⚡ LATENCY</span>
+              <Zap size={11} className="text-white/35" />
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">LATENCY</span>
               <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">📷 FPS</span>
-              <span className="font-mono text-[12px] font-bold text-white">{liveFps}</span>
+              <Gauge size={11} className="text-white/35" />
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">FPS</span>
+              <span className="font-mono text-[12px] font-bold text-white tabular-nums">{liveFps}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">🛡 PROXY</span>
+              <Shield size={11} className="text-white/35" />
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">PROXY</span>
               <span className="font-mono text-[12px] text-green-400">Healthy</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">🔋 BATTERY</span>
-              <span className="font-mono text-[12px] text-white">{device.battery}%</span>
+              <BatteryMedium size={11} className="text-white/35" />
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">BATTERY</span>
+              <span className="font-mono text-[12px] text-white tabular-nums">{device.battery}%</span>
             </div>
           </div>
 
-          {/* iPhone */}
-          {iPhoneMockup()}
+          {/* Live interactive phone */}
+          <div className="hud-corners p-4" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '14px' }}>
+            <LivePhone
+              ref={phoneRef}
+              device={device}
+              job={job}
+              width={264}
+              gesture={gesture}
+              onLog={phoneLog}
+            />
+          </div>
 
           {/* Bottom action bar */}
           <div className="flex gap-2 mt-5">
             <button
-              onClick={() => addLog('Launching app...')}
+              onClick={() => phoneRef.current?.launchApp('Instagram')}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] hover:bg-[#5eead4] transition-colors"
               style={{ background: '#2dd4bf' }}
             >
@@ -501,10 +439,10 @@ export function PhoneControlPage() {
           {/* Quick Controls */}
           <Card title="Quick Controls">
             <div className="grid grid-cols-4 gap-2">
-              {quickControls.map(({ label, icon, action, danger }) => (
+              {quickControls.map(({ key, label, icon, danger }) => (
                 <button
-                  key={label}
-                  onClick={action}
+                  key={key}
+                  onClick={() => runQuick(key)}
                   className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all"
                   style={{
                     background: 'rgba(255,255,255,0.03)',
@@ -578,12 +516,12 @@ export function PhoneControlPage() {
                   {INSTALLED_APPS.map(app => (
                     <div key={app.name} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
                       <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                        style={{ background: app.bg, border: (app as any).border ? `1px solid ${(app as any).border}` : 'none' }}>
+                        style={{ background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none' }}>
                         {app.abbr}
                       </div>
                       <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
                       <button
-                        onClick={() => addLog(`Launched: ${app.name}`)}
+                        onClick={() => phoneRef.current?.launchApp(app.name)}
                         className="text-[10px] text-[#2dd4bf] hover:text-[#5eead4] shrink-0 transition-colors px-1 py-0.5 rounded hover:border hover:border-[#2dd4bf]/40"
                       >
                         Launch

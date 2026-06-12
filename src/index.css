@@ -93,6 +93,60 @@
     font-feature-settings: 'tnum';
   }
 
+  /* ── Sci-fi HUD primitives ─────────────────────────────────────────────── */
+
+  /* Four corner brackets drawn with background gradients — no extra DOM. */
+  .hud-corners {
+    --hud-c: rgba(255,255,255,0.28);
+    --hud-len: 10px;
+    --hud-w: 1px;
+    background-image:
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c));
+    background-repeat: no-repeat;
+    background-size:
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len);
+    background-position:
+      top left, top left,
+      top right, top right,
+      bottom left, bottom left,
+      bottom right, bottom right;
+  }
+
+  /* CRT scanlines overlay. */
+  .scanlines { position: relative; }
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 30;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,0.025) 0 1px,
+      transparent 1px 3px
+    );
+  }
+
+  /* One-shot scan sweep on mount (use on a relatively-positioned overflow-hidden box). */
+  .scan-sweep::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 12%;
+    background: linear-gradient(180deg, transparent, rgba(79,195,247,0.12), transparent);
+    animation: scan-sweep 1.2s cubic-bezier(0.16,1,0.3,1) 1 both;
+    pointer-events: none;
+    z-index: 31;
+  }
+
   .shimmer {
     position: relative;
     overflow: hidden;
@@ -118,6 +172,18 @@
 @keyframes shimmer {
   100% { transform: translateX(100%); }
 }
+
+@keyframes scan-sweep {
+  0%   { transform: translateY(-110%); opacity: 0; }
+  12%  { opacity: 1; }
+  100% { transform: translateY(900%); opacity: 0; }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.spin-slow { animation: spin-slow 14s linear infinite; }
+.spin-slow-rev { animation: spin-slow 22s linear infinite reverse; }
 
 @keyframes status-pulse {
   0%, 100% { opacity: 1; }

@@ -20,13 +20,14 @@ function AnimatedCounter({ target, color }: { target: number; color: string }) {
   const [value, setValue] = useState(0)
   useEffect(() => {
     let cur = 0
+    let t: ReturnType<typeof setTimeout>
     const step = () => {
       cur = Math.min(cur + 1, target)
       setValue(cur)
-      if (cur < target) setTimeout(step, 20)
+      if (cur < target) t = setTimeout(step, 20)
     }
-    if (target > 0) step()
-    else setValue(0)
+    t = setTimeout(step, 0)
+    return () => clearTimeout(t)
   }, [target])
   return <span className="mono text-3xl font-bold tabular-nums" style={{ color }}>{value}</span>
 }
@@ -36,6 +37,7 @@ export function PhonesView() {
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const openPhoneControl      = useUIStore((s) => s.openPhoneControl)
+  const openDrawer            = useUIStore((s) => s.openDrawer)
 
   const devices = snapshot.devices
 
@@ -65,7 +67,8 @@ export function PhonesView() {
   function toggle(id: string) {
     setSelected(prev => {
       const n = new Set(prev)
-      n.has(id) ? n.delete(id) : n.add(id)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
       return n
     })
   }
@@ -91,19 +94,23 @@ export function PhonesView() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.06]">
-        {kpis.map(({ label, value, color, topBorder }) => (
-          <div
+        {kpis.map(({ label, value, color, topBorder }, i) => (
+          <motion.div
             key={label}
-            className="p-4 flex flex-col gap-2"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] }}
+            className="hud-corners p-4 flex flex-col gap-2"
             style={{
               background: 'var(--bg-surface)',
               border: '1px solid rgba(255,255,255,0.08)',
               borderTop: `2px solid ${topBorder}`,
+              ['--hud-c' as string]: `${topBorder}`,
             }}
           >
             <span className="mono text-[9px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.4)' }}>{label}</span>
             <AnimatedCounter target={value} color={color} />
-          </div>
+          </motion.div>
         ))}
       </div>
 
@@ -145,15 +152,20 @@ export function PhonesView() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((d) => {
+            {visible.map((d, i) => {
               const meta   = STATUS[d.status]
               const isSel  = selected.has(d.id)
               const job    = d.jobId ? snapshot.jobs.find(j => j.id === d.jobId) : null
               const dotColor = STATUS_COLORS[d.status] ?? meta?.color ?? 'rgba(255,255,255,0.3)'
               return (
-                <tr
+                <motion.tr
                   key={d.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.25, delay: Math.min(i * 0.018, 0.5) }}
                   onClick={() => toggle(d.id)}
+                  onDoubleClick={() => openDrawer(d.id)}
+                  title="Double-click for live control"
                   className="border-b border-white/[0.04] cursor-pointer transition-all duration-100"
                   style={{
                     borderLeft: isSel ? '2px solid var(--accent-blue)' : '2px solid transparent',
@@ -179,7 +191,10 @@ export function PhonesView() {
                   <td className="px-3 py-3 mono text-white/70 text-[11px] whitespace-nowrap">{d.name}</td>
                   <td className="px-3 py-3">
                     <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.status !== 'offline' ? 'status-dot-pulse' : ''}`}
+                        style={{ background: dotColor, boxShadow: d.status !== 'offline' ? `0 0 5px ${dotColor}` : 'none' }}
+                      />
                       <span className="mono text-[10px] uppercase tracking-wider" style={{ color: dotColor }}>{meta?.label ?? d.status}</span>
                     </span>
                   </td>
@@ -191,10 +206,10 @@ export function PhonesView() {
                     <div className="flex items-center gap-1.5">
                       <div className="w-10 h-0.5 rounded-none overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
                         <div
-                          className="h-full"
+                          className="h-full transition-[width] duration-700 ease-expo-out"
                           style={{
                             width: d.battery + '%',
-                            background: d.battery > 30 ? 'var(--accent-green)' : 'var(--accent-red)',
+                            background: d.battery > 30 ? 'var(--accent-green)' : d.battery > 15 ? 'var(--accent-amber)' : 'var(--accent-red)',
                           }}
                         />
                       </div>
@@ -206,12 +221,12 @@ export function PhonesView() {
                   <td className="px-3 py-3">
                     <button
                       onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}
-                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-white/60 hover:text-white/80 transition-colors"
+                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[#4fc3f7]/60 hover:text-[#7dd3fc] hover:bg-[#4fc3f7]/[0.06] transition-colors"
                     >
                       CONTROL →
                     </button>
                   </td>
-                </tr>
+                </motion.tr>
               )
             })}
           </tbody>
