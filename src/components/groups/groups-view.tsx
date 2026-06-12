@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Plus, Smartphone, Zap, Users, Clock, ArrowUpRight, Play, Settings } from 'lucide-react'
-import { groups, phones } from '@/lib/fleet-data'
+import { useGroupsData, usePhones } from '@/lib/fleet-adapter'
 
 export function GroupsView() {
+  const groups = useGroupsData()
+  const phones = usePhones()
   const [search, setSearch] = useState('')
 
   const visible = groups.filter(g =>

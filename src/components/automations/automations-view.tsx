@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Play, Pause, Plus, ChevronRight } from 'lucide-react'
-import { automations } from '@/lib/fleet-data'
+import { useAutomationsData } from '@/lib/fleet-adapter'
 
 const FLOW_STEPS = [
   { label: 'Start',      color: '#22c55e' },
@@ -13,6 +13,7 @@ const FLOW_STEPS = [
 ]
 
 export function AutomationsView() {
+  const automations = useAutomationsData()
   const [search, setSearch] = useState('')
 
   const visible = automations.filter(a =>

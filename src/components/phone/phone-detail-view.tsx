@@ -6,7 +6,8 @@ import {
   Send, Copy, Eraser, Play, ScrollText,
   Battery, Wifi, Signal, Circle,
 } from 'lucide-react'
-import { phones, buildLogs, type LogLevel, statusMeta } from '@/lib/fleet-data'
+import { buildLogs, type LogLevel, statusMeta } from '@/lib/fleet-data'
+import { usePhones } from '@/lib/fleet-adapter'
 import { useUIStore } from '@/state/ui-store'
 
 interface Props { deviceId: string; onClose: () => void }
@@ -61,6 +62,7 @@ const LOG_BG: Record<LogLevel, string> = {
 }
 
 export function PhoneDetailView({ deviceId }: Props) {
+  const phones = usePhones()
   const [tab, setTab]         = useState<Tab>('Apps')
   const [logs, setLogs]       = useState(() => buildLogs(30))
   const [text, setText]       = useState('')

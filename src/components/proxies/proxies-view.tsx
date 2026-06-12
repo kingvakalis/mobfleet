@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, RefreshCw, Trash2, Copy, AlertTriangle } from 'lucide-react'
-import { proxies } from '@/lib/fleet-data'
+import { useProxiesData } from '@/lib/fleet-adapter'
 
 const statusStyle: Record<string, string> = {
   healthy:    'bg-emerald-400/10 text-emerald-400',
@@ -10,6 +10,8 @@ const statusStyle: Record<string, string> = {
 
 export function ProxiesView() {
   const [search, setSearch] = useState('')
+
+  const proxies = useProxiesData()
 
   const total      = proxies.length
   const healthy    = proxies.filter(p => p.status === 'healthy').length

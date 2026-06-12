@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Search, Clock } from 'lucide-react'
-import { buildLogs, type LogLevel } from '@/lib/fleet-data'
+import { type LogEntry, type LogLevel } from '@/lib/fleet-data'
+import { useLiveLogs } from '@/lib/fleet-adapter'
 
 const levelStyle: Record<LogLevel, string> = {
   INFO:  'text-white/40',
@@ -26,8 +27,8 @@ function rng(seed: number) {
   return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return Math.abs(s) / 0x7fffffff }
 }
 
-function buildEnrichedLogs(count: number) {
-  return buildLogs(count).map((l, i) => {
+function buildEnrichedLogs(logs: LogEntry[]) {
+  return logs.map((l, i) => {
     const r = rng(i * 31 + 11)
     return {
       ...l,
@@ -38,7 +39,8 @@ function buildEnrichedLogs(count: number) {
 }
 
 export function LogsView() {
-  const allLogs = useMemo(() => buildEnrichedLogs(150), [])
+  const logs = useLiveLogs()
+  const allLogs = useMemo(() => buildEnrichedLogs(logs), [logs])
   const [filter, setFilter]   = useState<'ALL' | LogLevel>('ALL')
   const [search, setSearch]   = useState('')
   const [timeFilter, setTimeFilter] = useState('All Time')
