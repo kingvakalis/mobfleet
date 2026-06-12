@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Search, Upload, Plus, Check, Briefcase, Camera, RotateCcw, RefreshCw, UserPlus, Download, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useFleet } from '@/hooks/use-fleet'
+import { client } from '@/lib/provider'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 
@@ -231,14 +232,14 @@ export function PhonesView() {
               <span className="mono text-[9px] text-white/40 mr-1 whitespace-nowrap uppercase tracking-widest">{selected.size} SELECTED</span>
               <div className="w-px h-4 bg-white/[0.08]" />
               {[
-                { icon: <Briefcase size={11} />, label: 'RUN JOB' },
-                { icon: <Camera size={11} />,    label: 'CAPTURE' },
-                { icon: <RotateCcw size={11} />, label: 'REBOOT' },
-                { icon: <RefreshCw size={11} />, label: 'PROXY' },
-                { icon: <UserPlus size={11} />,  label: 'GROUP' },
-                { icon: <Download size={11} />,  label: 'EXPORT' },
-              ].map(({ icon, label }) => (
-                <button key={label} className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors">
+                { icon: <Briefcase size={11} />, label: 'RUN JOB', run: () => { selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' })); setSelected(new Set()) } },
+                { icon: <Camera size={11} />,    label: 'CAPTURE', run: undefined },
+                { icon: <RotateCcw size={11} />, label: 'REBOOT',  run: undefined },
+                { icon: <RefreshCw size={11} />, label: 'PROXY',   run: () => selected.forEach(id => void client.rotateProxy(id)) },
+                { icon: <UserPlus size={11} />,  label: 'GROUP',   run: undefined },
+                { icon: <Download size={11} />,  label: 'EXPORT',  run: undefined },
+              ].map(({ icon, label, run }) => (
+                <button key={label} type="button" onClick={run} disabled={!run} className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/50">
                   {icon} {label}
                 </button>
               ))}

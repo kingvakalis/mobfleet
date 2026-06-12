@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, RefreshCw, Trash2, Copy, AlertTriangle } from 'lucide-react'
 import { useProxiesData } from '@/lib/fleet-adapter'
+import { client } from '@/lib/provider'
 import { fadeIn, staggerContainer } from '@/lib/motion'
 
 const statusStyle: Record<string, string> = {
@@ -100,10 +101,10 @@ export function ProxiesView() {
                 </td>
                 <td className="py-3 text-right">
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/70 transition-colors" title="Copy IP">
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(p.ip)} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/70 transition-colors" title="Copy IP">
                       <Copy size={12} />
                     </button>
-                    <button className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/70 transition-colors" title="Test proxy">
+                    <button type="button" onClick={() => void client.testProxy(p.ip)} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/70 transition-colors" title="Test proxy">
                       <RefreshCw size={12} />
                     </button>
                     {p.status === 'failing' && (

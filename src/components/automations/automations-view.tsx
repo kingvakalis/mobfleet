@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Play, Pause, Plus, ChevronRight } from 'lucide-react'
 import { useAutomationsData } from '@/lib/fleet-adapter'
+import { useUIStore } from '@/state/ui-store'
 import { fadeRise, staggerContainer } from '@/lib/motion'
 
 const FLOW_STEPS = [
@@ -16,6 +17,7 @@ const FLOW_STEPS = [
 
 export function AutomationsView() {
   const automations = useAutomationsData()
+  const openSubmit = useUIStore(s => s.openSubmit)
   const [search, setSearch] = useState('')
 
   const visible = automations.filter(a =>
@@ -112,7 +114,7 @@ export function AutomationsView() {
                 ].join(' ')}>
                   {a.status === 'active' ? <><Pause size={10} />Pause</> : <><Play size={10} />Resume</>}
                 </button>
-                <button className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-[10px] transition-colors">
+                <button type="button" onClick={() => openSubmit(a.id)} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-[10px] transition-colors">
                   <Play size={10} />Run Now
                 </button>
               </div>

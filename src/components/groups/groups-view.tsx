@@ -2,11 +2,14 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Smartphone, Zap, Users, Clock, ArrowUpRight, Play, Settings } from 'lucide-react'
 import { useGroupsData, usePhones } from '@/lib/fleet-adapter'
+import { useUIStore } from '@/state/ui-store'
 import { fadeRise, staggerContainer } from '@/lib/motion'
 
 export function GroupsView() {
   const groups = useGroupsData()
   const phones = usePhones()
+  const focusGroup = useUIStore(s => s.focusGroup)
+  const openSubmit = useUIStore(s => s.openSubmit)
   const [search, setSearch] = useState('')
 
   const visible = groups.filter(g =>
@@ -109,13 +112,13 @@ export function GroupsView() {
 
                 {/* Actions */}
                 <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-white/[0.04]">
-                  <button className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/55 hover:text-white/80 transition-colors">
+                  <button type="button" onClick={() => focusGroup(g.name)} className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/55 hover:text-white/80 transition-colors">
                     <ArrowUpRight size={11} />View Group
                   </button>
                   <button className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/55 hover:text-white/80 transition-colors">
                     <Smartphone size={11} />Assign Phones
                   </button>
-                  <button className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-[10px] text-indigo-400 transition-colors">
+                  <button type="button" onClick={() => openSubmit()} className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-[10px] text-indigo-400 transition-colors">
                     <Play size={11} />Run Auto
                   </button>
                   <button className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[10px] text-white/55 hover:text-white/80 transition-colors">
