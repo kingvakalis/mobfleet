@@ -13,7 +13,8 @@ export interface FleetStats {
   costPerHr: number
 }
 
-export function computeStats(s: FleetSnapshot): FleetStats {
+export function computeStats(s: FleetSnapshot | null | undefined): FleetStats {
+  if (!s?.devices) return { total: 0, idle: 0, busy: 0, queue: 0, costPerHr: 0 }
   let idle = 0
   let busy = 0
   let costPerHr = 0
@@ -24,7 +25,7 @@ export function computeStats(s: FleetSnapshot): FleetStats {
     if (d.status !== 'offline') costPerHr += regionRate(d.region)
   }
 
-  const queue = s.jobs.reduce((n, j) => (j.status === 'queued' ? n + 1 : n), 0)
+  const queue = (s.jobs ?? []).reduce((n, j) => (j.status === 'queued' ? n + 1 : n), 0)
 
   return {
     total: s.devices.length,

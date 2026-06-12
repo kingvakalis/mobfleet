@@ -44,7 +44,8 @@ const FALLBACK_NAMES = ['DEV-A1','DEV-B2','DEV-C3','DEV-D4','DEV-E5','DEV-F6','D
 
 function makeEvent(seed: number): ActivityEvent {
   const snapshot = client.getSnapshot()
-  const pool = snapshot.devices.length > 0 ? snapshot.devices.map(d => ({ name: d.name })) : FALLBACK_NAMES.map(n => ({ name: n }))
+  const devs = snapshot?.devices ?? []
+  const pool = devs.length > 0 ? devs.map(d => ({ name: d.name })) : FALLBACK_NAMES.map(n => ({ name: n }))
   const device = pool[seed % pool.length]
   const evt = EVENT_POOL[seed % EVENT_POOL.length]
   const now = new Date()

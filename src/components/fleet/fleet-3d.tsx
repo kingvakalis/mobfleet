@@ -750,7 +750,24 @@ function Loader() {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-export function Fleet3D() {
+class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { err: string | null }> {
+  constructor(p: React.PropsWithChildren) { super(p); this.state = { err: null } }
+  static getDerivedStateFromError(e: Error) { return { err: e.message } }
+  render() {
+    if (this.state.err) return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center space-y-3">
+          <p className="text-red-400 font-mono text-xs">3D RENDER ERROR</p>
+          <p className="text-white/30 text-xs font-mono">{this.state.err}</p>
+          <button onClick={() => this.setState({ err: null })} className="px-4 py-2 text-xs border border-white/20 text-white/60 font-mono hover:border-white/40">RETRY</button>
+        </div>
+      </div>
+    )
+    return this.props.children
+  }
+}
+
+function Fleet3DInner() {
   const stats      = useFleetStats()
   const openDrawer        = useUIStore(s => s.openDrawer)
   const setView           = useUIStore(s => s.setView)
@@ -867,5 +884,13 @@ export function Fleet3D() {
         <span>DBL-CLICK to control</span>
       </div>
     </div>
+  )
+}
+
+export function Fleet3D() {
+  return (
+    <Fleet3DErrorBoundary>
+      <Fleet3DInner />
+    </Fleet3DErrorBoundary>
   )
 }

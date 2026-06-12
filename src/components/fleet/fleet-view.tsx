@@ -72,7 +72,7 @@ export function FleetView() {
     : 'bulk'
 
   const inGroup = groupFilterUI
-    ? snapshot.devices.filter((d) => d.group === groupFilterUI).length
+    ? (snapshot?.devices ?? []).filter((d) => d.group === groupFilterUI).length
     : stats.total
 
   return (
