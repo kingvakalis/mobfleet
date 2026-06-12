@@ -1,12 +1,19 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Search, Upload, Plus, Check, Briefcase, Camera, RotateCcw, RefreshCw, UserPlus, Download, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
 import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 
 const FILTERS = ['Status', 'Group', 'Region', 'Proxy Status']
+
+const STATUS_COLORS: Record<string, string> = {
+  online:  'var(--status-online)',
+  busy:    'var(--status-busy)',
+  warming: 'var(--status-warming)',
+  offline: 'var(--status-offline)',
+  error:   'var(--status-error)',
+}
 
 function AnimatedCounter({ target, color }: { target: number; color: string }) {
   const [value, setValue] = useState(0)
@@ -20,11 +27,11 @@ function AnimatedCounter({ target, color }: { target: number; color: string }) {
     if (target > 0) step()
     else setValue(0)
   }, [target])
-  return <span className={['text-2xl font-bold tabular-nums', color].join(' ')}>{value}</span>
+  return <span className="mono text-3xl font-bold tabular-nums" style={{ color }}>{value}</span>
 }
 
 export function PhonesView() {
-  const snapshot           = useFleet()
+  const snapshot              = useFleet()
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const openPhoneControl      = useUIStore((s) => s.openPhoneControl)
@@ -40,11 +47,15 @@ export function PhonesView() {
     [devices, search]
   )
 
+  const onlineCount  = devices.filter(d => d.status === 'online' || d.status === 'busy' || d.status === 'warming').length
+  const errorCount   = devices.filter(d => d.status === 'error').length
+  const offlineCount = devices.filter(d => d.status === 'offline').length
+
   const kpis = [
-    { label: 'Total',   value: devices.length,                                                       color: 'text-white/70' },
-    { label: 'Online',  value: devices.filter(d => d.status === 'online' || d.status === 'busy' || d.status === 'warming').length, color: 'text-emerald-400' },
-    { label: 'Warning', value: devices.filter(d => d.status === 'error').length,                     color: 'text-amber-400' },
-    { label: 'Offline', value: devices.filter(d => d.status === 'offline').length,                   color: 'text-red-400' },
+    { label: 'TOTAL UNITS',   value: devices.length, color: '#ffffff',              topBorder: 'rgba(255,255,255,0.3)' },
+    { label: 'ONLINE',        value: onlineCount,    color: 'var(--accent-green)',   topBorder: 'var(--accent-green)' },
+    { label: 'FAULT',         value: errorCount,     color: 'var(--accent-red)',     topBorder: 'var(--accent-red)' },
+    { label: 'OFFLINE',       value: offlineCount,   color: 'rgba(255,255,255,0.3)', topBorder: 'rgba(255,255,255,0.15)' },
   ]
 
   function toggleAll() {
@@ -59,47 +70,56 @@ export function PhonesView() {
   }
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative bg-black">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.08]">
         <div>
-          <p className="text-[10px] uppercase tracking-widest text-white/30 mb-0.5">Fleet</p>
-          <h1 className="text-lg font-semibold text-white/90">Phones</h1>
+          <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Fleet Registry</p>
+          <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">DEVICE REGISTRY</h1>
+          <p className="mono text-[10px] text-white/30 tracking-wider mt-0.5">{devices.length} UNITS TRACKED</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-white/50 hover:text-white/80 text-xs">
-            <Upload size={13} /> Import
-          </Button>
-          <Button size="sm" className="h-8 gap-1.5 bg-white/[0.08] hover:bg-white/[0.12] text-white/80 border-0 text-xs">
-            <Plus size={13} /> Add Phone
-          </Button>
+          <button className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/40 border border-white/[0.12] hover:border-white/30 hover:text-white/70 transition-colors">
+            <Upload size={11} className="inline mr-1.5" />IMPORT
+          </button>
+          <button className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 hover:bg-white hover:text-black transition-colors">
+            <Plus size={11} className="inline mr-1.5" />ADD UNIT
+          </button>
         </div>
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.04]">
-        {kpis.map(({ label, value, color }) => (
-          <div key={label} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 flex flex-col gap-1">
-            <span className="text-[10px] text-white/30 uppercase tracking-wider">{label}</span>
+      <div className="grid grid-cols-4 gap-3 px-6 py-4 border-b border-white/[0.06]">
+        {kpis.map(({ label, value, color, topBorder }) => (
+          <div
+            key={label}
+            className="p-4 flex flex-col gap-2"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderTop: `2px solid ${topBorder}`,
+            }}
+          >
+            <span className="mono text-[9px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.4)' }}>{label}</span>
             <AnimatedCounter target={value} color={color} />
           </div>
         ))}
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-white/[0.04]">
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-white/[0.06]">
         <div className="relative flex-1 max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
+          <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search phones..."
-            className="w-full h-8 pl-8 pr-3 rounded-lg bg-white/[0.04] border border-white/[0.06] text-xs text-white/80 placeholder-white/25 outline-none focus:border-white/20"
+            placeholder="SEARCH UNITS..."
+            className="w-full h-8 pl-8 pr-3 bg-transparent border border-white/[0.08] text-[10px] mono text-white/70 placeholder-white/20 outline-none focus:border-white/20 tracking-wider"
           />
         </div>
         {FILTERS.map(f => (
-          <button key={f} className="h-8 px-3 rounded-lg text-xs text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-colors flex items-center gap-1">
-            {f} <span className="text-white/20">▾</span>
+          <button key={f} className="mono h-8 px-3 text-[9px] uppercase tracking-widest text-white/30 hover:text-white/60 hover:border-white/20 border border-transparent transition-colors flex items-center gap-1">
+            {f} <span className="text-white/20 ml-0.5">▾</span>
           </button>
         ))}
       </div>
@@ -107,72 +127,87 @@ export function PhonesView() {
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-[#0a0a0f] z-10">
-            <tr className="border-b border-white/[0.06]">
+          <thead className="sticky top-0 z-10" style={{ background: '#000000' }}>
+            <tr className="border-b border-white/[0.08]">
               <th className="px-4 py-3 text-left w-8">
                 <button
                   onClick={toggleAll}
-                  className={[
-                    'w-4 h-4 rounded border flex items-center justify-center transition-colors',
-                    selected.size === visible.length && visible.length > 0
-                      ? 'bg-indigo-500 border-indigo-500'
-                      : 'border-white/20 hover:border-white/40',
-                  ].join(' ')}
+                  className="w-3.5 h-3.5 border border-white/20 flex items-center justify-center transition-colors hover:border-white/50"
+                  style={{ background: selected.size === visible.length && visible.length > 0 ? 'rgba(255,255,255,0.9)' : 'transparent' }}
                 >
-                  {selected.size === visible.length && visible.length > 0 && <Check size={10} className="text-white" />}
+                  {selected.size === visible.length && visible.length > 0 && <Check size={8} className="text-black" />}
                 </button>
               </th>
-              {['Name', 'Status', 'Group', 'Region', 'Model', 'OS', 'Battery', 'Proxy', 'Job', ''].map(h => (
-                <th key={h} className="px-3 py-3 text-left text-[10px] font-medium text-white/25 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              {['NAME', 'STATUS', 'GROUP', 'REGION', 'MODEL', 'OS', 'BATTERY', 'PROXY', 'JOB', ''].map(h => (
+                <th key={h} className="px-3 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {visible.map((d) => {
-              const meta = STATUS[d.status]
-              const isSel = selected.has(d.id)
-              const job = d.jobId ? snapshot.jobs.find(j => j.id === d.jobId) : null
+              const meta   = STATUS[d.status]
+              const isSel  = selected.has(d.id)
+              const job    = d.jobId ? snapshot.jobs.find(j => j.id === d.jobId) : null
+              const dotColor = STATUS_COLORS[d.status] ?? meta?.color ?? 'rgba(255,255,255,0.3)'
               return (
                 <tr
                   key={d.id}
                   onClick={() => toggle(d.id)}
-                  className={['border-b border-white/[0.03] hover:bg-white/[0.035] transition-all duration-150 cursor-pointer border-l-2', isSel ? 'bg-indigo-500/5 border-l-indigo-500/60' : 'border-l-transparent hover:border-l-indigo-500/40'].join(' ')}
+                  className="border-b border-white/[0.04] cursor-pointer transition-all duration-100"
+                  style={{
+                    borderLeft: isSel ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                    background: isSel ? 'rgba(79,195,247,0.04)' : 'transparent',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSel) (e.currentTarget as HTMLElement).style.borderLeftColor = 'rgba(79,195,247,0.4)'
+                    ;(e.currentTarget as HTMLElement).style.background = isSel ? 'rgba(79,195,247,0.04)' : 'rgba(255,255,255,0.02)'
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSel) (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent'
+                    ;(e.currentTarget as HTMLElement).style.background = isSel ? 'rgba(79,195,247,0.04)' : 'transparent'
+                  }}
                 >
                   <td className="px-4 py-3">
-                    <div className={['w-4 h-4 rounded border flex items-center justify-center transition-colors', isSel ? 'bg-indigo-500 border-indigo-500' : 'border-white/15'].join(' ')}>
-                      {isSel && <Check size={10} className="text-white" />}
+                    <div
+                      className="w-3.5 h-3.5 border border-white/15 flex items-center justify-center transition-colors"
+                      style={{ background: isSel ? 'rgba(255,255,255,0.9)' : 'transparent' }}
+                    >
+                      {isSel && <Check size={8} className="text-black" />}
                     </div>
                   </td>
-                  <td className="px-3 py-3 font-mono text-white/70 whitespace-nowrap">{d.name}</td>
+                  <td className="px-3 py-3 mono text-white/70 text-[11px] whitespace-nowrap">{d.name}</td>
                   <td className="px-3 py-3">
                     <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
-                      <span style={{ color: meta.color }}>{meta.label}</span>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                      <span className="mono text-[10px] uppercase tracking-wider" style={{ color: dotColor }}>{meta?.label ?? d.status}</span>
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-white/50">{d.group}</td>
-                  <td className="px-3 py-3 text-white/40">{d.region}</td>
-                  <td className="px-3 py-3 text-white/40">{d.model}</td>
-                  <td className="px-3 py-3 text-white/40">{d.osVersion}</td>
+                  <td className="px-3 py-3 mono text-white/45 text-[11px]">{d.group}</td>
+                  <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.region}</td>
+                  <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.model}</td>
+                  <td className="px-3 py-3 mono text-white/35 text-[11px]">{d.osVersion}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-12 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                      <div className="w-10 h-0.5 rounded-none overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
                         <div
-                          className="h-full rounded-full"
-                          style={{ width: d.battery + '%', background: d.battery > 30 ? '#22c55e' : '#ef4444' }}
+                          className="h-full"
+                          style={{
+                            width: d.battery + '%',
+                            background: d.battery > 30 ? 'var(--accent-green)' : 'var(--accent-red)',
+                          }}
                         />
                       </div>
-                      <span className="text-white/35">{d.battery}%</span>
+                      <span className="mono text-[10px] text-white/30">{d.battery}%</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 font-mono text-white/40 text-[10px]">{d.proxy.split(':')[0]}</td>
-                  <td className="px-3 py-3 text-white/35 font-mono">{job ? job.type : '—'}</td>
+                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{d.proxy.split(':')[0]}</td>
+                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{job ? job.type : '—'}</td>
                   <td className="px-3 py-3">
                     <button
                       onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}
-                      className="px-2 py-1 rounded text-[10px] text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors"
+                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-white/60 hover:text-white/80 transition-colors"
                     >
-                      Control →
+                      CONTROL →
                     </button>
                   </td>
                 </tr>
@@ -192,27 +227,27 @@ export function PhonesView() {
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30"
           >
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/[0.10] shadow-2xl">
-              <span className="text-xs text-white/50 mr-1 whitespace-nowrap">{selected.size} selected</span>
+            <div className="flex items-center gap-2 px-4 py-2.5 border border-white/[0.15] bg-black shadow-2xl">
+              <span className="mono text-[9px] text-white/40 mr-1 whitespace-nowrap uppercase tracking-widest">{selected.size} SELECTED</span>
               <div className="w-px h-4 bg-white/[0.08]" />
               {[
-                { icon: <Briefcase size={12} />, label: 'Run Job' },
-                { icon: <Camera size={12} />,    label: 'Screenshot' },
-                { icon: <RotateCcw size={12} />, label: 'Reboot' },
-                { icon: <RefreshCw size={12} />, label: 'Assign Proxy' },
-                { icon: <UserPlus size={12} />,  label: 'Add to Group' },
-                { icon: <Download size={12} />,  label: 'Export' },
+                { icon: <Briefcase size={11} />, label: 'RUN JOB' },
+                { icon: <Camera size={11} />,    label: 'CAPTURE' },
+                { icon: <RotateCcw size={11} />, label: 'REBOOT' },
+                { icon: <RefreshCw size={11} />, label: 'PROXY' },
+                { icon: <UserPlus size={11} />,  label: 'GROUP' },
+                { icon: <Download size={11} />,  label: 'EXPORT' },
               ].map(({ icon, label }) => (
-                <button key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 hover:bg-white/[0.08] transition-colors">
+                <button key={label} className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors">
                   {icon} {label}
                 </button>
               ))}
               <div className="w-px h-4 bg-white/[0.08]" />
               <button
                 onClick={() => setSelected(new Set())}
-                className="flex items-center justify-center w-6 h-6 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-colors"
+                className="flex items-center justify-center w-6 h-6 text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-colors"
               >
-                <X size={13} />
+                <X size={12} />
               </button>
             </div>
           </motion.div>

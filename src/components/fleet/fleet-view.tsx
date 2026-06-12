@@ -99,13 +99,13 @@ export function FleetView() {
             <div className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-lg bg-black/40 border border-white/[0.08] p-1 backdrop-blur-sm">
               <button
                 onClick={() => setMode('3d')}
-                className={['flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors', mode === '3d' ? 'bg-indigo-600 text-white' : 'text-white/40 hover:text-white/70'].join(' ')}
+                className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
               >
                 <Box size={12} /> 3D
               </button>
               <button
                 onClick={() => setMode('2d')}
-                className={['flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors', mode === '2d' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'].join(' ')}
+                className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
               >
                 <Network size={12} /> Graph
               </button>

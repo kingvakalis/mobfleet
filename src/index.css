@@ -2,177 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Premium scrollbars ── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.6); }
-
-/* ── Status dot pulse ── */
-@keyframes status-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
-  50% { opacity: 0.8; box-shadow: 0 0 0 4px transparent; }
-}
-.status-dot-pulse {
-  animation: status-pulse 2s ease-in-out infinite;
-}
-
-/* ── Aurora background blobs ── */
-@keyframes aurora-drift-1 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  33%  { transform: translate(60px, -40px) scale(1.08); }
-  66%  { transform: translate(-30px, 50px) scale(0.95); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-@keyframes aurora-drift-2 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  33%  { transform: translate(-70px, 30px) scale(1.06); }
-  66%  { transform: translate(40px, -60px) scale(1.02); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-@keyframes aurora-drift-3 {
-  0%   { transform: translate(0px, 0px) scale(1.02); }
-  40%  { transform: translate(50px, 40px) scale(0.97); }
-  70%  { transform: translate(-40px, -30px) scale(1.05); }
-  100% { transform: translate(0px, 0px) scale(1.02); }
-}
-.aurora-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(80px);
-  will-change: transform;
-}
-.aurora-blob-1 {
-  width: 600px;
-  height: 600px;
-  top: -10%;
-  left: 5%;
-  background: radial-gradient(circle, rgba(49,46,129,0.35) 0%, transparent 70%);
-  animation: aurora-drift-1 18s ease-in-out infinite;
-}
-.aurora-blob-2 {
-  width: 500px;
-  height: 500px;
-  top: 10%;
-  right: 5%;
-  background: radial-gradient(circle, rgba(76,29,149,0.32) 0%, transparent 70%);
-  animation: aurora-drift-2 22s ease-in-out infinite;
-}
-.aurora-blob-3 {
-  width: 640px;
-  height: 640px;
-  bottom: -15%;
-  left: 30%;
-  background: radial-gradient(circle, rgba(30,27,75,0.38) 0%, transparent 70%);
-  animation: aurora-drift-3 16s ease-in-out infinite;
-}
-.aurora-noise {
-  position: absolute;
-  inset: 0;
-  opacity: 0.025;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  background-size: 128px 128px;
-  pointer-events: none;
-}
-
-/* =============================================================================
-   DESIGN TOKENS — single source of truth.
-   "Mission control meets Vercel": pure-black canvas, hairline framing,
-   monospace telemetry, one cool white-blue accent.
-   ============================================================================= */
+/* ─── SpaceX Mission Control Design System ─────────────────────────────────── */
 :root {
-  /* Surfaces */
+  --bg-base: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-elevated: #111111;
+  --bg-card: #0d0d0d;
+  --border: rgba(255,255,255,0.08);
+  --border-bright: rgba(255,255,255,0.16);
+  --text: #ffffff;
+  --text-secondary: rgba(255,255,255,0.7);
+  --text-muted: rgba(255,255,255,0.35);
+  --accent: #e8e8e8;
+  --accent-red: #ff3b3b;
+  --accent-green: #00ff88;
+  --accent-blue: #4fc3f7;
+  --accent-amber: #ffb300;
+  --status-online: #00ff88;
+  --status-busy: #4fc3f7;
+  --status-warming: #ffb300;
+  --status-offline: #444444;
+  --status-error: #ff3b3b;
+
+  /* Legacy token aliases */
   --canvas: #000000;
   --panel: #0a0a0a;
-  --elevated: #141414;
-  --border: #1f1f1f;
-
-  /* Text */
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1a1;
-  --text-muted: #6e6e6e;
-
-  /* Status */
-  --status-online: #3fb950;
-  --status-busy: #3b82f6;
-  --status-warming: #f59e0b;
-  --status-offline: #6e6e6e;
-  --status-error: #f85149;
-
-  /* Accent — used sparingly */
-  --accent: #d6e4ff;
+  --elevated: #111111;
+  --border-legacy: #1a1a1a;
+  --text-primary: #ffffff;
+  --text-secondary-legacy: rgba(255,255,255,0.7);
+  --text-muted-legacy: rgba(255,255,255,0.35);
+  --color-surface: #0a0a0a;
+  --color-surface-2: #111111;
+  --color-border: rgba(255,255,255,0.08);
+  --color-text-primary: rgba(255,255,255,0.92);
+  --color-text-secondary: rgba(255,255,255,0.35);
+  --color-accent: #e8e8e8;
+  --color-online: #00ff88;
+  --color-warning: #ffb300;
+  --color-offline: #ff3b3b;
 
   color-scheme: dark;
 }
 
 @layer base {
-  * {
-    border-color: var(--border);
-  }
+  * { border-color: rgba(255,255,255,0.08); }
 
-  html,
-  body,
-  #root {
-    height: 100%;
-  }
+  html, body, #root { height: 100%; }
 
   body {
     margin: 0;
-    background-color: var(--canvas);
-    color: var(--text-primary);
+    background-color: #000000;
+    color: #ffffff;
     font-family: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
-    font-feature-settings: 'cv11', 'ss01';
+    font-feature-settings: 'cv11', 'ss01', 'tnum';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
 
-  /* Telemetry / mission-control scrollbars: thin, recessive. */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 4px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #2a2a2a;
+  ::selection {
+    background: rgba(255,255,255,0.12);
   }
 
-  /* Keyboard focus: a precise accent hairline, never a chunkiglow. */
-  
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
   :focus-visible {
-    outline: 1px solid var(--accent);
+    outline: 1px solid rgba(255,255,255,0.4);
     outline-offset: 2px;
   }
 }
 
 @layer components {
-  /* SpaceX-style label: uppercase, wide tracking, mono. */
   .label {
     font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    font-size: 0.6875rem; /* 11px */
+    font-size: 0.6875rem;
     line-height: 1;
-    color: var(--text-secondary);
+    color: rgba(255,255,255,0.35);
   }
 
-  /* Mono telemetry readout. */
   .mono {
     font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
   }
 
-  /* Skeleton shimmer sweep. */
   .shimmer {
     position: relative;
     overflow: hidden;
-    background-color: var(--elevated);
+    background-color: #111111;
   }
   .shimmer::after {
     content: '';
@@ -182,35 +105,44 @@
     background-image: linear-gradient(
       90deg,
       transparent 0,
-      rgba(255, 255, 255, 0.05) 40%,
-      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255,255,255,0.04) 40%,
+      rgba(255,255,255,0.06) 50%,
       transparent 100%
     );
     animation: shimmer 1.4s ease-in-out infinite;
   }
 }
 
-/* Honour reduced-motion globally: kill loops, neutralise transitions. */
+/* ─── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.status-dot-pulse {
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink { animation: blink 1.2s step-end infinite; }
+
+@keyframes flash-value {
+  0% { color: #ffffff; }
+  50% { color: var(--accent-blue); }
+  100% { color: inherit; }
+}
+.flash { animation: flash-value 0.4s ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
   }
-}
-
-/* ── v2-merged design tokens ─────────────────────────── */
-:root {
-  --color-surface: #0a0a0f;
-  --color-surface-2: #111118;
-  --color-border: rgba(255,255,255,0.06);
-  --color-text-primary: rgba(255,255,255,0.92);
-  --color-text-secondary: rgba(255,255,255,0.45);
-  --color-accent: #6366f1;
-  --color-online: #22c55e;
-  --color-warning: #f59e0b;
-  --color-offline: #ef4444;
 }
