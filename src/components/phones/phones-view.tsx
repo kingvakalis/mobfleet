@@ -136,7 +136,7 @@ export function PhonesView() {
                 <tr
                   key={d.id}
                   onClick={() => toggle(d.id)}
-                  className={['border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors cursor-pointer', isSel ? 'bg-indigo-500/5' : ''].join(' ')}
+                  className={['border-b border-white/[0.03] hover:bg-white/[0.035] transition-all duration-150 cursor-pointer border-l-2', isSel ? 'bg-indigo-500/5 border-l-indigo-500/60' : 'border-l-transparent hover:border-l-indigo-500/40'].join(' ')}
                 >
                   <td className="px-4 py-3">
                     <div className={['w-4 h-4 rounded border flex items-center justify-center transition-colors', isSel ? 'bg-indigo-500 border-indigo-500' : 'border-white/15'].join(' ')}>

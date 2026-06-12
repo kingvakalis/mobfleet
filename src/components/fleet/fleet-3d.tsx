@@ -2,7 +2,12 @@ import {
   useRef, useState, useMemo, useCallback, useEffect, Suspense,
 } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Billboard, Text, Sphere } from '@react-three/drei'
+import { OrbitControls, Billboard, Text, Sphere, Environment } from '@react-three/drei'
+// @ts-ignore
+import { EffectComposer, Bloom, ChromaticAberration, Vignette } from '@react-three/postprocessing'
+// @ts-ignore
+import { BlendFunction } from 'postprocessing'
+import { Vector2 } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -203,12 +208,14 @@ function PhoneNode({
     >
       {/* Body */}
       <mesh geometry={PHONE_GEO} castShadow>
-        <meshStandardMaterial
-          color={0x22223a}
-          roughness={0.2}
-          metalness={0.75}
-          emissive={color}
-          emissiveIntensity={selected ? 0.35 : hovered ? 0.18 : 0.07}
+        <meshPhysicalMaterial
+          color={'#1a1a2e'}
+          roughness={0.15}
+          metalness={0.9}
+          clearcoat={1}
+          clearcoatRoughness={0.1}
+          emissive={new THREE.Color(color)}
+          emissiveIntensity={selected ? 0.8 : hovered ? 0.4 : 0.12}
         />
       </mesh>
 
@@ -501,6 +508,20 @@ function Scene({
         )
       })}
 
+      <Environment preset="city" />
+      <EffectComposer>
+        <Bloom
+          intensity={0.4}
+          luminanceThreshold={0.6}
+          luminanceSmoothing={0.9}
+          mipmapBlur
+        />
+        <ChromaticAberration
+          blendFunction={BlendFunction.NORMAL}
+          offset={new Vector2(0.0005, 0.0005)}
+        />
+        <Vignette eskil={false} offset={0.1} darkness={0.6} />
+      </EffectComposer>
       <OrbitControls
         ref={controlsRef}
         enablePan

@@ -29,7 +29,9 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/[0.05] bg-black/30 backdrop-blur-md">
+      <aside className="flex w-[200px] shrink-0 flex-col border-r border-white/[0.05] bg-black/40 backdrop-blur-md relative overflow-hidden">
+        {/* Top gradient line */}
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
         {/* Logo */}
         <div className="flex items-center gap-2.5 border-b border-white/[0.05] px-4 py-4">
           <span className="relative flex h-2 w-2">
@@ -51,17 +53,26 @@ export function AppShell({ children }: AppShellProps) {
                 key={v.id}
                 onClick={() => setView(v.id as ViewId)}
                 className={[
-                  'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-all duration-150',
+                  'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-all duration-200 overflow-hidden',
                   isActive
                     ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/20 shadow-[0_0_12px_rgba(99,102,241,0.15)]'
-                    : 'text-white/35 hover:text-white/70 hover:bg-white/[0.04] border border-transparent',
+                    : 'text-white/35 hover:text-white/70 hover:bg-white/[0.05] border border-transparent',
                 ].join(' ')}
               >
+                {/* Active left border indicator */}
+                {isActive && (
+                  <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-r-full bg-gradient-to-b from-indigo-400 to-indigo-600" />
+                )}
+                {/* Hover slide-in bg */}
+                {!isActive && (
+                  <span className="absolute inset-0 -translate-x-full group-hover:translate-x-0 bg-gradient-to-r from-indigo-500/[0.06] to-transparent transition-transform duration-300" />
+                )}
                 <Icon
                   size={15}
-                  className={['shrink-0 transition-colors', isActive ? 'text-indigo-400' : 'text-white/25 group-hover:text-white/50'].join(' ')}
+                  className={['shrink-0 transition-all', isActive ? 'text-indigo-400' : 'text-white/25 group-hover:text-white/50'].join(' ')}
+                  style={isActive ? { filter: 'drop-shadow(0 0 6px rgba(99,102,241,0.7))' } : {}}
                 />
-                <span className="truncate">{v.label}</span>
+                <span className="truncate relative z-10">{v.label}</span>
                 {isActive && <span className="ml-auto w-1 h-1 rounded-full bg-indigo-400 shrink-0" />}
               </button>
             )

@@ -2,6 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Premium scrollbars ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.6); }
+
+/* ── Status dot pulse ── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50% { opacity: 0.8; box-shadow: 0 0 0 4px transparent; }
+}
+.status-dot-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* ── Aurora background blobs ── */
+@keyframes aurora-drift-1 {
+  0%   { transform: translate(0px, 0px) scale(1); }
+  33%  { transform: translate(60px, -40px) scale(1.08); }
+  66%  { transform: translate(-30px, 50px) scale(0.95); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+@keyframes aurora-drift-2 {
+  0%   { transform: translate(0px, 0px) scale(1); }
+  33%  { transform: translate(-70px, 30px) scale(1.06); }
+  66%  { transform: translate(40px, -60px) scale(1.02); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+@keyframes aurora-drift-3 {
+  0%   { transform: translate(0px, 0px) scale(1.02); }
+  40%  { transform: translate(50px, 40px) scale(0.97); }
+  70%  { transform: translate(-40px, -30px) scale(1.05); }
+  100% { transform: translate(0px, 0px) scale(1.02); }
+}
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  will-change: transform;
+}
+.aurora-blob-1 {
+  width: 600px;
+  height: 600px;
+  top: -10%;
+  left: 5%;
+  background: radial-gradient(circle, rgba(49,46,129,0.35) 0%, transparent 70%);
+  animation: aurora-drift-1 18s ease-in-out infinite;
+}
+.aurora-blob-2 {
+  width: 500px;
+  height: 500px;
+  top: 10%;
+  right: 5%;
+  background: radial-gradient(circle, rgba(76,29,149,0.32) 0%, transparent 70%);
+  animation: aurora-drift-2 22s ease-in-out infinite;
+}
+.aurora-blob-3 {
+  width: 640px;
+  height: 640px;
+  bottom: -15%;
+  left: 30%;
+  background: radial-gradient(circle, rgba(30,27,75,0.38) 0%, transparent 70%);
+  animation: aurora-drift-3 16s ease-in-out infinite;
+}
+.aurora-noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+  pointer-events: none;
+}
+
 /* =============================================================================
    DESIGN TOKENS — single source of truth.
    "Mission control meets Vercel": pure-black canvas, hairline framing,

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useSyncExternalStore, type ComponentType } from 'react'
+import { AuroraBackground } from '@/components/ui/aurora-background'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
 import { DeviceDrawer } from '@/components/drawer/device-drawer'
@@ -57,6 +58,8 @@ export default function App() {
   const Current = VIEW_MAP[view] ?? VIEW_MAP.fleet
   if (hash === '#style') return <StyleGuide />
   return (
+    <>
+    <AuroraBackground />
     <AppShell>
       <AnimatePresence mode="wait">
         <motion.div
@@ -77,5 +80,6 @@ export default function App() {
       <SubmitJobDialog />
       <CommandPalette />
     </AppShell>
+    </>  
   )
 }

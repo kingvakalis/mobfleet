@@ -162,80 +162,154 @@ function IPhoneFrame({ onAction }: { onAction: (text: string) => void }) {
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         style={{
-          transform: `perspective(800px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-          transition: tilt.x === 0 && tilt.y === 0 ? 'transform 0.5s ease' : 'transform 0.1s ease',
-          filter: 'drop-shadow(0 32px 48px rgba(0,0,0,0.8))',
+          transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+          transition: tilt.x === 0 && tilt.y === 0 ? 'transform 0.6s cubic-bezier(0.22,1,0.36,1)' : 'transform 0.08s linear',
+          filter: `drop-shadow(${tilt.y * -1}px ${tilt.x * 2 + 32}px 48px rgba(0,0,0,0.85)) drop-shadow(0 8px 24px rgba(99,102,241,0.15))`,
         }}
         className="relative select-none"
       >
-        {/* Phone body */}
-        <div className="relative w-[260px] rounded-[40px] bg-[#1a1a1e] border-[3px] border-[#3a3a3c] overflow-hidden"
-          style={{ height: 530 }}>
-          {/* Notch */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-7 bg-[#1a1a1e] rounded-b-2xl z-20" />
-
-          {/* Status bar */}
-          <div className="relative z-10 flex justify-between items-center px-6 pt-2 pb-1 text-white text-[11px] font-semibold">
-            <span className="font-mono">9:41</span>
-            <div className="flex items-center gap-1">
-              <Signal size={12} />
-              <Wifi size={12} />
-              <Battery size={14} />
-            </div>
-          </div>
-
-          {/* Screen – clickable */}
+        {/* Titanium frame — gradient metallic border */}
+        <div
+          className="relative rounded-[48px] p-[3px]"
+          style={{
+            background: 'linear-gradient(145deg, #8a8a9a 0%, #4a4a5a 20%, #2a2a3a 40%, #5a5a6a 60%, #9a9aaa 80%, #6a6a7a 100%)',
+            boxShadow: '0 0 0 1px rgba(255,255,255,0.08), inset 0 0 0 1px rgba(0,0,0,0.6)',
+          }}
+        >
+          {/* Phone body */}
           <div
-            className="relative mx-2 rounded-[24px] overflow-hidden cursor-pointer"
-            style={{ height: 460, background: 'linear-gradient(135deg, #1c1c2e 0%, #0f0f1e 100%)' }}
-            onClick={handleScreenClick}
+            className="relative rounded-[46px] overflow-hidden"
+            style={{
+              width: 260,
+              height: 540,
+              background: 'linear-gradient(160deg, #1c1c2a 0%, #111118 100%)',
+            }}
           >
-            {/* Wallpaper gradient */}
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/40 via-purple-900/20 to-blue-900/40" />
-
-            {/* App grid */}
-            <div className="relative z-10 grid grid-cols-4 gap-3 p-4 pt-6">
-              {apps.map(app => (
-                <div key={app.name} className="flex flex-col items-center gap-1">
-                  <div className={`w-12 h-12 rounded-[14px] bg-gradient-to-br ${app.bg} flex items-center justify-center shadow-lg`}>
-                    <span className="text-[8px] font-bold text-white/80">{app.name.slice(0, 2).toUpperCase()}</span>
-                  </div>
-                  <span className="text-[8px] text-white/60 truncate max-w-[52px] text-center">{app.name}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Dock */}
-            <div className="absolute bottom-3 left-3 right-3 flex justify-around rounded-2xl bg-white/10 backdrop-blur py-2">
-              {['Phone', 'Mail', 'Maps', 'Clock'].map(a => (
-                <div key={a} className="w-11 h-11 rounded-[13px] bg-white/10 flex items-center justify-center">
-                  <span className="text-[7px] font-bold text-white/50">{a.slice(0,2).toUpperCase()}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Ripples */}
-            {ripples.map(r => (
-              <motion.div
-                key={r.id}
-                className="absolute rounded-full border border-white/60 pointer-events-none"
-                style={{ left: r.x - 15, top: r.y - 15, width: 30, height: 30 }}
-                initial={{ opacity: 1, scale: 0.2 }}
-                animate={{ opacity: 0, scale: 2.5 }}
-                transition={{ duration: 0.6, ease: 'easeOut' }}
+            {/* Screen (full bleed) */}
+            <div
+              className="absolute inset-0 rounded-[46px] overflow-hidden cursor-pointer"
+              onClick={handleScreenClick}
+            >
+              {/* iOS 17 lock screen wallpaper */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: 'linear-gradient(160deg, #0d0d2b 0%, #1a0533 30%, #0a1628 60%, #050d20 100%)',
+                }}
               />
-            ))}
-          </div>
+              {/* Glowing orbs on wallpaper */}
+              <div className="absolute top-8 left-8 w-40 h-40 rounded-full opacity-40" style={{ background: 'radial-gradient(circle, #7c3aed 0%, transparent 70%)', filter: 'blur(20px)' }} />
+              <div className="absolute top-20 right-4 w-32 h-32 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #1d4ed8 0%, transparent 70%)', filter: 'blur(16px)' }} />
+              <div className="absolute bottom-32 left-16 w-36 h-36 rounded-full opacity-25" style={{ background: 'radial-gradient(circle, #0891b2 0%, transparent 70%)', filter: 'blur(18px)' }} />
 
-          {/* Home indicator */}
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-1 rounded-full bg-white/30" />
+              {/* Status bar */}
+              <div className="relative z-20 flex justify-between items-center px-7 pt-14 pb-0 text-white">
+                <span className="text-[13px] font-semibold">9:41</span>
+                <div className="flex items-center gap-1.5">
+                  <Signal size={11} className="opacity-80" />
+                  <Wifi size={11} className="opacity-80" />
+                  <Battery size={13} className="opacity-80" />
+                </div>
+              </div>
+
+              {/* Lock screen content */}
+              <div className="relative z-10 flex flex-col items-center pt-8 px-4">
+                {/* Time */}
+                <div className="text-[56px] font-thin text-white leading-none tracking-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>9:41</div>
+                {/* Date */}
+                <div className="text-[15px] text-white/70 mt-1 font-light">Friday, June 12</div>
+
+                {/* Widget row */}
+                <div className="flex gap-2 mt-4 w-full">
+                  <div className="flex-1 rounded-2xl bg-white/10 backdrop-blur-md px-3 py-2 flex items-center gap-2">
+                    <Activity size={12} className="text-blue-300" />
+                    <span className="text-[10px] text-white/60">Activity</span>
+                  </div>
+                  <div className="flex-1 rounded-2xl bg-white/10 backdrop-blur-md px-3 py-2 flex items-center gap-2">
+                    <Battery size={12} className="text-green-300" />
+                    <span className="text-[10px] text-white/60">85%</span>
+                  </div>
+                </div>
+
+                {/* App grid below lock screen */}
+                <div className="grid grid-cols-4 gap-2.5 mt-5 w-full">
+                  {apps.slice(0, 8).map(app => (
+                    <div key={app.name} className="flex flex-col items-center gap-1">
+                      <div className={`w-12 h-12 rounded-[14px] bg-gradient-to-br ${app.bg} flex items-center justify-center shadow-lg`}>
+                        <span className="text-[8px] font-bold text-white/90">{app.name.slice(0, 2).toUpperCase()}</span>
+                      </div>
+                      <span className="text-[7.5px] text-white/50 truncate max-w-[50px] text-center">{app.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Swipe up hint */}
+              <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-1">
+                <ChevronUp size={14} className="text-white/40 animate-bounce" />
+                <span className="text-[9px] text-white/30 tracking-widest uppercase">Swipe Up</span>
+              </div>
+
+              {/* Home indicator */}
+              <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-28 h-1 rounded-full bg-white/40" />
+
+              {/* Ripples */}
+              {ripples.map(r => (
+                <motion.div
+                  key={r.id}
+                  className="absolute rounded-full border border-white/60 pointer-events-none"
+                  style={{ left: r.x - 15, top: r.y - 15, width: 30, height: 30 }}
+                  initial={{ opacity: 1, scale: 0.2 }}
+                  animate={{ opacity: 0, scale: 2.5 }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                />
+              ))}
+
+              {/* Reflection highlight that moves with tilt */}
+              <div
+                className="absolute inset-0 pointer-events-none rounded-[46px]"
+                style={{
+                  background: `linear-gradient(${135 + tilt.y * 2}deg, rgba(255,255,255,${0.04 + Math.abs(tilt.y) * 0.005}) 0%, transparent 50%)`,
+                  transition: 'background 0.1s linear',
+                }}
+              />
+            </div>
+
+            {/* Dynamic Island */}
+            <div
+              className="absolute top-3 left-1/2 -translate-x-1/2 z-30 rounded-full bg-black"
+              style={{ width: 120, height: 34 }}
+            >
+              {/* Camera dot inside Dynamic Island */}
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-[#1a1a1a]">
+                <div className="absolute inset-[3px] rounded-full bg-[#0a0a2a] opacity-80" />
+              </div>
+            </div>
+
+            {/* Camera bump top-left */}
+            <div className="absolute top-4 left-4 z-30 w-[42px] h-[42px] rounded-[10px] bg-[#1a1a28]" style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }}>
+              {/* 3 camera lenses */}
+              {[[8,8],[22,8],[8,22]].map(([x,y],i) => (
+                <div key={i} className="absolute w-[11px] h-[11px] rounded-full bg-[#0a0a18]" style={{ left: x, top: y, boxShadow: 'inset 0 0 0 1px rgba(99,102,241,0.3), 0 0 4px rgba(99,102,241,0.2)' }}>
+                  <div className="absolute inset-[2px] rounded-full bg-[#050510]" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Side buttons */}
-        <div className="absolute left-[-5px] top-24 w-1.5 h-8 bg-[#3a3a3c] rounded-l-sm" />
-        <div className="absolute left-[-5px] top-36 w-1.5 h-10 bg-[#3a3a3c] rounded-l-sm" />
-        <div className="absolute left-[-5px] top-48 w-1.5 h-10 bg-[#3a3a3c] rounded-l-sm" />
-        <div className="absolute right-[-5px] top-28 w-1.5 h-14 bg-[#3a3a3c] rounded-r-sm" />
+        {/* Action button (small round, above vol buttons on left) */}
+        <div className="absolute left-[-8px] top-[88px] w-[5px] h-[28px] rounded-l-full"
+          style={{ background: 'linear-gradient(180deg, #8a8a9a, #5a5a6a)' }} />
+        {/* Volume up */}
+        <div className="absolute left-[-8px] top-[132px] w-[5px] h-[36px] rounded-l-full"
+          style={{ background: 'linear-gradient(180deg, #8a8a9a, #5a5a6a)' }} />
+        {/* Volume down */}
+        <div className="absolute left-[-8px] top-[176px] w-[5px] h-[36px] rounded-l-full"
+          style={{ background: 'linear-gradient(180deg, #8a8a9a, #5a5a6a)' }} />
+        {/* Power/sleep */}
+        <div className="absolute right-[-8px] top-[144px] w-[5px] h-[56px] rounded-r-full"
+          style={{ background: 'linear-gradient(180deg, #8a8a9a, #5a5a6a)' }} />
       </div>
 
       {/* Shadow */}
