@@ -445,10 +445,11 @@ function Scene({
   const stats    = useFleetStats()
 
   const nodes = useMemo<NodeData[]>(() => {
-    return (snapshot.devices ?? []).map((d, i) => {
+    const devList = snapshot?.devices ?? []
+    return devList.map((d, i) => {
       const shell  = Math.floor(i / 10)
       const radius = 4.5 + shell * 2.4
-      const count  = Math.min(10, snapshot.devices.length - shell * 10)
+      const count  = Math.min(10, devList.length - shell * 10)
       const angle  = (i % count) * (Math.PI * 2 / count) + shell * 0.5
       const elev   = ((i % 7) - 3) * 0.9
       return {
@@ -692,7 +693,7 @@ function SelectedPanel({
   nodeId: string; onControl: () => void; onClose: () => void
 }) {
   const snapshot = useFleet()
-  const d = snapshot.devices.find(x => x.id === nodeId)
+  const d = (snapshot?.devices ?? []).find(x => x.id === nodeId)
   if (!d) return null
 
   const statusColor = STATUS_COLOR[d.status] ?? '#6b7280'
