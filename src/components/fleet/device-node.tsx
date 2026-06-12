@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react'
+import { memo, useEffect, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { markWarped } from '@/lib/layout/constellation'
@@ -6,10 +6,32 @@ import { EXPO_OUT } from '@/lib/motion'
 import { STATUS } from '@/lib/status'
 import type { Device, Job } from '@/lib/provider/types'
 import { cn } from '@/lib/utils'
+import { TelemetryCard } from './telemetry-card'
 
 // Portrait phone footprint (the node bounding box).
 export const NODE_W = 50
 export const NODE_H = 88
+
+const CARD_WIDTH = 280
+const CARD_EST_HEIGHT = 250
+const CARD_GAP = 16
+
+/**
+ * Anchor the single-click info card beside the phone, toward the side facing
+ * the constellation centre (live position — the force layout keeps moving).
+ */
+function cardAnchor(x: number, y: number): CSSProperties {
+  if (Math.abs(x) >= Math.abs(y)) {
+    const top = NODE_H / 2 - CARD_EST_HEIGHT / 2
+    return x > 0
+      ? { right: NODE_W, top, paddingRight: CARD_GAP }
+      : { left: NODE_W, top, paddingLeft: CARD_GAP }
+  }
+  const left = NODE_W / 2 - CARD_WIDTH / 2
+  return y > 0
+    ? { bottom: NODE_H, left, paddingBottom: CARD_GAP }
+    : { top: NODE_H, left, paddingTop: CARD_GAP }
+}
 
 // `type` (not `interface`) so it's assignable to React Flow's node data record.
 export type DeviceNodeData = {
@@ -21,6 +43,8 @@ export type DeviceNodeData = {
   pos?: { x: number; y: number }
   /** Fails the active fleet filters → faded, labels hidden. */
   dimmed?: boolean
+  /** Another phone is selected → unrelated nodes drop to 20%. */
+  selDimmed?: boolean
   /** Matches the active fleet filters → status-colored emphasis outline. */
   emphasized?: boolean
   /** Color identity when its group is part of a multi-group filter. */
@@ -80,8 +104,8 @@ function MiniScreen({ device, job }: { device: Device; job?: Job | null }) {
  * card, no movement) — device details appear on SELECTION. Double-click opens
  * full phone control (handled by the graph).
  */
-export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }: NodeProps) {
-  const { device, job, isNew, exiting, hovered, dimmed, emphasized, groupColor } =
+export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, positionAbsoluteX, positionAbsoluteY }: NodeProps) {
+  const { device, job, isNew, exiting, hovered, dimmed, selDimmed, emphasized, groupColor } =
     data as unknown as DeviceNodeData
   const reduce = useReducedMotion()
   const color = STATUS[device.status].color
@@ -102,7 +126,7 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }:
       animate={
         exiting
           ? { opacity: 0, scale: 0.9, filter: 'blur(4px) saturate(0)' }
-          : { opacity: dimmed ? 0.22 : 1, scale: 1, filter: 'blur(0px) saturate(1)' }
+          : { opacity: dimmed ? 0.22 : selDimmed && !selected ? 0.2 : 1, scale: 1, filter: 'blur(0px) saturate(1)' }
       }
       transition={
         exiting ? { duration: reduce ? 0 : 0.34, ease: EXPO_OUT } : { duration: 0.3, ease: EXPO_OUT, delay }
@@ -213,6 +237,22 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging }:
         )}
       </div>
 
+      {/* single-click → compact info card; double-click opens the sidebar */}
+      <AnimatePresence>
+        {selected && !exiting && !dragging && (
+          <motion.div
+            key="card"
+            className="absolute z-50"
+            style={cardAnchor(positionAbsoluteX + NODE_W / 2, positionAbsoluteY + NODE_H / 2)}
+            initial={{ opacity: 0, scale: 0.92, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 2 }}
+            transition={{ duration: 0.2, ease: EXPO_OUT }}
+          >
+            <TelemetryCard device={device} job={job} noMatch={dimmed} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 })

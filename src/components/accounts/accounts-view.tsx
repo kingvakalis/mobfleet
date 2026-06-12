@@ -165,10 +165,11 @@ function AccountModal({ initial, groups, owners, onClose }: {
   const { add, update } = useAccounts()
   const addToast = useToastStore((s) => s.addToast)
   const [form, setForm] = useState<AccountInput>(() => initial ?? {
-    handle: '', platform: 'Instagram', username: '', email: '', phone: '',
+    handle: '', platform: 'Instagram', username: '', email: '', password: '', phone: '',
     assignedPhone: null, group: groups[0] ?? 'Unassigned', owner: owners[0] ?? 'Unassigned',
     twoFA: false, status: 'warming', tags: [], followers: 0, notes: '',
   })
+  const [showPassword, setShowPassword] = useState(false)
   const [dirty, setDirty] = useState(false)
   const set = <K extends keyof AccountInput>(k: K, v: AccountInput[K]) => {
     setForm(f => ({ ...f, [k]: v }))
@@ -228,6 +229,27 @@ function AccountModal({ initial, groups, owners, onClose }: {
             <div className="label mb-1.5 text-fg-muted">Email</div>
             <input value={form.email} onChange={e => set('email', e.target.value)} placeholder="name@domain.com"
               className={[input, form.email && !/\S+@\S+\.\S+/.test(form.email) ? '!border-status-error' : ''].join(' ')} />
+          </div>
+          <div>
+            <div className="label mb-1.5 text-fg-muted">Email Password</div>
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={e => set('password', e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                className={[input, 'pr-9'].join(' ')}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 transition-colors hover:text-white/60"
+              >
+                {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            </div>
           </div>
           <div>
             <div className="label mb-1.5 text-fg-muted">Phone</div>
@@ -358,7 +380,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           >
             <Upload size={18} className="text-white/30" />
             <span className="text-[12px] text-white/60">Drop a CSV here or click to browse</span>
-            <span className="mono text-[9px] uppercase tracking-wider text-white/25">handle, platform, username, email, phone, group, owner</span>
+            <span className="mono text-[9px] uppercase tracking-wider text-white/25">handle, platform, username, email, phone, group, owner, password</span>
           </button>
           <input
             ref={fileRef}
@@ -483,6 +505,10 @@ function AccountDrawer({ account, onClose, onEdit }: {
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Email</span>
               <RevealCell value={account.email} />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-white/25">Email Password</span>
+              <RevealCell value={account.password} />
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Recovery Phone</span>
@@ -719,8 +745,8 @@ export function AccountsView() {
     setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(a => a.id)))
 
   const exportRows = (rows: Account[]) => {
-    const header = 'handle,platform,username,email,phone,group,owner,status'
-    const csv = [header, ...rows.map(a => [a.handle, a.platform, a.username, a.email, a.phone, a.group, a.owner, a.status].join(','))].join('\n')
+    const header = 'handle,platform,username,email,phone,group,owner,password,status'
+    const csv = [header, ...rows.map(a => [a.handle, a.platform, a.username, a.email, a.phone, a.group, a.owner, a.password, a.status].join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')

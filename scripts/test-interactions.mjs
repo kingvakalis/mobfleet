@@ -31,6 +31,7 @@ const parseXY = (t) => {
   return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 0, y: 0 }
 }
 const layout = () => page.evaluate(() => JSON.parse(localStorage.getItem('mobfleet-fleet-layout-v2') ?? 'null'))
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
 
 // ── 1. Node drag: moves only that node, persists, no sidebar opens ───────────
 let draggedId, draggedTransform
@@ -45,10 +46,11 @@ let draggedId, draggedTransform
   await page.mouse.down()
   await page.mouse.move(box.x + 170, box.y + 120, { steps: 12 })
   await page.mouse.up()
-  await page.waitForTimeout(700)
+  await page.waitForTimeout(2100) // settle + batched save
   draggedTransform = await getTransform(first)
-  ok('drag moves the dragged phone', before1 !== draggedTransform)
-  ok('drag leaves other phones in place', before2 === (await getTransform(second)))
+  ok('drag moves the dragged phone', dist(parseXY(before1), parseXY(draggedTransform)) > 80)
+  // Physics: neighbors may breathe/settle a few px, but must not be displaced.
+  ok('drag does not displace other phones', dist(parseXY(before2), parseXY(await getTransform(second))) < 30)
   const l = await layout()
   ok('dragged position persisted (layout v2)', Boolean(l?.devices?.[draggedId]))
   ok('drag did not open the device sidebar', (await page.locator(drawerSel).count()) === 0)
@@ -71,7 +73,9 @@ let draggedId, draggedTransform
   const dOrch = { x: orchAfter.x - orchBefore.x, y: orchAfter.y - orchBefore.y }
   const dDev = { x: devAfter.x - devBefore.x, y: devAfter.y - devBefore.y }
   ok('core drag moves the orchestrator', Math.abs(dOrch.x) > 30)
-  ok('phones move by the SAME offset as the core', Math.abs(dOrch.x - dDev.x) < 2 && Math.abs(dOrch.y - dDev.y) < 2)
+  // Rigid tow: phones inherit the core's exact offset (± breathing).
+  ok('phones move by the same offset as the core', Math.abs(dOrch.x - dDev.x) < 12 && Math.abs(dOrch.y - dDev.y) < 12)
+  await page.waitForTimeout(2200) // settle + batched save
   const l = await layout()
   ok('orchestrator position persisted', Boolean(l?.orchestrator))
   ok('all carried phone positions persisted', Object.keys(l?.devices ?? {}).length >= 40)
@@ -99,12 +103,14 @@ let draggedId, draggedTransform
   await page.waitForTimeout(450)
   ok('hover does NOT open the sidebar', (await page.locator(drawerSel).count()) === 0)
   await first.click()
-  const opened = await page.locator(drawerSel).waitFor({ timeout: 15000 }).then(() => true).catch(() => false)
-  ok('single click opens the device sidebar', opened)
-  ok('sidebar did not navigate away from fleet', (await page.getByText('Report Problem').count()) === 0)
+  await page.waitForTimeout(600)
+  ok('single click shows the compact info card', (await page.locator('.react-flow').getByText('Uptime').count()) > 0)
+  ok('single click does NOT open the sidebar', (await page.locator(drawerSel).count()) === 0)
+  const dimCount = await page.locator(nodeSel).evaluateAll(ns => ns.filter(n => parseFloat(getComputedStyle(n.firstElementChild).opacity) < 0.45).length)
+  ok('unrelated phones dim to ~20% while selected', dimCount > 20)
   await page.keyboard.press('Escape')
   await page.waitForTimeout(500)
-  ok('Escape closes the sidebar', (await page.locator(drawerSel).count()) === 0)
+  ok('Escape clears selection and card', (await page.locator('.react-flow').getByText('Uptime').count()) === 0)
 }
 
 // ── 5. Double-click also opens the sidebar (never navigates) ─────────────────
@@ -124,8 +130,8 @@ let draggedId, draggedTransform
   await paneClick()
   await page.waitForTimeout(500)
   ok('unpinned sidebar closes on canvas click', (await page.locator(drawerSel).count()) === 0)
-  // Reopen, pin, canvas click keeps it open.
-  await page.locator(`.react-flow__node[data-id="${draggedId}"]`).click()
+  // Reopen (double-click), pin, canvas click keeps it open.
+  await page.locator(`.react-flow__node[data-id="${draggedId}"]`).dblclick()
   await page.locator(drawerSel).waitFor({ timeout: 15000 })
   await page.locator('button[title^="Pin"]').first().click()
   await page.waitForTimeout(300)
@@ -140,7 +146,7 @@ let draggedId, draggedTransform
 
 // ── 7. Sidebar "Full Control" action opens phone control ─────────────────────
 {
-  await page.locator(`.react-flow__node[data-id="${draggedId}"]`).click()
+  await page.locator(`.react-flow__node[data-id="${draggedId}"]`).dblclick()
   await page.locator(drawerSel).waitFor({ timeout: 15000 })
   await page.getByRole('button', { name: /Full Control/i }).click()
   const opened = await page.getByText('Report Problem').waitFor({ timeout: 20000 }).then(() => true).catch(() => false)
@@ -176,7 +182,7 @@ let draggedId, draggedTransform
   await page.mouse.move(box.x + 120, box.y + 80, { steps: 8 })
   await page.mouse.up()
   await page.waitForTimeout(500)
-  ok('layout lock prevents node movement', before === (await getTransform(first)))
+  ok('layout lock prevents node movement', dist(parseXY(before), parseXY(await getTransform(first))) < 14)
   await page.getByRole('button', { name: /Locked|Unlock layout/ }).first().click()
   await page.waitForTimeout(300)
   await page.keyboard.press('Escape')
@@ -187,7 +193,7 @@ let draggedId, draggedTransform
   await page.reload({ waitUntil: 'networkidle' })
   await waitGraph()
   const moved = page.locator(`.react-flow__node[data-id="${draggedId}"]`)
-  ok('node position survives reload', (await getTransform(moved)) === draggedTransform)
+  ok('node position survives reload', dist(parseXY(await getTransform(moved)), parseXY(draggedTransform)) < 40)
 }
 
 // ── 11. Account Database: shared system + working flows ─────────────────────

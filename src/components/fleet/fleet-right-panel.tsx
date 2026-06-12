@@ -122,7 +122,7 @@ export function FleetActivityDrawer({ open, onClose }: { open: boolean; onClose:
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 300, opacity: 0 }}
           transition={{ duration: 0.26, ease: EXPO_OUT }}
-          className="absolute right-0 top-0 z-30 flex h-full w-[280px] flex-col border-l border-line bg-panel/95 backdrop-blur-md"
+          className="absolute right-0 top-0 z-30 flex h-full w-[280px] flex-col border-l border-line bg-panel"
         >
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-line">
             <div className="flex items-center gap-1">
