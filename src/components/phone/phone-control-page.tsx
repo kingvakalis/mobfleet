@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { motion } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
@@ -554,13 +555,18 @@ export function PhoneControlPage() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className="flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors"
-                  style={{
-                    color: activeTab === tab ? '#2dd4bf' : 'rgba(255,255,255,0.35)',
-                    borderBottom: activeTab === tab ? '2px solid #2dd4bf' : '2px solid transparent',
-                  }}
+                  className="relative flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors"
+                  style={{ color: activeTab === tab ? '#2dd4bf' : 'rgba(255,255,255,0.35)' }}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {activeTab === tab && (
+                    <motion.span
+                      layoutId="pc-tab-underline"
+                      className="absolute -bottom-px left-0 right-0 h-0.5"
+                      style={{ background: '#2dd4bf' }}
+                      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  )}
                 </button>
               ))}
             </div>
