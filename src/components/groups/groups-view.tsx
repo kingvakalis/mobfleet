@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Plus, Smartphone, Zap, Users, Clock, ArrowUpRight, Play, Settings } from 'lucide-react'
 import { useGroupsData, usePhones } from '@/lib/fleet-adapter'
+import { fadeRise, staggerContainer } from '@/lib/motion'
 
 export function GroupsView() {
   const groups = useGroupsData()
@@ -49,13 +51,13 @@ export function GroupsView() {
 
       {/* Grid */}
       <div className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <motion.div variants={staggerContainer} initial="hidden" animate="show" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visible.map(g => {
             const groupPhones = phones.filter(p => p.group === g.name)
             const online = groupPhones.filter(p => p.status === 'online' || p.status === 'running').length
             const users = [...new Set(groupPhones.map(p => p.assignedUser))]
             return (
-              <div key={g.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5 flex flex-col gap-4 hover:border-white/[0.1] transition-colors">
+              <motion.div key={g.id} variants={fadeRise} whileHover={{ y: -2 }} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5 flex flex-col gap-4 hover:border-white/[0.1] transition-colors">
                 {/* Card header */}
                 <div className="flex items-start justify-between">
                   <div>
@@ -120,10 +122,15 @@ export function GroupsView() {
                     <Settings size={11} />Edit
                   </button>
                 </div>
-              </div>
+              </motion.div>
             )
           })}
-        </div>
+        </motion.div>
+        {visible.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center text-sm text-white/40">
+            No groups match "{search}"
+          </div>
+        )}
       </div>
     </div>
   )

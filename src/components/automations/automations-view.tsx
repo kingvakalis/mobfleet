@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Play, Pause, Plus, ChevronRight } from 'lucide-react'
 import { useAutomationsData } from '@/lib/fleet-adapter'
+import { fadeRise, staggerContainer } from '@/lib/motion'
 
 const FLOW_STEPS = [
   { label: 'Start',      color: '#22c55e' },
@@ -64,9 +66,9 @@ export function AutomationsView() {
 
       {/* Cards grid */}
       <div className="flex-1 overflow-auto p-6 flex flex-col gap-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <motion.div variants={staggerContainer} initial="hidden" animate="show" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visible.map(a => (
-            <div key={a.id} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5 flex flex-col gap-3 hover:border-white/[0.1] transition-colors">
+            <motion.div key={a.id} variants={fadeRise} whileHover={{ y: -2 }} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5 flex flex-col gap-3 hover:border-white/[0.1] transition-colors">
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-sm font-semibold text-white/90">{a.name}</h2>
@@ -114,9 +116,14 @@ export function AutomationsView() {
                   <Play size={10} />Run Now
                 </button>
               </div>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
+        {visible.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center text-sm text-white/40">
+            No automations match "{search}"
+          </div>
+        )}
 
         {/* Builder preview */}
         <div className="rounded-2xl bg-white/[0.02] border border-white/[0.05] p-6">
