@@ -195,41 +195,49 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, p
 
         {/* status ring hugs the phone */}
         <div
-          className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse')}
+          className={cn('absolute inset-0 rounded-[15px]', offline ? 'opacity-40' : 'animate-ring-pulse')}
           style={{ boxShadow: `0 0 0 1.5px ${color}` }}
         />
 
-        {/* side buttons: volume (left) + power (right) */}
-        <div className="absolute -left-[2px] top-[18px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]" />
-        <div className="absolute -left-[2px] top-[28px] h-[7px] w-[2px] rounded-l-[1px] bg-[#3a3a3c]" />
-        <div className="absolute -right-[2px] top-[24px] h-[11px] w-[2px] rounded-r-[1px] bg-[#3a3a3c]" />
+        {/* titanium side controls: action + volume (left) · power + camera-control (right) */}
+        <div className="absolute -left-[1.5px] top-[16px] h-[6px] w-[1.5px] rounded-l-sm" style={{ background: 'linear-gradient(180deg,#7d7d85,#3a3a40)' }} />
+        <div className="absolute -left-[1.5px] top-[26px] h-[9px] w-[1.5px] rounded-l-sm" style={{ background: 'linear-gradient(180deg,#7d7d85,#3a3a40)' }} />
+        <div className="absolute -left-[1.5px] top-[38px] h-[9px] w-[1.5px] rounded-l-sm" style={{ background: 'linear-gradient(180deg,#7d7d85,#3a3a40)' }} />
+        <div className="absolute -right-[1.5px] top-[22px] h-[13px] w-[1.5px] rounded-r-sm" style={{ background: 'linear-gradient(180deg,#8a8a92,#3a3a40)' }} />
+        <div className="absolute -right-[1.5px] top-[40px] h-[7px] w-[1.5px] rounded-r-sm" style={{ background: 'linear-gradient(180deg,#9a9aa2,#45454c)' }} />
 
-        {/* phone body: brushed-metal frame around the glass */}
+        {/* phone body: brushed-titanium frame around the glass */}
         <div
-          className={cn('absolute inset-0 rounded-[14px] p-[2.5px]', offline && 'opacity-60')}
+          className={cn('absolute inset-0 rounded-[15px] p-[1.5px]', offline && 'opacity-60')}
           style={{
-            background: 'linear-gradient(150deg, #48484c 0%, #1c1c1f 28%, #0c0c0e 62%, #313135 100%)',
-            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.07), 0 4px 14px rgba(0,0,0,0.6)',
+            background:
+              'linear-gradient(150deg, #82828c 0%, #4a4a52 14%, #1c1c20 40%, #0b0b0d 64%, #2a2a30 84%, #6c6c76 100%)',
+            boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.14), 0 5px 16px -3px rgba(0,0,0,0.7)',
           }}
         >
-          {/* screen */}
-          <div className="relative h-full w-full overflow-hidden rounded-[11.5px] bg-pure-black">
-            <MiniScreen device={device} job={job} />
-            {/* dynamic-island pill with camera dot */}
-            <div className="absolute left-1/2 top-[3px] z-10 flex h-[4px] w-[14px] -translate-x-1/2 items-center justify-end rounded-full bg-pure-black pr-[2px]">
-              <div className="h-[2px] w-[2px] rounded-full bg-[#1e3a5f]" />
+          {/* glossy black bezel */}
+          <div className="relative h-full w-full overflow-hidden rounded-[13px] bg-pure-black p-[1.5px]">
+            {/* screen */}
+            <div className="relative h-full w-full overflow-hidden rounded-[11px] bg-pure-black">
+              <MiniScreen device={device} job={job} />
+              {/* Dynamic Island — pill with camera lens */}
+              <div className="absolute left-1/2 top-[3px] z-10 flex h-[5px] w-[16px] -translate-x-1/2 items-center justify-end rounded-full bg-pure-black pr-[2px] shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.06)]">
+                <div className="h-[2.5px] w-[2.5px] rounded-full" style={{ background: 'radial-gradient(circle at 35% 35%, #2a4a6f, #050a12)' }} />
+              </div>
+              {/* home indicator */}
+              <div className="absolute bottom-[2.5px] left-1/2 z-10 h-[2px] w-[12px] -translate-x-1/2 rounded-full bg-white/30" />
+              {/* screen glass reflection */}
+              <div
+                className="pointer-events-none absolute inset-0 z-10 rounded-[11px]"
+                style={{
+                  background:
+                    'linear-gradient(125deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 22%, transparent 40%, transparent 80%, rgba(255,255,255,0.04) 100%)',
+                }}
+              />
             </div>
-            {/* home indicator */}
-            <div className="absolute bottom-[2px] left-1/2 z-10 h-[2px] w-[11px] -translate-x-1/2 rounded-full bg-white/25" />
-            {/* glass reflection */}
-            <div
-              className="pointer-events-none absolute inset-0 z-10 rounded-[11.5px]"
-              style={{
-                background:
-                  'linear-gradient(118deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 26%, transparent 42%)',
-              }}
-            />
           </div>
+          {/* titanium top-edge highlight */}
+          <div className="pointer-events-none absolute inset-x-[5px] top-0 h-px rounded-full bg-white/25" />
         </div>
       </div>
 

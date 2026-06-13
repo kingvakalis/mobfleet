@@ -127,35 +127,52 @@
 
   /* ── Shared control language ─────────────────────────────────────────────── */
   .btn-accent {
-    background: var(--accent-soft);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.06), transparent),
+      var(--accent-soft);
     border: 1px solid var(--accent-border);
     color: var(--accent-text);
-    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease,
+      box-shadow 150ms ease, transform 120ms ease;
   }
-  .btn-accent:hover { background: rgba(45,212,191,0.22); }
-  .btn-accent:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-accent:hover {
+    background: linear-gradient(180deg, rgba(255,255,255,0.07), transparent), rgba(45,212,191,0.22);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 4px 16px -6px var(--accent);
+  }
+  .btn-accent:active { transform: translateY(0.5px); }
+  .btn-accent:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
 
   .btn-ghost {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
   }
   .btn-ghost:hover { background: var(--bg-hover); border-color: var(--border-bright); color: var(--text-secondary); }
-  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost:active { transform: translateY(0.5px); }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
+  /* Premium cards: hairline border + a faint top-edge highlight (lit from above). */
   .card-surface {
     background: var(--bg-card);
     border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
     transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
   }
   .card-surface:hover { border-color: var(--border-bright); }
 
   /* ── Surface styles (data-surface on <html>) ───────────────────────────── */
-  [data-surface="soft"] .card-surface { box-shadow: 0 8px 28px -16px rgba(0,0,0,0.6); }
+  [data-surface="soft"] .card-surface {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 30px -18px rgba(0,0,0,0.7);
+  }
+  [data-surface="soft"] .card-surface:hover {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 14px 36px -16px rgba(0,0,0,0.72);
+  }
   [data-surface="glass"] .card-surface {
     background: color-mix(in srgb, var(--bg-card) 78%, transparent);
     backdrop-filter: blur(8px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 30px -18px rgba(0,0,0,0.6);
   }
 
   /* ── Interface density (data-density on <html>) ────────────────────────── */

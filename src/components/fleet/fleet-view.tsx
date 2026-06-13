@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Layers, Box, Network, Activity, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
+import { STATUS, type DeviceStatus } from '@/lib/status'
 import { EXPO_OUT } from '@/lib/motion'
 import { graphBus } from '@/lib/graph-bus'
 import { isLayoutLocked, setLayoutLocked, resetLayout } from '@/lib/layout/constellation'
@@ -31,6 +32,56 @@ function FleetBoot() {
     <div className="flex h-full flex-col items-center justify-center gap-4">
       <Spinner size={22} />
       <Label className="text-fg-muted">Establishing Uplink</Label>
+    </div>
+  )
+}
+
+/**
+ * Fleet Status strip for the 2D view — same telemetry as the 3D health bar,
+ * but rendered in the flat hairline HUD language of the 2D page (segmented,
+ * mono, backdrop-blur) so it reads as part of the constellation overlay.
+ */
+function FleetStatusStrip() {
+  const snapshot = useFleet()
+  const stats = useFleetStats()
+  const counts = useMemo(() => {
+    const c: Record<DeviceStatus, number> = { online: 0, busy: 0, warming: 0, offline: 0, error: 0 }
+    for (const d of snapshot?.devices ?? []) c[d.status as DeviceStatus]++
+    return c
+  }, [snapshot])
+
+  const segments: { label: string; value: number; color: string; dot?: boolean }[] = [
+    { label: 'Total',   value: stats.total,    color: 'rgba(255,255,255,0.72)' },
+    { label: 'Online',  value: counts.online,  color: STATUS.online.color,  dot: true },
+    { label: 'Busy',    value: counts.busy,    color: STATUS.busy.color,    dot: true },
+    { label: 'Warming', value: counts.warming, color: STATUS.warming.color, dot: true },
+    { label: 'Offline', value: counts.offline, color: 'rgba(255,255,255,0.32)', dot: true },
+    { label: 'Error',   value: counts.error,   color: STATUS.error.color,   dot: true },
+    { label: 'Queue',   value: stats.queue,    color: 'rgba(255,255,255,0.5)' },
+  ]
+
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2">
+      <motion.div
+        initial={{ opacity: 0, y: -6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: EXPO_OUT }}
+        className="flex items-stretch overflow-hidden rounded-lg border border-line bg-black/40 backdrop-blur-sm"
+      >
+        <div className="flex items-center gap-1.5 border-r border-line px-3">
+          <Activity size={10} className="text-fg-muted" />
+          <span className="mono text-[9px] uppercase tracking-[0.18em] text-fg-muted">Fleet Status</span>
+        </div>
+        {segments.map((s) => (
+          <div key={s.label} className="flex min-w-[52px] flex-col items-center justify-center gap-0.5 border-l border-line/60 px-3 py-1.5 first:border-l-0">
+            <span className="mono text-[13px] font-bold leading-none tabular-nums" style={{ color: s.color }}>{s.value}</span>
+            <span className="mono flex items-center gap-1 text-[7.5px] uppercase tracking-[0.16em] text-white/30">
+              {s.dot && <span className="h-1 w-1 rounded-full" style={{ background: s.color }} />}
+              {s.label}
+            </span>
+          </div>
+        ))}
+      </motion.div>
     </div>
   )
 }
@@ -143,6 +194,9 @@ export function FleetView() {
                 </div>
               )}
             </div>
+
+            {/* Fleet status — 2D view (3D has its own collapsible health bar) */}
+            {mode === '2d' && <FleetStatusStrip />}
 
             {/* Floating filter + layout bar */}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">

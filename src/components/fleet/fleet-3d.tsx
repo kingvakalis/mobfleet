@@ -329,11 +329,21 @@ function screenActivity(status: DeviceStatus): number {
 
 function usePhoneGeos() {
   const geos = useMemo(() => ({
-    body:   new RoundedBoxGeometry(0.28, 0.52, 0.055, 3, 0.035),
-    screen: new THREE.PlaneGeometry(0.225, 0.42),
-    notch:  new THREE.CapsuleGeometry(0.011, 0.045, 4, 8),
-    button: new THREE.CapsuleGeometry(0.005, 0.05, 4, 8),
-    led:    new THREE.SphereGeometry(0.016, 8, 8),
+    // iPhone 17 Pro: titanium frame shell + glossy black front bezel + matte
+    // back glass + raised rear camera plateau with a triple-lens array.
+    frame:    new RoundedBoxGeometry(0.30, 0.55, 0.052, 5, 0.05),
+    panel:    new RoundedBoxGeometry(0.262, 0.498, 0.006, 3, 0.045),
+    back:     new RoundedBoxGeometry(0.258, 0.492, 0.006, 3, 0.043),
+    screen:   new THREE.PlaneGeometry(0.236, 0.452),
+    island:   new THREE.CapsuleGeometry(0.013, 0.05, 6, 14),
+    camPlate: new RoundedBoxGeometry(0.135, 0.135, 0.02, 3, 0.032),
+    lensRing: new THREE.CylinderGeometry(0.03, 0.032, 0.018, 22),
+    lensGlass:new THREE.CylinderGeometry(0.02, 0.02, 0.006, 18),
+    dot:      new THREE.CylinderGeometry(0.0085, 0.0085, 0.006, 12),
+    btnLong:  new THREE.CapsuleGeometry(0.006, 0.075, 4, 8),
+    btnMed:   new THREE.CapsuleGeometry(0.006, 0.045, 4, 8),
+    btnShort: new THREE.CapsuleGeometry(0.006, 0.026, 4, 8),
+    led:      new THREE.SphereGeometry(0.014, 10, 10),
     arcA:   new THREE.TorusGeometry(0.27, 0.008, 6, 48, Math.PI * 1.3),
     arcB:   new THREE.TorusGeometry(0.315, 0.006, 6, 48, Math.PI * 0.85),
   }), [])
@@ -472,22 +482,28 @@ function PhoneNode({
         onRightClick(ne.clientX, ne.clientY)
       }}
     >
-      {/* Body */}
-      <mesh geometry={geos.body}>
+      {/* Titanium frame shell — the satin perimeter rail */}
+      <mesh geometry={geos.frame}>
         <meshPhysicalMaterial
           ref={bodyRef}
-          color="#101016"
-          roughness={0.18}
-          metalness={0.92}
-          clearcoat={1}
-          clearcoatRoughness={0.12}
+          color="#4c4c54"
+          roughness={0.34}
+          metalness={1}
+          clearcoat={0.5}
+          clearcoatRoughness={0.35}
+          envMapIntensity={1.1}
           emissive={statusColor}
-          emissiveIntensity={0.12}
+          emissiveIntensity={0.05}
         />
       </mesh>
 
+      {/* Glossy black front bezel surrounding the screen */}
+      <mesh geometry={geos.panel} position={[0, 0, 0.0245]}>
+        <meshPhysicalMaterial color="#050507" roughness={0.12} metalness={0.2} clearcoat={1} clearcoatRoughness={0.06} />
+      </mesh>
+
       {/* Screen */}
-      <mesh geometry={geos.screen} position={[0, 0, 0.0301]}>
+      <mesh geometry={geos.screen} position={[0, 0, 0.0285]}>
         <shaderMaterial
           ref={screenRef}
           vertexShader={SCREEN_VERT}
@@ -496,18 +512,59 @@ function PhoneNode({
         />
       </mesh>
 
-      {/* Notch */}
-      <mesh geometry={geos.notch} position={[0, 0.185, 0.031]} rotation={[0, 0, Math.PI / 2]}>
-        <meshBasicMaterial color={0x000000} />
+      {/* Dynamic Island */}
+      <mesh geometry={geos.island} position={[0, 0.188, 0.0295]} rotation={[0, 0, Math.PI / 2]}>
+        <meshStandardMaterial color="#000000" roughness={0.4} metalness={0.1} />
       </mesh>
 
-      {/* Side button */}
-      <mesh geometry={geos.button} position={[0.148, 0.07, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <meshStandardMaterial color={0x16161e} roughness={0.3} metalness={0.9} />
+      {/* Matte back glass */}
+      <mesh geometry={geos.back} position={[0, 0, -0.0245]}>
+        <meshPhysicalMaterial color="#0b0b0f" roughness={0.55} metalness={0.25} clearcoat={0.7} clearcoatRoughness={0.4} />
+      </mesh>
+
+      {/* Rear camera plateau + triple-lens array (visible as the camera orbits) */}
+      <group position={[-0.062, 0.158, -0.034]}>
+        <mesh geometry={geos.camPlate}>
+          <meshPhysicalMaterial color="#101015" roughness={0.4} metalness={0.5} clearcoat={0.6} />
+        </mesh>
+        {([[-0.026, 0.026], [0.026, 0.026], [0, -0.026]] as const).map(([lx, ly], i) => (
+          <group key={i} position={[lx, ly, -0.014]} rotation={[Math.PI / 2, 0, 0]}>
+            <mesh geometry={geos.lensRing}>
+              <meshStandardMaterial color="#1c1c22" roughness={0.25} metalness={0.95} />
+            </mesh>
+            <mesh geometry={geos.lensGlass} position={[0, -0.007, 0]}>
+              <meshPhysicalMaterial color="#05060a" roughness={0.05} metalness={0.3} clearcoat={1} clearcoatRoughness={0.04} />
+            </mesh>
+          </group>
+        ))}
+        {/* flash + LiDAR dots */}
+        <mesh geometry={geos.dot} position={[0.044, 0.026, -0.012]} rotation={[Math.PI / 2, 0, 0]}>
+          <meshStandardMaterial color="#e8e6d8" emissive="#fff8e6" emissiveIntensity={0.4} roughness={0.4} />
+        </mesh>
+        <mesh geometry={geos.dot} position={[0.044, -0.026, -0.012]} rotation={[Math.PI / 2, 0, 0]}>
+          <meshStandardMaterial color="#16161c" roughness={0.3} metalness={0.6} />
+        </mesh>
+      </group>
+
+      {/* Titanium side controls — action + volume (left), power + camera-control (right) */}
+      <mesh geometry={geos.btnShort} position={[-0.1515, 0.135, 0]}>
+        <meshStandardMaterial color="#5a5a62" roughness={0.34} metalness={1} />
+      </mesh>
+      <mesh geometry={geos.btnMed} position={[-0.1515, 0.04, 0]}>
+        <meshStandardMaterial color="#5a5a62" roughness={0.34} metalness={1} />
+      </mesh>
+      <mesh geometry={geos.btnMed} position={[-0.1515, -0.04, 0]}>
+        <meshStandardMaterial color="#5a5a62" roughness={0.34} metalness={1} />
+      </mesh>
+      <mesh geometry={geos.btnLong} position={[0.1515, 0.055, 0]}>
+        <meshStandardMaterial color="#5a5a62" roughness={0.34} metalness={1} />
+      </mesh>
+      <mesh geometry={geos.btnShort} position={[0.1515, -0.07, 0]}>
+        <meshStandardMaterial color="#6a6a72" roughness={0.28} metalness={1} />
       </mesh>
 
       {/* Status LED */}
-      <mesh geometry={geos.led} position={[0.075, -0.2, 0.031]}>
+      <mesh geometry={geos.led} position={[0.085, -0.205, 0.0295]}>
         <meshBasicMaterial ref={ledRef} color={statusColor} />
       </mesh>
 
