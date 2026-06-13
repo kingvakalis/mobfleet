@@ -359,7 +359,7 @@ export function SettingsView() {
                     ]}
                   />
                 </Field>
-                <Field label="Sidebar" hint="Ctrl+B toggles; auto-hide reveals on the left edge">
+                <Field label="Sidebar" hint="Ctrl+B toggles; the rail expands fully on hover and shrinks back">
                   <Pills
                     ariaLabel="Sidebar mode"
                     value={draft.sidebarMode}
@@ -367,7 +367,6 @@ export function SettingsView() {
                     options={[
                       { id: 'expanded', label: 'Expanded' },
                       { id: 'collapsed', label: 'Rail' },
-                      { id: 'autohide', label: 'Auto-hide' },
                     ]}
                   />
                 </Field>

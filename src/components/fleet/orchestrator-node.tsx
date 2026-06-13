@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Handle, Position } from '@xyflow/react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { OrchestratorMark } from '@/components/layout/orchestrator-mark'
 
 export const CORE_SIZE = 128
@@ -8,11 +8,18 @@ const centeredHandle =
   '!h-1.5 !w-1.5 !min-w-0 !min-h-0 !rounded-full !border-0 !bg-transparent !opacity-0'
 
 /** The central core every active node wires back to. */
-export const OrchestratorNode = memo(function OrchestratorNode() {
+export const OrchestratorNode = memo(function OrchestratorNode({ dragging }: NodeProps) {
   return (
     <div
       className="relative flex items-center justify-center"
-      style={{ width: CORE_SIZE, height: CORE_SIZE }}
+      style={{
+        width: CORE_SIZE,
+        height: CORE_SIZE,
+        cursor: dragging ? 'grabbing' : 'grab',
+        filter: dragging ? 'drop-shadow(0 14px 26px rgba(0,0,0,0.6))' : undefined,
+        transform: dragging ? 'scale(1.04)' : undefined,
+        transition: 'transform 160ms ease',
+      }}
     >
       <Handle
         id="core"

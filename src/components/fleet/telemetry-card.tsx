@@ -1,7 +1,8 @@
 import { useState, type ComponentType } from 'react'
-import { Check, Copy, Play, ScrollText, Send, Square, Trash2 } from 'lucide-react'
+import { Check, Copy, Pin, PinOff, Play, ScrollText, Send, Square, Trash2 } from 'lucide-react'
 import { regionLabel } from '@/data/regions'
 import { client } from '@/lib/provider'
+import { graphBus } from '@/lib/graph-bus'
 import { useUIStore } from '@/state/ui-store'
 import { uptimeSince } from '@/lib/format'
 import { STATUS } from '@/lib/status'
@@ -54,7 +55,7 @@ function Action({
 }
 
 /** Vercel-clean telemetry panel shown for the SELECTED node. */
-export function TelemetryCard({ device, job, noMatch }: { device: Device; job?: Job | null; noMatch?: boolean }) {
+export function TelemetryCard({ device, job, noMatch, pinned }: { device: Device; job?: Job | null; noMatch?: boolean; pinned?: boolean }) {
   const [copied, setCopied] = useState(false)
   const openDrawer = useUIStore((s) => s.openDrawer)
   const meta = STATUS[device.status]
@@ -121,6 +122,11 @@ export function TelemetryCard({ device, job, noMatch }: { device: Device; job?: 
           onClick={() => void client.runTask(device.id, { type: 'upload', label: 'Manual upload' })}
         />
         <Action icon={ScrollText} label="Logs" onClick={() => openDrawer(device.id)} />
+        <Action
+          icon={pinned ? PinOff : Pin}
+          label={pinned ? 'Unpin' : 'Pin'}
+          onClick={() => graphBus.togglePin?.(device.id)}
+        />
         <Action
           icon={copied ? Check : Copy}
           label={copied ? 'Copied' : 'Copy ID'}

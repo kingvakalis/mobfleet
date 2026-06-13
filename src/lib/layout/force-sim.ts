@@ -1,15 +1,45 @@
 /**
- * Lightweight d3-force-style simulation for the fleet constellation.
- * Custom (no dependency): at fleet scale (≤ a few hundred nodes) naive O(n²)
- * repulsion is far below frame budget, and owning the integrator lets drags,
- * pinning, persistence, and "breathing" behave exactly as specified.
+ * Force-directed simulation for the fleet constellation (Obsidian-style).
+ * Custom d3-force-style integrator — at fleet scale naive O(n²) repulsion is
+ * far below frame budget, and owning the solver lets drags, pinning,
+ * persistence, and "breathing" behave exactly as specified.
  *
- * Model: every phone is tethered to the core by a spring whose rest length is
- * its saved radius (manual arrangements stay equilibria), phones repel each
- * other, the core is heavy. Pin a node (drag) and its neighbors are pulled
- * elastically, then settle with damping. A tiny per-node oscillation keeps the
- * field alive at rest.
+ * Model
+ * - Every phone is tethered to the core by a SPRING (rest length = its saved
+ *   radius). Dragging the core pulls phones through these springs: near
+ *   phones react sooner/stronger, far ones lag, distances deform organically.
+ *   No rigid translation is ever applied.
+ * - Phones repel each other (charge) and refuse to overlap (collision).
+ * - The CORE is an anchor: it sits exactly where the operator leaves it
+ *   (no rebound after release) — only drags move it.
+ * - PINNED phones hold their saved coordinates and ignore the field;
+ *   unpinned phones participate fully.
+ * - A tiny per-node oscillation keeps the field alive at rest (optional).
  */
+
+// ─── Tuning — all physics constants live here ────────────────────────────────
+export const FORCE_CONFIG = {
+  /** Phone↔phone charge repulsion (px²·px/s²). */
+  repulsion: 5200,
+  /** Extra repulsion around the core so phones never sit on it. */
+  coreRepulsion: 16000,
+  /** Spring stiffness toward each phone's rest radius (accel per px stretch /s²). */
+  springK: 7.5,
+  /** Exponential velocity damping (/s) — settles quickly, no endless float. */
+  dampRate: 3.2,
+  /** Velocity cap (px/s) for stability when stretched springs release. */
+  maxVelocity: 1100,
+  /** Collision: minimum center distance between two phones (px). */
+  collideRadius: 78,
+  /** Collision separation stiffness (0..1 per tick fraction). */
+  collideStrength: 0.45,
+  /** Breathing amplitude (px/s²) — reads as ~±1.5px drift at rest. */
+  breatheAmp: 26,
+  /** Below this speed (px/s) a node is considered settled. */
+  settleSpeed: 2,
+  /** Numeric guard for near-zero distances. */
+  minDist: 26,
+} as const
 
 export interface SimNode {
   id: string
@@ -17,23 +47,16 @@ export interface SimNode {
   y: number
   vx: number
   vy: number
-  /** Pointer pin (drag) — overrides integration while set. */
+  /** Hard anchor (pointer drag or pinned placement). */
   fx: number | null
   fy: number | null
+  /** Whether the anchor is a persistent operator pin (vs a live drag). */
+  pinned: boolean
   /** Spring rest distance from the core. */
   restLen: number
   /** Unique breathing phase. */
   phase: number
-  mass: number
 }
-
-const REPULSE = 5200        // phone↔phone charge
-const CORE_REPULSE = 16000  // keeps phones off the core
-const SPRING_K = 6.5        // spring stiffness (accel per px stretch, /s²)
-const DAMP_RATE = 3.4       // exponential velocity damping (/s)
-const MAX_V = 1100          // px/s velocity cap (stability on stretched release)
-const BREATHE_AMP = 26      // px/s² — reads as ~±1.5px drift at rest
-const MIN_DIST = 26
 
 function hashPhase(id: string): number {
   let h = 0
@@ -41,27 +64,32 @@ function hashPhase(id: string): number {
   return (h % 628) / 100
 }
 
+const C = FORCE_CONFIG
+
 export class FleetForceSim {
   private nodes = new Map<string, SimNode>()
   core: SimNode
 
   constructor(corePos: { x: number; y: number }) {
-    this.core = { id: 'orchestrator', x: corePos.x, y: corePos.y, vx: 0, vy: 0, fx: null, fy: null, restLen: 0, phase: 0, mass: 26 }
+    // The core is anchored from birth — it moves only while dragged.
+    this.core = {
+      id: 'orchestrator', x: corePos.x, y: corePos.y, vx: 0, vy: 0,
+      fx: corePos.x, fy: corePos.y, pinned: true, restLen: 0, phase: 0,
+    }
   }
 
   /** Add new devices at their seed positions, drop removed ones. */
-  sync(items: { id: string; x: number; y: number }[]) {
+  sync(items: { id: string; x: number; y: number; pinned?: boolean }[]) {
     const seen = new Set<string>()
     for (const it of items) {
       seen.add(it.id)
       if (!this.nodes.has(it.id)) {
-        const dx = it.x - this.core.x
-        const dy = it.y - this.core.y
+        const pinned = Boolean(it.pinned)
         this.nodes.set(it.id, {
-          id: it.id, x: it.x, y: it.y, vx: 0, vy: 0, fx: null, fy: null,
-          restLen: Math.max(120, Math.hypot(dx, dy)),
+          id: it.id, x: it.x, y: it.y, vx: 0, vy: 0,
+          fx: pinned ? it.x : null, fy: pinned ? it.y : null, pinned,
+          restLen: Math.max(120, Math.hypot(it.x - this.core.x, it.y - this.core.y)),
           phase: hashPhase(it.id),
-          mass: 1,
         })
       }
     }
@@ -78,6 +106,7 @@ export class FleetForceSim {
     return [...this.nodes.values()]
   }
 
+  /** Pointer drag: hard-anchor the node to the pointer each frame. */
   pin(id: string, x: number, y: number) {
     const n = this.get(id)
     if (!n) return
@@ -85,38 +114,64 @@ export class FleetForceSim {
     n.fy = y
   }
 
-  /** Rigid tow: shift every phone by the same offset (core drag carries the
-   *  whole constellation — springs stay at rest, so nothing snaps back). */
-  translatePhones(dx: number, dy: number) {
-    for (const n of this.nodes.values()) {
-      n.x += dx
-      n.y += dy
-      if (n.fx !== null && n.fy !== null) {
-        n.fx += dx
-        n.fy += dy
-      }
+  /**
+   * Pointer release.
+   * - Core: stays anchored exactly where dropped (no spring rebound); the
+   *   phones are left to settle toward it through their tethers.
+   * - Phone: `keepPinned` (manual placement) anchors it at the drop spot;
+   *   otherwise it rejoins the field with its spring re-anchored there.
+   */
+  release(id: string, keepPinned: boolean) {
+    const n = this.get(id)
+    if (!n) return
+    n.vx = 0
+    n.vy = 0
+    if (n === this.core) {
+      n.fx = n.x
+      n.fy = n.y
+      return
+    }
+    n.restLen = Math.max(120, Math.hypot(n.x - this.core.x, n.y - this.core.y))
+    n.pinned = keepPinned
+    if (keepPinned) {
+      n.fx = n.x
+      n.fy = n.y
+    } else {
+      n.fx = null
+      n.fy = null
     }
   }
 
-  /** Release a pin; phones re-anchor their spring at the dropped radius so
-   *  the released position is the new equilibrium. */
-  unpin(id: string) {
-    const n = this.get(id)
+  setPinned(id: string, pinned: boolean) {
+    const n = this.nodes.get(id)
     if (!n) return
-    n.fx = null
-    n.fy = null
-    n.vx = 0
-    n.vy = 0
-    if (n !== this.core) {
+    n.pinned = pinned
+    if (pinned) {
+      n.fx = n.x
+      n.fy = n.y
+    } else {
+      n.fx = null
+      n.fy = null
       n.restLen = Math.max(120, Math.hypot(n.x - this.core.x, n.y - this.core.y))
     }
   }
 
-  /** One integration step. `breathe` keeps the field subtly alive at rest. */
-  tick(dtRaw: number, t: number, breathe: boolean) {
+  unpinAll() {
+    for (const n of this.nodes.values()) {
+      if (n.pinned) this.setPinned(n.id, false)
+    }
+  }
+
+  isPinned(id: string): boolean {
+    return this.nodes.get(id)?.pinned ?? false
+  }
+
+  /** One integration step. Returns the fastest node speed (settle signal). */
+  tick(dtRaw: number, t: number, breathe: boolean): number {
     const dt = Math.min(dtRaw, 1 / 30)
     const list = this.all()
-    const damp = Math.exp(-DAMP_RATE * dt)
+    const damp = Math.exp(-C.dampRate * dt)
+    let maxSpeed = 0
 
     for (let i = 0; i < list.length; i++) {
       const a = list[i]
@@ -132,56 +187,41 @@ export class FleetForceSim {
         let dy = a.y - b.y
         let d = Math.hypot(dx, dy)
         if (d < 1) { dx = Math.sin(a.phase + i); dy = Math.cos(a.phase + i); d = 1 }
-        const dd = Math.max(d, MIN_DIST)
-        const f = REPULSE / (dd * dd)
+        const dd = Math.max(d, C.minDist)
+        const f = C.repulsion / (dd * dd)
         ax += (dx / d) * f
         ay += (dy / d) * f
       }
 
-      // core repulsion + spring tether
+      // core repulsion + spring tether — this is what tows phones when the
+      // core is dragged: stretch grows, pull grows, near phones feel it most.
       {
         let dx = a.x - this.core.x
         let dy = a.y - this.core.y
         let d = Math.hypot(dx, dy)
         if (d < 1) { dx = 1; dy = 0; d = 1 }
-        const dd = Math.max(d, MIN_DIST)
-        const rep = CORE_REPULSE / (dd * dd)
+        const dd = Math.max(d, C.minDist)
+        const rep = C.coreRepulsion / (dd * dd)
         const stretch = d - a.restLen
-        const spring = -SPRING_K * stretch
+        const spring = -C.springK * stretch
         ax += (dx / d) * (rep + spring)
         ay += (dy / d) * (rep + spring)
       }
 
       // breathing — restrained, unique per node
       if (breathe) {
-        ax += BREATHE_AMP * Math.sin(t * 0.9 + a.phase)
-        ay += BREATHE_AMP * Math.cos(t * 0.7 + a.phase * 1.31)
+        ax += C.breatheAmp * Math.sin(t * 0.9 + a.phase)
+        ay += C.breatheAmp * Math.cos(t * 0.7 + a.phase * 1.31)
       }
 
       a.vx = (a.vx + ax * dt) * damp
       a.vy = (a.vy + ay * dt) * damp
       const v = Math.hypot(a.vx, a.vy)
-      if (v > MAX_V) {
-        a.vx = (a.vx / v) * MAX_V
-        a.vy = (a.vy / v) * MAX_V
+      if (v > C.maxVelocity) {
+        a.vx = (a.vx / v) * C.maxVelocity
+        a.vy = (a.vy / v) * C.maxVelocity
       }
-    }
-
-    // Core: pulled by every spring (heavy mass — barely drifts unless dragged).
-    if (this.core.fx === null) {
-      let ax = 0
-      let ay = 0
-      for (const n of list) {
-        let dx = this.core.x - n.x
-        let dy = this.core.y - n.y
-        let d = Math.hypot(dx, dy)
-        if (d < 1) { dx = 1; dy = 0; d = 1 }
-        const stretch = d - n.restLen
-        ax += (dx / d) * (-SPRING_K * stretch)
-        ay += (dy / d) * (-SPRING_K * stretch)
-      }
-      this.core.vx = (this.core.vx + (ax / this.core.mass) * dt) * damp
-      this.core.vy = (this.core.vy + (ay / this.core.mass) * dt) * damp
+      if (v > maxSpeed) maxSpeed = v
     }
 
     // integrate
@@ -196,5 +236,33 @@ export class FleetForceSim {
         n.y += n.vy * dt
       }
     }
+
+    // collision pass — positional separation, prevents overlap without energy
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i]
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j]
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let d = Math.hypot(dx, dy)
+        if (d >= C.collideRadius) continue
+        if (d < 1) { dx = Math.sin(i + j); dy = Math.cos(i - j); d = 1 }
+        const overlap = (C.collideRadius - d) * C.collideStrength
+        const ux = dx / d
+        const uy = dy / d
+        const aFree = a.fx === null
+        const bFree = b.fx === null
+        if (aFree && bFree) {
+          a.x -= ux * overlap * 0.5; a.y -= uy * overlap * 0.5
+          b.x += ux * overlap * 0.5; b.y += uy * overlap * 0.5
+        } else if (aFree) {
+          a.x -= ux * overlap; a.y -= uy * overlap
+        } else if (bFree) {
+          b.x += ux * overlap; b.y += uy * overlap
+        }
+      }
+    }
+
+    return maxSpeed
   }
 }

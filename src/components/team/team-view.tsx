@@ -1,14 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Plus, X, Users, Clock, Smartphone, Coffee, LogOut, LogIn,
-  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight,
+  Plus, X, Users, Smartphone, Coffee, LogOut, LogIn, Calendar,
+  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import {
-  useTeam, shiftDurationMs, activeMs, currentSessionMs, fmtDur, phonesUsedToday,
+  useTeam, shiftDurationMs, activeMs, currentSessionMs, fmtDur,
   PERMISSION_GROUPS, type Employee, type RoleId, type ShiftStatus, type PermissionId,
 } from '@/services/team'
+import {
+  RANGE_OPTIONS, rangeFor, previousRange, periodStats, sumStats, deltaPct, tzName,
+  type RangeKey, type DateRange,
+} from '@/services/team-range'
 
 const SHIFT_META: Record<ShiftStatus, { label: string; color: string }> = {
   'on-shift':  { label: 'On Shift',  color: 'var(--status-online)' },
@@ -34,61 +38,225 @@ function Avatar({ name, size = 28 }: { name: string; size?: number }) {
   )
 }
 
-// ─── KPI strip ───────────────────────────────────────────────────────────────
+// ─── Date-range control ──────────────────────────────────────────────────────
 
-function Kpis({ employees }: { employees: Employee[] }) {
-  const onShift = employees.filter(e => e.shiftStatus === 'on-shift' || e.shiftStatus === 'on-break')
-  const active = employees.filter(e => e.shiftStatus === 'on-shift')
-  const hoursToday = employees.reduce((s, e) => s + activeMs(e), 0)
-  const controlling = employees.filter(e => e.currentPhone).length
+function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
+  rangeKey: RangeKey
+  setRangeKey: (k: RangeKey) => void
+  custom: { start: string; end: string }
+  setCustom: (c: { start: string; end: string }) => void
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [draft, setDraft] = useState(custom)
+  const ref = useRef<HTMLDivElement>(null)
 
-  const items = [
-    { label: 'Employees',        value: String(employees.length) },
-    { label: 'On Shift',         value: String(onShift.length), color: 'var(--status-online)' },
-    { label: 'Currently Active', value: String(active.length) },
-    { label: 'Hours Today',      value: fmtDur(hoursToday) },
-    { label: 'Phones In Use',    value: String(controlling), color: 'var(--status-busy)' },
-  ]
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const valid = draft.start !== '' && draft.end !== '' && draft.start <= draft.end
+
   return (
-    <div className="grid grid-cols-5 gap-3 px-6 py-4 border-b border-line">
-      {items.map(({ label, value, color }, i) => (
-        <motion.div
-          key={label}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: i * 0.05, ease: EXPO_OUT }}
-          className="card-surface p-3.5 flex flex-col gap-1.5"
+    <div ref={ref} className="relative flex items-center gap-1 rounded-lg border border-line bg-black/40 p-1">
+      {RANGE_OPTIONS.map(({ key, label }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => {
+            if (key === 'custom') {
+              setDraft(custom)
+              setPickerOpen(o => !o)
+              return
+            }
+            setPickerOpen(false)
+            setRangeKey(key)
+          }}
+          className={[
+            'mono flex items-center gap-1 px-2.5 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+            rangeKey === key ? 'bg-white text-black' : 'text-white/40 hover:text-white/70',
+          ].join(' ')}
         >
-          <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
-          <span className="mono text-xl font-bold tabular-nums" style={{ color: color ?? '#fff' }}>{value}</span>
-        </motion.div>
+          {key === 'custom' && <Calendar size={10} />}
+          {key === 'custom' && rangeKey === 'custom' ? `${custom.start} → ${custom.end}` : label}
+          {key === 'custom' && <ChevronDown size={9} className="opacity-50" />}
+        </button>
       ))}
+      <AnimatePresence>
+        {pickerOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.14 }}
+            className="absolute right-0 top-11 z-40 w-[250px] border border-line bg-elevated p-3 shadow-2xl"
+          >
+            <div className="label mb-2 text-fg-muted">Custom Range</div>
+            <div className="space-y-2">
+              <div>
+                <div className="mb-1 text-[9px] uppercase tracking-wider text-white/25">Start</div>
+                <input
+                  type="date" value={draft.start} max={draft.end || undefined}
+                  onChange={e => setDraft(d => ({ ...d, start: e.target.value }))}
+                  className="mono h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-[9px] uppercase tracking-wider text-white/25">End</div>
+                <input
+                  type="date" value={draft.end} min={draft.start || undefined}
+                  onChange={e => setDraft(d => ({ ...d, end: e.target.value }))}
+                  className="mono h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
+                />
+              </div>
+            </div>
+            {!valid && draft.start && draft.end && (
+              <p className="mt-1.5 text-[10px] text-status-error">Start must not be after end.</p>
+            )}
+            <p className="mt-2 text-[9px] text-white/25">Timezone: {tzName}</p>
+            <div className="mt-3 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="btn-ghost mono flex-1 py-1.5 text-[10px] uppercase tracking-widest"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!valid}
+                onClick={() => { setCustom(draft); setRangeKey('custom'); setPickerOpen(false) }}
+                className="btn-accent mono flex-1 py-1.5 text-[10px] uppercase tracking-widest"
+              >
+                Apply
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-// ─── Employee detail drawer ──────────────────────────────────────────────────
+// ─── KPI sections ────────────────────────────────────────────────────────────
 
-function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+function LiveKpis({ employees }: { employees: Employee[] }) {
+  const onShift = employees.filter(e => e.shiftStatus === 'on-shift' || e.shiftStatus === 'on-break').length
+  const active = employees.filter(e => e.shiftStatus === 'on-shift').length
+  const controlling = employees.filter(e => e.currentPhone).length
+  const items = [
+    { label: 'Currently On Shift', value: String(onShift), color: 'var(--status-online)' },
+    { label: 'Currently Active',   value: String(active) },
+    { label: 'Phones In Use Now',  value: String(controlling), color: 'var(--status-busy)' },
+  ]
+  return (
+    <>
+      {items.map(({ label, value, color }, i) => (
+        <motion.div
+          key={label}
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: i * 0.04, ease: EXPO_OUT }}
+          className="card-surface flex flex-col gap-1.5 p-3.5"
+        >
+          <span className="flex items-center justify-between">
+            <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
+            <span className="mono flex items-center gap-1 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">
+              <span className="status-dot-pulse h-1 w-1 rounded-full bg-[var(--accent)]" /> Live
+            </span>
+          </span>
+          <span className="mono text-xl font-bold tabular-nums" style={{ color: color ?? '#fff' }}>{value}</span>
+        </motion.div>
+      ))}
+    </>
+  )
+}
+
+function PeriodKpis({ employees, range, now }: { employees: Employee[]; range: DateRange; now: number }) {
+  const totals = useMemo(() => sumStats(employees.map(e => periodStats(e, range, now))), [employees, range, now])
+  const prevTotals = useMemo(() => {
+    const prev = previousRange(range)
+    return sumStats(employees.map(e => periodStats(e, prev, now)))
+  }, [employees, range, now])
+  const hoursDelta = deltaPct(totals.hoursMs, prevTotals.hoursMs)
+
+  const items = [
+    {
+      label: 'Hours Worked', value: fmtDur(totals.hoursMs),
+      delta: hoursDelta,
+    },
+    { label: 'Active Time', value: fmtDur(totals.activeMs) },
+    { label: 'Avg Shift Length', value: totals.shifts ? fmtDur(totals.hoursMs / totals.shifts) : '—' },
+    { label: 'Shifts Completed', value: String(totals.shifts) },
+    { label: 'Phones Controlled', value: String(totals.phonesUsed) },
+    { label: 'Jobs Completed', value: String(totals.jobs) },
+  ]
+  return (
+    <>
+      {items.map(({ label, value, delta }, i) => (
+        <motion.div
+          key={label}
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.1 + i * 0.04, ease: EXPO_OUT }}
+          className="card-surface flex flex-col gap-1 p-3.5"
+        >
+          <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
+          <span className="mono text-xl font-bold tabular-nums text-white">{value}</span>
+          <span className="flex items-center gap-2 text-[9px] text-white/25">
+            {range.label}
+            {delta !== null && delta !== undefined && (
+              <span style={{ color: delta >= 0 ? 'var(--status-online)' : 'var(--status-error)' }}>
+                {delta >= 0 ? '+' : ''}{delta.toFixed(1)}% vs previous
+              </span>
+            )}
+          </span>
+        </motion.div>
+      ))}
+    </>
+  )
+}
+
+// ─── Employee detail drawer (inherits the selected range) ────────────────────
+
+function EmployeeDrawer({ emp, range, now, onClose }: {
+  emp: Employee
+  range: DateRange
+  now: number
+  onClose: () => void
+}) {
   const { startShift, endShift, toggleBreak, setSuspended, removeEmployee, updateEmployee, roles } = useTeam()
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [tab, setTab] = useState<'overview' | 'sessions' | 'history'>('overview')
   const meta = SHIFT_META[emp.shiftStatus]
   const onDuty = emp.shiftStatus === 'on-shift' || emp.shiftStatus === 'on-break'
+  const stats = useMemo(() => periodStats(emp, range, now), [emp, range, now])
+
+  const inRange = (ts: number) => ts >= range.start && ts <= range.end
+  const rangeSessions = useMemo(
+    () => emp.history
+      .flatMap(h => h.sessions.map((s, i) => ({ ...s, date: h.date, key: h.date + i })))
+      .filter(s => inRange(s.start)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [emp.history, range],
+  )
+  const rangeShifts = useMemo(
+    () => emp.history.filter(h => Math.max(h.start, range.start) <= Math.min(h.end ?? now, range.end)),
+     
+    [emp.history, range, now],
+  )
 
   const timeline = useMemo(() => {
     const items: { time: string; text: string }[] = []
-    if (emp.shiftStart) items.push({ time: t(emp.shiftStart), text: 'Shift started' })
-    const today = emp.history.find(h => h.date === new Date().toISOString().slice(0, 10))
-    today?.sessions.forEach(s => {
+    if (emp.shiftStart && inRange(emp.shiftStart)) items.push({ time: t(emp.shiftStart), text: 'Shift started' })
+    rangeSessions.slice(0, 8).forEach(s => {
       items.push({ time: t(s.start), text: `Opened ${s.phoneName}` })
-      if (s.end) items.push({ time: t(s.end), text: `Closed ${s.phoneName}` })
     })
     if (emp.currentSessionStart && emp.currentPhone)
       items.push({ time: t(emp.currentSessionStart), text: `Controlling ${emp.currentPhone}` })
     if (emp.breakStart) items.push({ time: t(emp.breakStart), text: 'Break started' })
     return items.sort((a, b) => a.time.localeCompare(b.time))
-  }, [emp])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp, rangeSessions])
 
   return (
     <div className="fixed inset-0 z-50">
@@ -106,22 +274,22 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
       >
         {/* header */}
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
             <Avatar name={emp.name} size={34} />
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-fg">{emp.name}{emp.suspended && <span className="ml-2 text-[10px] text-status-error uppercase">Suspended</span>}</div>
+              <div className="truncate text-sm font-medium text-fg">{emp.name}{emp.suspended && <span className="ml-2 text-[10px] uppercase text-status-error">Suspended</span>}</div>
               <div className="mono text-[10px] text-fg-muted">{emp.email}</div>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-control text-fg-muted hover:bg-elevated hover:text-fg transition-colors">
+          <button onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-control text-fg-muted transition-colors hover:bg-elevated hover:text-fg">
             <X size={15} />
           </button>
         </div>
 
-        {/* status strip */}
+        {/* live status strip */}
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <span className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full status-dot-pulse" style={{ background: meta.color }} />
+            <span className="status-dot-pulse h-2 w-2 rounded-full" style={{ background: meta.color }} />
             <span className="mono text-[11px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
           </span>
           <div className="flex gap-1.5">
@@ -159,6 +327,12 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
           ))}
         </div>
 
+        {/* range banner — the drawer inherits the page's selected period */}
+        <div className="flex items-center gap-2 border-b border-line bg-black/30 px-5 py-2">
+          <Calendar size={10} className="text-white/25" />
+          <span className="mono text-[9px] uppercase tracking-wider text-white/35">{range.label}</span>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {tab === 'overview' && (
             <>
@@ -180,17 +354,40 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
                 </div>
               </div>
 
-              {/* current shift */}
+              {/* period summary */}
               <div>
-                <div className="label text-fg-muted mb-2">Current Shift</div>
+                <div className="label mb-2 text-fg-muted">Period · {range.label}</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {[
+                    ['Hours Worked', fmtDur(stats.hoursMs)],
+                    ['Active Time',  fmtDur(stats.activeMs)],
+                    ['Break Time',   fmtDur(stats.breakMs)],
+                    ['Shifts',       String(stats.shifts)],
+                    ['Phones Used',  String(stats.phonesUsed)],
+                    ['Jobs',         String(stats.jobs)],
+                  ].map(([k, v]) => (
+                    <div key={k}>
+                      <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
+                      <div className="mono text-[12px] text-white/75">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* live shift */}
+              <div>
+                <div className="label mb-2 flex items-center gap-2 text-fg-muted">
+                  Current Shift
+                  <span className="mono rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">Live</span>
+                </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   {[
                     ['Shift Start', t(emp.shiftStart)],
                     ['Duration',    fmtDur(shiftDurationMs(emp))],
-                    ['Active Time', fmtDur(activeMs(emp))],
-                    ['Break Time',  `${emp.breakMinutesToday}m`],
+                    ['Active',      fmtDur(activeMs(emp))],
+                    ['Break',       `${emp.breakMinutesToday}m`],
                     ['Current Phone', emp.currentPhone ?? '—'],
-                    ['Phones Today',  String(phonesUsedToday(emp))],
+                    ['Session',     emp.currentSessionStart ? fmtDur(currentSessionMs(emp)) : '—'],
                   ].map(([k, v]) => (
                     <div key={k}>
                       <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
@@ -202,14 +399,14 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
 
               {/* timeline */}
               <div>
-                <div className="label text-fg-muted mb-2">Today</div>
+                <div className="label mb-2 text-fg-muted">Timeline</div>
                 {timeline.length === 0 ? (
-                  <div className="mono text-[11px] text-white/25">No activity recorded today.</div>
+                  <div className="mono text-[11px] text-white/25">No activity in this period.</div>
                 ) : (
                   <div className="space-y-1.5 border-l border-line pl-3">
                     {timeline.map((item, i) => (
                       <div key={i} className="flex items-baseline gap-2.5">
-                        <span className="mono text-[10px] text-white/30 tabular-nums">{item.time}</span>
+                        <span className="mono text-[10px] tabular-nums text-white/30">{item.time}</span>
                         <span className="text-[11px] text-white/65">{item.text}</span>
                       </div>
                     ))}
@@ -218,7 +415,7 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
               </div>
 
               {/* danger zone */}
-              <div className="border-t border-line pt-4 flex gap-2">
+              <div className="flex gap-2 border-t border-line pt-4">
                 <button
                   onClick={() => setSuspended(emp.id, !emp.suspended)}
                   className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
@@ -231,7 +428,7 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
                     onClick={() => setConfirmRemove(true)}
                     disabled={emp.role === 'owner'}
                     title={emp.role === 'owner' ? 'The workspace owner cannot be removed' : undefined}
-                    className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:opacity-35 disabled:cursor-not-allowed"
+                    className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <Trash2 size={11} /> Remove
                   </button>
@@ -249,17 +446,17 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
 
           {tab === 'sessions' && (
             <div className="space-y-3">
-              {emp.currentPhone && emp.currentSessionStart && (
-                <div className="card-surface p-3 border-[var(--accent-border)]">
+              {emp.currentPhone && emp.currentSessionStart && range.end >= now - 1000 && (
+                <div className="card-surface border-[var(--accent-border)] p-3">
                   <div className="flex items-center justify-between">
                     <span className="mono text-[11px] text-white/80">{emp.currentPhone}</span>
                     <span className="mono text-[10px] text-[var(--accent-text)]">LIVE · {fmtDur(currentSessionMs(emp))}</span>
                   </div>
                 </div>
               )}
-              {emp.history.flatMap(h => h.sessions.map((s, i) => ({ ...s, date: h.date, key: h.date + i }))).map(s => (
+              {rangeSessions.map(s => (
                 <div key={s.key} className="card-surface p-3">
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="mb-1.5 flex items-center justify-between">
                     <span className="mono text-[11px] text-white/75">{s.phoneName}</span>
                     <span className="mono text-[10px] text-white/30">{s.date}</span>
                   </div>
@@ -270,17 +467,17 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
                   </div>
                 </div>
               ))}
-              {emp.history.length === 0 && !emp.currentPhone && (
-                <div className="mono text-[11px] text-white/25">No phone sessions recorded.</div>
+              {rangeSessions.length === 0 && !emp.currentPhone && (
+                <div className="mono text-[11px] text-white/25">No phone sessions in this period.</div>
               )}
             </div>
           )}
 
           {tab === 'history' && (
             <div className="space-y-2">
-              {emp.history.map((h) => (
+              {rangeShifts.map((h) => (
                 <div key={h.date + h.start} className="card-surface p-3">
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="mb-1.5 flex items-center justify-between">
                     <span className="mono text-[11px] text-white/75">{h.date}</span>
                     <span className="mono text-[10px] text-white/40">{t(h.start)} – {t(h.end)}</span>
                   </div>
@@ -291,7 +488,7 @@ function EmployeeDrawer({ emp, onClose }: { emp: Employee; onClose: () => void }
                   </div>
                 </div>
               ))}
-              {emp.history.length === 0 && <div className="mono text-[11px] text-white/25">No completed shifts yet.</div>}
+              {rangeShifts.length === 0 && <div className="mono text-[11px] text-white/25">No shifts in this period.</div>}
             </div>
           )}
         </div>
@@ -327,12 +524,12 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
           <div>
             <div className="label text-fg-muted mb-1.5">Name</div>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name"
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-[var(--accent-border)] transition-colors" />
+              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
           </div>
           <div>
             <div className="label text-fg-muted mb-1.5">Email</div>
             <input value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com"
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-[var(--accent-border)] transition-colors" />
+              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
           </div>
           <div>
             <div className="label text-fg-muted mb-1.5">Role</div>
@@ -371,8 +568,7 @@ function RolesPanel() {
   }
 
   return (
-    <div className="flex flex-1 min-h-0">
-      {/* role list */}
+    <div className="flex min-h-0 flex-1">
       <div className="w-52 shrink-0 border-r border-line py-3">
         {roles.map(r => (
           <button
@@ -388,18 +584,17 @@ function RolesPanel() {
           </button>
         ))}
       </div>
-      {/* permission matrix */}
       <div className="flex-1 overflow-y-auto p-5">
         <div className="mb-4 flex items-center gap-3">
           <ShieldCheck size={15} className="text-[var(--accent-text)]" />
           <span className="text-sm font-medium text-white/85">{role.name}</span>
           <span className="mono text-[10px] text-white/30">{usage} member{usage === 1 ? '' : 's'}</span>
-          {role.locked && <span className="mono text-[9px] uppercase tracking-wider text-white/30 border border-line px-1.5 py-0.5">Locked — full access</span>}
+          {role.locked && <span className="mono border border-line px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/30">Locked — full access</span>}
         </div>
         <div className="grid grid-cols-2 gap-5">
           {PERMISSION_GROUPS.map(g => (
             <div key={g.group}>
-              <div className="label text-fg-muted mb-2">{g.group}</div>
+              <div className="label mb-2 text-fg-muted">{g.group}</div>
               <div className="space-y-1">
                 {g.permissions.map(p => {
                   const on = role.permissions.includes(p.id)
@@ -438,6 +633,24 @@ export function TeamView() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
 
+  // Shared date-range state — every historical widget reads this one range.
+  const [rangeKey, setRangeKey] = useState<RangeKey>('today')
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const [custom, setCustom] = useState({ start: todayIso, end: todayIso })
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const range = useMemo(() => rangeFor(rangeKey, now, custom), [rangeKey, now, custom])
+
+  const rows = useMemo(
+    () => employees
+      .map(e => ({ e, stats: periodStats(e, range, now) }))
+      .sort((a, b) => b.stats.hoursMs - a.stats.hoursMs),
+    [employees, range, now],
+  )
+
   const openEmp = employees.find(e => e.id === openId) ?? null
 
   return (
@@ -445,10 +658,13 @@ export function TeamView() {
       {/* header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Workspace</p>
-          <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">Team</h1>
+          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
+          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Team</h1>
         </div>
         <div className="flex items-center gap-2">
+          {tab === 'people' && (
+            <RangeControl rangeKey={rangeKey} setRangeKey={setRangeKey} custom={custom} setCustom={setCustom} />
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-line bg-black/40 p-1">
             {([['people', 'People', Users], ['roles', 'Roles', ShieldCheck]] as const).map(([id, label, Icon]) => (
               <button
@@ -471,19 +687,33 @@ export function TeamView() {
 
       {tab === 'people' ? (
         <>
-          <Kpis employees={employees} />
+          {/* LIVE row + PERIOD row, clearly separated */}
+          <div className="grid grid-cols-3 gap-3 border-b border-line px-6 pb-2 pt-4">
+            <LiveKpis employees={employees} />
+          </div>
+          <div className="grid grid-cols-6 gap-3 border-b border-line px-6 pb-4 pt-2">
+            <PeriodKpis employees={employees} range={range} now={now} />
+          </div>
+
           {/* table */}
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs">
               <thead className="sticky top-0 z-10 bg-black">
                 <tr className="border-b border-line">
-                  {['EMPLOYEE', 'ROLE', 'SHIFT', 'SHIFT START', 'ACTIVE TIME', 'BREAK', 'PHONES', 'CURRENT PHONE', ''].map(h => (
-                    <th key={h} className="px-4 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
+                  {[
+                    { h: 'EMPLOYEE' }, { h: 'ROLE' },
+                    { h: 'SHIFT', live: true }, { h: 'CURRENT PHONE', live: true },
+                    { h: 'HOURS' }, { h: 'ACTIVE' }, { h: 'BREAK' }, { h: 'SHIFTS' }, { h: 'PHONES' }, { h: 'JOBS' }, { h: '' },
+                  ].map(({ h, live }) => (
+                    <th key={h || 'x'} className="mono whitespace-nowrap px-4 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em]"
+                      style={{ color: live ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}>
+                      {h}{live ? ' ·' : ''}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {employees.map((e, i) => {
+                {rows.map(({ e, stats }, i) => {
                   const meta = SHIFT_META[e.shiftStatus]
                   return (
                     <motion.tr
@@ -503,17 +733,13 @@ export function TeamView() {
                           </span>
                         </span>
                       </td>
-                      <td className="px-4 py-3 mono text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
+                      <td className="mono px-4 py-3 text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-1.5">
                           <span className={`h-1.5 w-1.5 rounded-full ${e.shiftStatus === 'on-shift' ? 'status-dot-pulse' : ''}`} style={{ background: meta.color }} />
                           <span className="mono text-[10px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
                         </span>
                       </td>
-                      <td className="px-4 py-3 mono text-[11px] text-white/40 tabular-nums">{t(e.shiftStart)}</td>
-                      <td className="px-4 py-3 mono text-[11px] text-white/55 tabular-nums">{fmtDur(activeMs(e))}</td>
-                      <td className="px-4 py-3 mono text-[11px] text-white/35 tabular-nums">{e.breakMinutesToday}m</td>
-                      <td className="px-4 py-3 mono text-[11px] text-white/45 tabular-nums">{phonesUsedToday(e)}</td>
                       <td className="px-4 py-3">
                         {e.currentPhone ? (
                           <span className="flex items-center gap-1.5 text-[11px] text-[var(--accent-text)]">
@@ -523,6 +749,12 @@ export function TeamView() {
                           <span className="mono text-[10px] text-white/20">—</span>
                         )}
                       </td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/65">{fmtDur(stats.hoursMs)}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/50">{fmtDur(stats.activeMs)}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/35">{stats.breakMs > 0 ? fmtDur(stats.breakMs) : '—'}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.shifts}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.phonesUsed}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.jobs}</td>
                       <td className="px-4 py-3 text-right">
                         <ChevronRight size={13} className="ml-auto text-white/20" />
                       </td>
@@ -532,9 +764,10 @@ export function TeamView() {
               </tbody>
             </table>
             <div className="flex items-center gap-2 px-6 py-4">
-              <Clock size={11} className="text-white/20" />
+              <Calendar size={11} className="text-white/20" />
               <span className="text-[10px] text-white/25">
-                Shift &amp; phone-time data is tracked locally until the backend session events are connected.
+                Historical columns aggregate <span className="text-white/40">{range.label}</span> ({tzName}) — SHIFT and CURRENT PHONE are live.
+                Tracked locally until backend session events are connected.
               </span>
             </div>
           </div>
@@ -544,7 +777,7 @@ export function TeamView() {
       )}
 
       <AnimatePresence>
-        {openEmp && <EmployeeDrawer key={openEmp.id} emp={openEmp} onClose={() => setOpenId(null)} />}
+        {openEmp && <EmployeeDrawer key={openEmp.id} emp={openEmp} range={range} now={now} onClose={() => setOpenId(null)} />}
         {adding && <AddEmployeeModal key="add" onClose={() => setAdding(false)} />}
       </AnimatePresence>
     </div>

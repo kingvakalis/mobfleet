@@ -49,6 +49,8 @@ export type DeviceNodeData = {
   emphasized?: boolean
   /** Color identity when its group is part of a multi-group filter. */
   groupColor?: string | null
+  /** Anchored by the operator — immune to the force simulation. */
+  pinned?: boolean
 }
 
 const centeredHandle =
@@ -105,7 +107,7 @@ function MiniScreen({ device, job }: { device: Device; job?: Job | null }) {
  * full phone control (handled by the graph).
  */
 export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, positionAbsoluteX, positionAbsoluteY }: NodeProps) {
-  const { device, job, isNew, exiting, hovered, dimmed, selDimmed, emphasized, groupColor } =
+  const { device, job, isNew, exiting, hovered, dimmed, selDimmed, emphasized, groupColor, pinned } =
     data as unknown as DeviceNodeData
   const reduce = useReducedMotion()
   const color = STATUS[device.status].color
@@ -179,6 +181,18 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, p
           }}
         />
 
+        {/* pin badge — anchored phones show a small marker */}
+        {pinned && !exiting && (
+          <div
+            className="absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-line bg-black"
+            title="Pinned — holds its position"
+          >
+            <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" strokeWidth="3">
+              <path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+            </svg>
+          </div>
+        )}
+
         {/* status ring hugs the phone */}
         <div
           className={cn('absolute inset-0 rounded-[14px]', offline ? 'opacity-40' : 'animate-ring-pulse')}
@@ -249,7 +263,7 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, p
             exit={{ opacity: 0, scale: 0.96, y: 2 }}
             transition={{ duration: 0.2, ease: EXPO_OUT }}
           >
-            <TelemetryCard device={device} job={job} noMatch={dimmed} />
+            <TelemetryCard device={device} job={job} noMatch={dimmed} pinned={pinned} />
           </motion.div>
         )}
       </AnimatePresence>

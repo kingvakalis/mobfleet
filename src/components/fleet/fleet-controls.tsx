@@ -319,6 +319,14 @@ export function FleetControls({ filters, setFilters, locked, setLocked, onResetP
         </button>
         <button
           type="button"
+          title="Unpin all phones (everything rejoins the simulation)"
+          onClick={() => graphBus.unpinAll?.()}
+          className="mono flex h-7 items-center rounded-lg px-2 text-[10px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80"
+        >
+          Unpin all
+        </button>
+        <button
+          type="button"
           title="Reset all phone positions (asks for confirmation)"
           onClick={onResetPositions}
           className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80"

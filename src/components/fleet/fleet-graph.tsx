@@ -22,6 +22,7 @@ import {
   hasWarped, positionFor, savePosition,
   orchestratorPos, saveOrchestratorPos,
   savedViewport, saveViewport,
+  pinnedIds, setPinnedId, clearPinned,
 } from '@/lib/layout/constellation'
 import { FleetForceSim } from '@/lib/layout/force-sim'
 import { matchesDevice, groupColor } from '@/lib/fleet-filtering'
@@ -120,9 +121,35 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
 
   // Keep the sim's population in step with the fleet (new phones spawn at
   // their phyllotaxis/saved seed — existing ones are never re-seeded).
+  // Pin state version bumps re-sync node data badges.
+  const [pinEpoch, setPinEpoch] = useState(0)
   useEffect(() => {
-    sim.sync(snapshot.devices.map((d) => ({ id: d.id, ...positionFor(d.id) })))
+    const pins = new Set(pinnedIds())
+    sim.sync(snapshot.devices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
   }, [snapshot.devices, sim])
+
+  // Pin controls for the info card + filter bar.
+  useEffect(() => {
+    graphBus.togglePin = (id: string) => {
+      const next = !sim.isPinned(id)
+      sim.setPinned(id, next)
+      setPinnedId(id, next)
+      const n = sim.get(id)
+      if (n) savePosition(id, { x: n.x, y: n.y })
+      setPinEpoch((e) => e + 1)
+    }
+    graphBus.isPinned = (id: string) => sim.isPinned(id)
+    graphBus.unpinAll = () => {
+      sim.unpinAll()
+      clearPinned()
+      setPinEpoch((e) => e + 1)
+    }
+    return () => {
+      graphBus.togglePin = undefined
+      graphBus.isPinned = undefined
+      graphBus.unpinAll = undefined
+    }
+  }, [sim])
 
   // The living loop: integrate physics, then write positions into React Flow.
   // Node `data` identities are preserved so memoized cards skip re-rendering.
@@ -171,6 +198,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
         const selDimmed = anySelected && !selectedIds.includes(d.id)
         const gc = filters.groups.length > 1 ? groupColor(filters.groups, d.group) : null
         const hidden = filters.hideNonMatching && dimmed
+        const pinned = sim.isPinned(d.id)
         const existing = byId.get(d.id)
         if (existing) {
           next.push({
@@ -178,10 +206,10 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
             hidden,
             // Matching phones stack above dimmed ones; selection above all.
             zIndex: existing.selected ? 30 : emphasized ? 20 : (existing.data as DeviceNodeData).hovered ? 25 : 0,
-            data: { ...existing.data, device: d, job, exiting: false, dimmed, emphasized, selDimmed, groupColor: gc },
+            data: { ...existing.data, device: d, job, exiting: false, dimmed, emphasized, selDimmed, groupColor: gc, pinned },
           })
         } else {
-          next.push({ ...deviceNode(d, job, { isNew: !hasWarped(d.id), dimmed, emphasized, selDimmed, groupColor: gc }), hidden })
+          next.push({ ...deviceNode(d, job, { isNew: !hasWarped(d.id), dimmed, emphasized, selDimmed, groupColor: gc, pinned }), hidden })
         }
       }
 
@@ -197,7 +225,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
       }
       return next
     })
-  }, [snapshot.devices, jobsById, setNodes, matches, filtersOn, filters.groups, filters.hideNonMatching, selectedIds])
+  }, [snapshot.devices, jobsById, setNodes, matches, filtersOn, filters.groups, filters.hideNonMatching, selectedIds, sim, pinEpoch])
 
   const edges = useMemo<Edge[]>(
     () =>
@@ -300,36 +328,30 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     sim.pin(node.id, node.position.x + (half ?? NODE_W / 2), node.position.y + (half ?? NODE_H / 2))
   }, [sim])
 
-  // Core drags tow the constellation by the exact pointer delta (rigid, no
-  // spring rebound); breathing/repulsion keep it feeling alive on top.
-  const corePinLast = useRef<{ x: number; y: number } | null>(null)
-
   const onNodeDragStart = useCallback((_: unknown, node: Node) => {
     draggingIdRef.current = node.id
     pinFromNode(node)
-    if (node.type === 'orchestrator') {
-      corePinLast.current = { x: node.position.x, y: node.position.y }
-    }
   }, [pinFromNode])
 
+  // The pointer only ever pins the grabbed node — phones react to a core drag
+  // exclusively through their spring tethers (independent, elastic, no rigid
+  // group translation).
   const onNodeDrag = useCallback((_: unknown, node: Node) => {
-    if (node.type === 'orchestrator' && corePinLast.current) {
-      const dx = node.position.x - corePinLast.current.x
-      const dy = node.position.y - corePinLast.current.y
-      if (dx !== 0 || dy !== 0) {
-        sim.translatePhones(dx, dy)
-        corePinLast.current = { x: node.position.x, y: node.position.y }
-      }
-    }
     pinFromNode(node)
-  }, [pinFromNode, sim])
+  }, [pinFromNode])
 
-  // Release → the dropped spot becomes the node's new equilibrium; one batched
-  // save runs after the field settles (never per pointer-move frame).
+  // Release: the core stays anchored where dropped; a manually dragged phone
+  // becomes PINNED at its drop spot (manual placement is never destroyed by
+  // the simulation). One batched save after the field settles.
   const onNodeDragStop = useCallback((_: unknown, node: Node) => {
     draggingIdRef.current = null
-    corePinLast.current = null
-    sim.unpin(node.id)
+    if (node.type === 'orchestrator') {
+      sim.release('orchestrator', true)
+    } else {
+      sim.release(node.id, true)
+      setPinnedId(node.id, true)
+      setPinEpoch((e) => e + 1)
+    }
     if (settleSaveRef.current) clearTimeout(settleSaveRef.current)
     settleSaveRef.current = setTimeout(() => {
       saveOrchestratorPos({ x: sim.core.x, y: sim.core.y })

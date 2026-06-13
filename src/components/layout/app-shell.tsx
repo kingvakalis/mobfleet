@@ -3,13 +3,13 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings, Grid2x2,
-  PanelLeftClose, PanelLeftOpen, Menu,
+  PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
 import { VIEWS, type ViewId } from '@/lib/views'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
-import { useSettings, type SidebarMode } from '@/state/settings-store'
+import { useSettings } from '@/state/settings-store'
 import { useFleetStats } from '@/hooks/use-fleet'
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -120,144 +120,104 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const sidebarMode = useSettings((s) => s.sidebarMode)
+  const sidebarModeRaw = useSettings((s) => s.sidebarMode)
+  // Older persisted values ('autohide') coerce to the rail.
+  const sidebarMode = sidebarModeRaw === 'expanded' ? 'expanded' : 'collapsed'
   const update = useSettings((s) => s.update)
-  const [overlayOpen, setOverlayOpen] = useState(false)
+  // Rail hover-expand: the docked rail keeps the layout, a full-width overlay
+  // slides over it while the pointer (or keyboard focus) is on the sidebar.
+  const [hoverExpand, setHoverExpand] = useState(false)
+  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  const setMode = useCallback((m: SidebarMode) => {
+  const setMode = useCallback((m: 'expanded' | 'collapsed') => {
     update({ sidebarMode: m })
-    if (m !== 'autohide') setOverlayOpen(false)
+    setHoverExpand(false)
   }, [update])
 
-  // Ctrl/Cmd+B toggles expanded ↔ collapsed (or opens the auto-hidden overlay).
+  // Ctrl/Cmd+B toggles expanded ↔ rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault()
         const mode = useSettings.getState().sidebarMode
-        if (mode === 'autohide') setOverlayOpen((o) => !o)
-        else setMode(mode === 'expanded' ? 'collapsed' : 'expanded')
-      }
-      if (e.key === 'Escape' && useSettings.getState().sidebarMode === 'autohide') {
-        setOverlayOpen(false)
+        setMode(mode === 'expanded' ? 'collapsed' : 'expanded')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [setMode])
 
-  // Auto-hide: keep open while pointer or keyboard focus is inside.
-  const closeOverlaySoon = () => {
-    setTimeout(() => {
-      const el = overlayRef.current
-      if (el && (el.matches(':hover') || el.contains(document.activeElement))) return
-      setOverlayOpen(false)
-    }, 250)
-  }
-
   const collapsed = sidebarMode === 'collapsed'
-  const autohide = sidebarMode === 'autohide'
+
+  const openHover = () => {
+    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
+    setHoverExpand(true)
+  }
+  const closeHoverSoon = () => {
+    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
+    hoverCloseTimer.current = setTimeout(() => {
+      const el = overlayRef.current
+      if (el && el.contains(document.activeElement)) return
+      setHoverExpand(false)
+    }, 180)
+  }
 
   return (
     <div className="flex h-full">
-      {/* Docked sidebar (expanded / collapsed rail) */}
-      {!autohide && (
-        <motion.aside
-          initial={false}
-          animate={{ width: collapsed ? RAIL_W : EXPANDED_W }}
-          transition={{ duration: 0.2, ease: EXPO_OUT }}
-          className="relative flex shrink-0 flex-col overflow-hidden border-r border-line bg-black"
-        >
-          <SidebarContent collapsed={collapsed} />
-          {/* Mode controls */}
-          <div className={`flex border-t border-line ${collapsed ? 'flex-col items-center gap-1 py-2' : 'items-center justify-between px-3 py-2'}`}>
-            <button
-              type="button"
-              onClick={() => setMode(collapsed ? 'expanded' : 'collapsed')}
-              title={`${collapsed ? 'Expand' : 'Collapse'} sidebar (Ctrl+B)`}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="flex h-7 w-7 items-center justify-center rounded-control text-white/30 transition-colors hover:bg-hover hover:text-white/70"
-            >
-              {collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('autohide')}
-              title="Auto-hide sidebar"
-              aria-label="Auto-hide sidebar"
-              className="mono flex h-7 items-center justify-center rounded-control px-1.5 text-[8px] uppercase tracking-wider text-white/25 transition-colors hover:bg-hover hover:text-white/60"
-            >
-              {collapsed ? <Menu size={12} /> : 'Auto-hide'}
-            </button>
-          </div>
-        </motion.aside>
-      )}
-
-      {/* Auto-hide: edge trigger + floating menu button + overlay drawer */}
-      {autohide && (
-        <>
-          <div
-            className="fixed left-0 top-0 z-40 h-full w-1.5"
-            onPointerEnter={() => setOverlayOpen(true)}
-            aria-hidden
-          />
+      {/* Docked sidebar — full width or icon rail */}
+      <motion.aside
+        initial={false}
+        animate={{ width: collapsed ? RAIL_W : EXPANDED_W }}
+        transition={{ duration: 0.2, ease: EXPO_OUT }}
+        className="relative flex shrink-0 flex-col overflow-hidden border-r border-line bg-black"
+        onPointerEnter={collapsed ? openHover : undefined}
+      >
+        <SidebarContent collapsed={collapsed} />
+        {/* Mode toggle */}
+        <div className={`flex border-t border-line ${collapsed ? 'justify-center py-2' : 'items-center px-3 py-2'}`}>
           <button
             type="button"
-            onClick={() => setOverlayOpen(true)}
-            title="Open menu (Ctrl+B)"
-            aria-label="Open navigation menu"
-            className="fixed left-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-control border border-line bg-black/70 text-white/50 backdrop-blur-sm transition-colors hover:text-white"
+            onClick={() => setMode(collapsed ? 'expanded' : 'collapsed')}
+            title={`${collapsed ? 'Expand' : 'Collapse'} sidebar (Ctrl+B)`}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="flex h-7 w-7 items-center justify-center rounded-control text-white/30 transition-colors hover:bg-hover hover:text-white/70"
           >
-            <Menu size={14} />
+            {collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
           </button>
-          <AnimatePresence>
-            {overlayOpen && (
-              <>
-                <motion.div
-                  className="fixed inset-0 z-40 bg-black/40"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  onClick={() => setOverlayOpen(false)}
-                />
-                <motion.aside
-                  ref={overlayRef}
-                  initial={{ x: -EXPANDED_W }}
-                  animate={{ x: 0 }}
-                  exit={{ x: -EXPANDED_W }}
-                  transition={{ duration: 0.2, ease: EXPO_OUT }}
-                  className="fixed left-0 top-0 z-50 flex h-full flex-col border-r border-line bg-black shadow-2xl"
-                  style={{ width: EXPANDED_W }}
-                  onPointerLeave={closeOverlaySoon}
-                  onBlur={closeOverlaySoon}
-                >
-                  <SidebarContent collapsed={false} onNavigate={() => setOverlayOpen(false)} />
-                  <div className="flex items-center justify-between border-t border-line px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setMode('expanded')}
-                      title="Pin sidebar open"
-                      aria-label="Pin sidebar open"
-                      className="mono flex h-7 items-center rounded-control px-1.5 text-[8px] uppercase tracking-wider text-white/25 transition-colors hover:bg-hover hover:text-white/60"
-                    >
-                      Pin expanded
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMode('collapsed')}
-                      title="Pin as icon rail"
-                      aria-label="Pin sidebar as icon rail"
-                      className="mono flex h-7 items-center rounded-control px-1.5 text-[8px] uppercase tracking-wider text-white/25 transition-colors hover:bg-hover hover:text-white/60"
-                    >
-                      Pin rail
-                    </button>
-                  </div>
-                </motion.aside>
-              </>
-            )}
-          </AnimatePresence>
-        </>
-      )}
+        </div>
+      </motion.aside>
+
+      {/* Rail hover overlay — fully expanded sidebar above the content */}
+      <AnimatePresence>
+        {collapsed && hoverExpand && (
+          <motion.div
+            ref={overlayRef}
+            initial={{ x: -(EXPANDED_W - RAIL_W), opacity: 0.6 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -(EXPANDED_W - RAIL_W), opacity: 0 }}
+            transition={{ duration: 0.18, ease: EXPO_OUT }}
+            className="fixed left-0 top-0 z-50 flex h-full flex-col border-r border-line bg-black shadow-[24px_0_60px_-30px_rgba(0,0,0,0.8)]"
+            style={{ width: EXPANDED_W }}
+            onPointerEnter={openHover}
+            onPointerLeave={closeHoverSoon}
+            onBlur={closeHoverSoon}
+          >
+            <SidebarContent collapsed={false} onNavigate={() => setHoverExpand(false)} />
+            <div className="flex items-center px-3 py-2 border-t border-line">
+              <button
+                type="button"
+                onClick={() => setMode('expanded')}
+                title="Pin sidebar open (Ctrl+B)"
+                aria-label="Pin sidebar open"
+                className="flex h-7 w-7 items-center justify-center rounded-control text-white/30 transition-colors hover:bg-hover hover:text-white/70"
+              >
+                <PanelLeftOpen size={14} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="relative flex-1 overflow-hidden">
         <div className="app-bg-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />

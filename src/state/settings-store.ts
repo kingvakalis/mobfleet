@@ -15,7 +15,8 @@ export type MotionPref = 'full' | 'balanced' | 'reduced' | 'off'
 export type SurfaceStyle = 'flat' | 'soft' | 'glass'
 export type BackgroundIntensity = 'off' | 'minimal' | 'balanced' | 'atmospheric'
 export type Density = 'comfortable' | 'compact' | 'dense'
-export type SidebarMode = 'expanded' | 'collapsed' | 'autohide'
+/** 'collapsed' = icon rail that fully expands on hover and shrinks back. */
+export type SidebarMode = 'expanded' | 'collapsed'
 
 export interface WorkspaceSettings {
   workspaceName: string

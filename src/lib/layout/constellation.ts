@@ -19,6 +19,8 @@ export interface FleetLayout {
   viewport: Viewport | null
   orchestrator: Pos | null
   devices: Record<string, Pos>
+  /** Operator-pinned phones — anchored, immune to the force simulation. */
+  pinned: string[]
   locked: boolean
   updatedAt: string
 }
@@ -36,7 +38,7 @@ const positions = new Map<string, Pos>()
 let count = 0
 
 function emptyLayout(): FleetLayout {
-  return { version: VERSION, viewport: null, orchestrator: null, devices: {}, locked: false, updatedAt: '' }
+  return { version: VERSION, viewport: null, orchestrator: null, devices: {}, pinned: [], locked: false, updatedAt: '' }
 }
 
 function load(): FleetLayout {
@@ -44,7 +46,9 @@ function load(): FleetLayout {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as FleetLayout
-      if (parsed.version === VERSION && parsed.devices) return parsed
+      if (parsed.version === VERSION && parsed.devices) {
+        return { ...parsed, pinned: parsed.pinned ?? [] }
+      }
     }
     // Migrate v1 (plain id→pos map) once.
     const legacy = localStorage.getItem(LEGACY_KEY)
@@ -115,6 +119,22 @@ export function savedViewport(): Viewport | null {
 
 export function saveViewport(vp: Viewport) {
   layout.viewport = vp
+  persist()
+}
+
+export function pinnedIds(): string[] {
+  return layout.pinned
+}
+
+export function setPinnedId(id: string, pinned: boolean) {
+  const has = layout.pinned.includes(id)
+  if (pinned && !has) layout.pinned = [...layout.pinned, id]
+  if (!pinned && has) layout.pinned = layout.pinned.filter((x) => x !== id)
+  persist()
+}
+
+export function clearPinned() {
+  layout.pinned = []
   persist()
 }
 

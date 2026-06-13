@@ -127,23 +127,35 @@ const dayISO = (offset: number) => {
   return d.toISOString().slice(0, 10)
 }
 
+/** Deterministic ~5-shifts-a-week history covering the last 30 days, so every
+ *  Team date range (today → 30d) has honest data to aggregate. */
 function seedHistory(base: number, phones: string[]): ShiftRecord[] {
-  return [1, 2, 3].map((dOff) => {
-    const start = Date.now() - dOff * 24 * HOUR - 8 * HOUR
-    return {
+  const records: ShiftRecord[] = []
+  const dayStart = (off: number) => {
+    const d = new Date(Date.now() - off * 24 * HOUR)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+  for (let dOff = 1; dOff <= 30; dOff++) {
+    if ((dOff + base) % 7 >= 5) continue // weekends off (staggered per employee)
+    const start = dayStart(dOff) + (8 + ((base + dOff) % 3)) * HOUR
+    const durH = 6 + ((base * 3 + dOff) % 4) // 6–9h
+    const sessions = 1 + ((base + dOff) % 3)
+    records.push({
       date: dayISO(dOff),
       start,
-      end: start + (7 + (base % 3)) * HOUR,
-      breakMinutes: 25 + (base % 20),
-      sessions: phones.slice(0, 2 + (base % 2)).map((p, i) => ({
-        phoneName: p,
+      end: start + durH * HOUR,
+      breakMinutes: 20 + ((base * 5 + dOff * 3) % 26),
+      sessions: Array.from({ length: sessions }, (_, i) => ({
+        phoneName: phones[(base + dOff + i) % phones.length],
         start: start + i * 2 * HOUR,
         end: start + (i * 2 + 1.6) * HOUR,
-        jobsPerformed: 3 + ((base + i) % 5),
-        actions: 40 + ((base * 7 + i * 13) % 90),
+        jobsPerformed: 2 + ((base + dOff + i) % 6),
+        actions: 30 + ((base * 7 + dOff * 11 + i * 13) % 110),
       })),
-    }
-  })
+    })
+  }
+  return records
 }
 
 function seedEmployees(): Employee[] {
@@ -298,7 +310,8 @@ export const useTeam = create<TeamState>()(
           roles: s.roles.map((r) => (r.id === roleId && !r.locked ? { ...r, permissions } : r)),
         })),
     }),
-    { name: 'mobfleet-team-v1' },
+    // v2: 30-day seeded shift history for date-range aggregation.
+    { name: 'mobfleet-team-v2' },
   ),
 )
 
