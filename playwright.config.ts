@@ -15,7 +15,9 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   projects: [
-    { name: 'engine', testMatch: /authz-engine\.spec\.ts/ },
+    // Pure-function unit tests (no browser, no server): the access engine and
+    // the fleet physics solver.
+    { name: 'engine', testMatch: /(authz-engine|fleet-physics)\.spec\.ts/ },
     {
       name: 'e2e',
       testMatch: /authz\.spec\.ts/,

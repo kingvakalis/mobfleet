@@ -11,14 +11,13 @@ import {
   type OnSelectionChangeParams,
   type Viewport,
 } from '@xyflow/react'
-import { AnimatePresence, useReducedMotion } from 'framer-motion'
+import { AnimatePresence } from 'framer-motion'
 import '@xyflow/react/dist/style.css'
 import { useFleet } from '@/hooks/use-fleet'
 import { useScopedDevices } from '@/lib/authorization/use-access'
 import { client, safe } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
 import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
-import { useSettings, motionDisabled } from '@/state/settings-store'
 import {
   hasWarped, positionFor, savePosition,
   orchestratorPos, saveOrchestratorPos,
@@ -33,6 +32,7 @@ import { CORE_SIZE, OrchestratorNode } from './orchestrator-node'
 import { PulseEdge } from './pulse-edge'
 import { GraphControls } from './graph-controls'
 import { BulkActionBar } from './bulk-action-bar'
+import { PhysicsDebugLayer } from './physics-debug-layer'
 
 const nodeTypes = { device: DeviceNode, orchestrator: OrchestratorNode }
 const edgeTypes = { pulse: PulseEdge }
@@ -116,57 +116,39 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   // ── Force simulation — owns every node position between user drags ────────
   const [sim] = useState(() => new FleetForceSim(orchestratorPos()))
   const draggingIdRef = useRef<string | null>(null)
-  const settleSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Loop lifecycle: the sim ticks only while there's energy in the field, then
+  // stops (no idle drift, no wasted renders). `reheat` restarts it.
+  const runningRef = useRef(false)
+  const rafRef = useRef(0)
+  const lastRef = useRef(0)
+  // Set when the operator changes the layout (drag/pin), so we persist the
+  // settled formation — but never persist on the initial post-load settle.
+  const dirtyRef = useRef(false)
+  // Dev-only physics debug overlay (toggle with "g" while the graph is focused).
+  const [debug, setDebug] = useState(false)
 
-  const reducedOs = useReducedMotion() ?? false
-  const motionPref = useSettings((s) => s.motion)
-  const reduceMotionPref = useSettings((s) => s.reduceMotion)
-  const breathe = !reducedOs && !motionDisabled({ motion: motionPref, reduceMotion: reduceMotionPref })
-
-  // Keep the sim's population in step with the fleet (new phones spawn at
-  // their phyllotaxis/saved seed — existing ones are never re-seeded).
-  // Pin state version bumps re-sync node data badges.
-  const [pinEpoch, setPinEpoch] = useState(0)
-  useEffect(() => {
-    const pins = new Set(pinnedIds())
-    sim.sync(scopedDevices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
-  }, [scopedDevices, sim])
-
-  // Pin controls for the info card + filter bar.
-  useEffect(() => {
-    graphBus.togglePin = (id: string) => {
-      const next = !sim.isPinned(id)
-      sim.setPinned(id, next)
-      setPinnedId(id, next)
-      const n = sim.get(id)
-      if (n) savePosition(id, { x: n.x, y: n.y })
-      setPinEpoch((e) => e + 1)
-    }
-    graphBus.isPinned = (id: string) => sim.isPinned(id)
-    graphBus.unpinAll = () => {
-      sim.unpinAll()
-      clearPinned()
-      setPinEpoch((e) => e + 1)
-    }
-    return () => {
-      graphBus.togglePin = undefined
-      graphBus.isPinned = undefined
-      graphBus.unpinAll = undefined
-    }
+  // Persist the SETTLED formation (orbit positions, core, pins) — never a
+  // transient far-drag position, since by settle the phone has flowed back.
+  const saveLayout = useCallback(() => {
+    saveOrchestratorPos({ x: sim.core.x, y: sim.core.y })
+    for (const n of sim.all()) savePosition(n.id, { x: n.x, y: n.y })
   }, [sim])
 
-  // The living loop: integrate physics, then write positions into React Flow.
-  // Node `data` identities are preserved so memoized cards skip re-rendering.
-  useEffect(() => {
-    let raf = 0
-    let last = performance.now()
-    const loop = (now: number) => {
-      sim.tick((now - last) / 1000, now / 1000, breathe)
-      last = now
+  // The living loop: integrate physics → write positions into React Flow. Runs
+  // only while the field has energy; stops itself once settled (and saves if the
+  // operator changed anything), so there is zero idle cost or drift.
+  const startLoop = useCallback(() => {
+    if (runningRef.current) return
+    runningRef.current = true
+    lastRef.current = performance.now()
+    const frame = (now: number) => {
+      if (!runningRef.current) return
+      sim.tick((now - lastRef.current) / 1000)
+      lastRef.current = now
       setNodes((ns) => {
         let changed = false
         const next = ns.map((n) => {
-          if (n.id === draggingIdRef.current) return n
+          if (n.id === draggingIdRef.current) return n // pointer owns this one
           const s = sim.get(n.id)
           if (!s) return n
           const half = n.type === 'orchestrator' ? CORE_SIZE / 2 : undefined
@@ -178,11 +160,90 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
         })
         return changed ? next : ns
       })
-      raf = requestAnimationFrame(loop)
+      if (sim.isSettled()) {
+        runningRef.current = false
+        if (dirtyRef.current) { dirtyRef.current = false; saveLayout() }
+        return
+      }
+      rafRef.current = requestAnimationFrame(frame)
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [breathe, setNodes, sim])
+    rafRef.current = requestAnimationFrame(frame)
+  }, [sim, setNodes, saveLayout])
+
+  // Re-energise the field and make sure the loop is running.
+  const reheat = useCallback(() => {
+    sim.reheat()
+    startLoop()
+  }, [sim, startLoop])
+
+  // Keep the sim's population in step with the fleet (new phones spawn at their
+  // phyllotaxis/saved seed). A membership change re-energises the field so the
+  // constellation reflows; filters never touch the sim (hidden phones stay in
+  // the simulation to preserve the layout — see render/edges).
+  // Pin state version bumps re-sync node data badges.
+  const [pinEpoch, setPinEpoch] = useState(0)
+  useEffect(() => {
+    const pins = new Set(pinnedIds())
+    const changed = sim.sync(scopedDevices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
+    if (changed) reheat()
+  }, [scopedDevices, sim, reheat])
+
+  // Pin controls for the info card + filter bar.
+  useEffect(() => {
+    graphBus.togglePin = (id: string) => {
+      const next = !sim.isPinned(id)
+      sim.setPinned(id, next)
+      setPinnedId(id, next)
+      const n = sim.get(id)
+      if (n) savePosition(id, { x: n.x, y: n.y })
+      setPinEpoch((e) => e + 1)
+      dirtyRef.current = true
+      reheat()
+    }
+    graphBus.isPinned = (id: string) => sim.isPinned(id)
+    graphBus.unpinAll = () => {
+      sim.unpinAll()
+      clearPinned()
+      setPinEpoch((e) => e + 1)
+      dirtyRef.current = true
+      reheat()
+    }
+    return () => {
+      graphBus.togglePin = undefined
+      graphBus.isPinned = undefined
+      graphBus.unpinAll = undefined
+    }
+  }, [sim, reheat])
+
+  // Start the loop on mount; pause it when the tab is hidden (no off-screen
+  // ticking), resume on return. The loop self-stops once settled.
+  useEffect(() => {
+    startLoop()
+    const onVis = () => {
+      if (document.hidden) {
+        runningRef.current = false
+        cancelAnimationFrame(rafRef.current)
+      } else {
+        reheat()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      runningRef.current = false
+      cancelAnimationFrame(rafRef.current)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [startLoop, reheat])
+
+  // Dev-only: toggle the physics debug overlay.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey) setDebug((d) => !d)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Sync the live snapshot + filters + selection into managed nodes: update
   // data in place, warp in new devices, dissolve removed.
@@ -323,45 +384,42 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     return () => window.removeEventListener('keydown', onKey)
   }, [clearSelection, selectedIds, openDrawer])
 
-  // ── Drag = pin the node in the simulation ──────────────────────────────────
-  // The pointer pins the grabbed node; springs stretch elastically, neighbors
-  // (and the heavy core) get pulled, then everything settles with damping.
-  // Dragging the core therefore tows the whole constellation physically.
-  const pinFromNode = useCallback((node: Node) => {
+  // ── Drag = a TEMPORARY pointer anchor (never a pin) ────────────────────────
+  // The pointer holds only the grabbed node each frame; everything else reacts
+  // through the force field:
+  //   • core drag  → springs re-aim, phones flow to surround the new centre;
+  //   • phone drag → its spring stretches, pulling the (free, heavy) core a
+  //                  little, which re-aims every other phone (back-reaction).
+  // On release the node rejoins the field — a phone flows back to its orbit; it
+  // is NOT pinned. Selection and the sidebar never touch any of this. Only the
+  // explicit Pin action (graphBus.togglePin) freezes a phone.
+  const centerOf = useCallback((node: Node) => {
     const half = node.type === 'orchestrator' ? CORE_SIZE / 2 : undefined
-    sim.pin(node.id, node.position.x + (half ?? NODE_W / 2), node.position.y + (half ?? NODE_H / 2))
-  }, [sim])
+    return { x: node.position.x + (half ?? NODE_W / 2), y: node.position.y + (half ?? NODE_H / 2) }
+  }, [])
 
   const onNodeDragStart = useCallback((_: unknown, node: Node) => {
     draggingIdRef.current = node.id
-    pinFromNode(node)
-  }, [pinFromNode])
+    const c = centerOf(node)
+    sim.beginDrag(node.id, c.x, c.y)
+    dirtyRef.current = true
+    reheat()
+  }, [sim, centerOf, reheat])
 
-  // The pointer only ever pins the grabbed node — phones react to a core drag
-  // exclusively through their spring tethers (independent, elastic, no rigid
-  // group translation).
   const onNodeDrag = useCallback((_: unknown, node: Node) => {
-    pinFromNode(node)
-  }, [pinFromNode])
+    const c = centerOf(node)
+    sim.drag(node.id, c.x, c.y)
+  }, [sim, centerOf])
 
-  // Release: the core stays anchored where dropped; a manually dragged phone
-  // becomes PINNED at its drop spot (manual placement is never destroyed by
-  // the simulation). One batched save after the field settles.
+  // Release: clear the temporary anchor. The core records its drop spot as its
+  // new home (it stays there); a phone returns to the field and settles back
+  // into its orbit. No fx/fy is left set, so nothing is silently pinned.
   const onNodeDragStop = useCallback((_: unknown, node: Node) => {
     draggingIdRef.current = null
-    if (node.type === 'orchestrator') {
-      sim.release('orchestrator', true)
-    } else {
-      sim.release(node.id, true)
-      setPinnedId(node.id, true)
-      setPinEpoch((e) => e + 1)
-    }
-    if (settleSaveRef.current) clearTimeout(settleSaveRef.current)
-    settleSaveRef.current = setTimeout(() => {
-      saveOrchestratorPos({ x: sim.core.x, y: sim.core.y })
-      for (const n of sim.all()) savePosition(n.id, { x: n.x, y: n.y })
-    }, 1500)
-  }, [sim])
+    sim.endDrag(node.id)
+    dirtyRef.current = true
+    reheat()
+  }, [sim, reheat])
 
   const onMoveEnd = useCallback((_: unknown, viewport: Viewport) => {
     saveViewport(viewport)
@@ -417,6 +475,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     >
       <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#1b2230" />
       <GraphControls />
+      {import.meta.env.DEV && debug && <PhysicsDebugLayer sim={sim} />}
       <AnimatePresence>
         {selectedIds.length > 1 && (
           <BulkActionBar
