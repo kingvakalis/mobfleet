@@ -25,9 +25,14 @@ export interface FleetLayout {
   updatedAt: string
 }
 
-const STORAGE_KEY = 'mobfleet-fleet-layout-v2'
-const LEGACY_KEY = 'mobfleet-fleet-layout-v1'
-const VERSION = 2
+// v3: reset persisted layout. Earlier saved layouts (lock state, pinned phones,
+// dragged positions) survive code changes in localStorage; bumping the key
+// discards stale state so the 2D constellation returns to its default
+// arrangement and dragging behaves as designed (a stuck `locked:true` or stale
+// pins would otherwise look like a code regression).
+const STORAGE_KEY = 'mobfleet-fleet-layout-v3'
+const LEGACY_KEYS = ['mobfleet-fleet-layout-v2', 'mobfleet-fleet-layout-v1']
+const VERSION = 3
 
 // Phyllotaxis spread — even density, organic, deterministic by insertion order.
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
@@ -50,14 +55,9 @@ function load(): FleetLayout {
         return { ...parsed, pinned: parsed.pinned ?? [] }
       }
     }
-    // Migrate v1 (plain id→pos map) once.
-    const legacy = localStorage.getItem(LEGACY_KEY)
-    if (legacy) {
-      const devices = JSON.parse(legacy) as Record<string, Pos>
-      const migrated = { ...emptyLayout(), devices }
-      localStorage.removeItem(LEGACY_KEY)
-      return migrated
-    }
+    // No current-version layout: start fresh and clean up superseded keys so a
+    // stale lock/pins/positions from an earlier build can't drive behavior.
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k)
   } catch {
     /* corrupted layout — start fresh */
   }
@@ -147,10 +147,10 @@ export function setLayoutLocked(locked: boolean) {
   persist()
 }
 
-/** Drop all custom positions — layout returns to auto-arrange. Destructive;
- *  callers must confirm with the operator first. */
+/** Drop all custom positions, pins, and the lock — layout returns to the
+ *  default auto-arrange. Destructive; callers must confirm with the operator. */
 export function resetLayout() {
-  layout = { ...emptyLayout(), locked: layout.locked }
+  layout = emptyLayout()
   positions.clear()
   count = 0
   persist()
