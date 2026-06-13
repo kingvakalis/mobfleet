@@ -15,8 +15,8 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react'
-import { useFleet } from '@/hooks/use-fleet'
-import { client } from '@/lib/provider'
+import { useScopedDevices } from '@/lib/authorization/use-access'
+import { client, safe } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
 import { REGIONS, regionLabel } from '@/data/regions'
 import { STATUS } from '@/lib/status'
@@ -38,7 +38,8 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
 }
 
 function Palette({ onClose }: { onClose: () => void }) {
-  const snapshot = useFleet()
+  // SECURITY: the palette's device list + actions operate on scoped devices only.
+  const devices = useScopedDevices()
   const setView = useUIStore((s) => s.setView)
   const view = useUIStore((s) => s.view)
   const openScale = useUIStore((s) => s.openScale)
@@ -61,9 +62,9 @@ function Palette({ onClose }: { onClose: () => void }) {
 
   const retireIdle = () => {
     const victim =
-      snapshot.devices.find((d) => d.status === 'offline') ??
-      snapshot.devices.find((d) => d.status === 'online')
-    if (victim) void client.delete(victim.id)
+      devices.find((d) => d.status === 'offline') ??
+      devices.find((d) => d.status === 'online')
+    if (victim) safe(client.delete(victim.id), 'Could not retire device')
   }
 
   return (
@@ -77,6 +78,9 @@ function Palette({ onClose }: { onClose: () => void }) {
         onClick={onClose}
       />
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         className="relative w-[560px] max-w-full overflow-hidden rounded-card border border-line bg-panel shadow-[0_28px_70px_-12px_rgba(0,0,0,0.9)]"
         initial={{ opacity: 0, scale: 0.97, y: -8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -122,7 +126,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                 icon={Plus}
                 label="Provision 4 devices"
                 hint={regionLabel(REGIONS[0].id)}
-                onSelect={() => run(() => void client.createDevices(4, { region: REGIONS[0].id }))}
+                onSelect={() => run(() => safe(client.createDevices(4, { region: REGIONS[0].id }), 'Could not provision devices'))}
               />
               <Item icon={Minus} label="Retire an idle device" onSelect={() => run(retireIdle)} />
             </Command.Group>
@@ -141,7 +145,7 @@ function Palette({ onClose }: { onClose: () => void }) {
             </Command.Group>
 
             <Command.Group heading="Devices">
-              {snapshot.devices.map((d) => (
+              {devices.map((d) => (
                 <Command.Item
                   key={d.id}
                   value={`${d.name} ${d.id} ${d.group} ${regionLabel(d.region)} ${d.status}`}

@@ -29,7 +29,6 @@ import type { DeviceProvider } from './device-provider'
  * mirrors device/job changes exactly like the simulator.
  */
 export class CorelliumAdapter implements DeviceProvider {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   constructor(private store: FleetStore) {}
 
   private nyi(): never {

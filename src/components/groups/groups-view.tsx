@@ -319,7 +319,7 @@ export function GroupsView() {
             title="New Group"
             confirmLabel="Create Group"
             askName
-            onConfirm={(name, ids) => { client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: `group created · ${ids.length} phones`, result: 'success' }) }}
+            onConfirm={async (name, ids) => { await client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: `group created · ${ids.length} phones`, result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}
@@ -329,7 +329,7 @@ export function GroupsView() {
             title={`Assign Phones — ${modal.group}`}
             confirmLabel="Assign"
             preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={(_, ids) => { client.assignGroup(ids, modal.group); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${modal.group}`, detail: `${ids.length} phones assigned`, result: 'success' }) }}
+            onConfirm={async (_, ids) => { await client.assignGroup(ids, modal.group); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${modal.group}`, detail: `${ids.length} phones assigned`, result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}
@@ -341,7 +341,7 @@ export function GroupsView() {
             askName
             initialName={modal.group}
             preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={(name, ids) => { client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: 'group edited', result: 'success' }) }}
+            onConfirm={async (name, ids) => { await client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: 'group edited', result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}

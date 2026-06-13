@@ -1,6 +1,6 @@
 import { RotateCw, Copy } from 'lucide-react'
 import { useMemo } from 'react'
-import { client } from '@/lib/provider'
+import { client, safe } from '@/lib/provider'
 import { useFleet } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
 import { useActingEmployee } from '@/lib/authorization/use-access'
@@ -27,7 +27,7 @@ function duration(job: Job): string {
 
 function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th className={`label px-4 py-2.5 font-normal text-fg-muted ${className ?? ''}`}>{children}</th>
+    <th scope="col" className={`label px-4 py-2.5 font-normal text-fg-muted ${className ?? ''}`}>{children}</th>
   )
 }
 
@@ -91,7 +91,7 @@ function JobRow({ job, deviceName }: { job: Job; deviceName: string | null }) {
         {job.status === 'failed' && canRetry && (
           <button
             type="button"
-            onClick={() => { void client.retryJob(job.id); logAudit({ actor: employee.name, action: 'job.retried', target: TASK_LABEL[job.type] ?? job.type, detail: job.id, result: 'success' }) }}
+            onClick={() => { safe(client.retryJob(job.id), 'Could not retry job'); logAudit({ actor: employee.name, action: 'job.retried', target: TASK_LABEL[job.type] ?? job.type, detail: job.id, result: 'success' }) }}
             className="label inline-flex items-center gap-1.5 rounded-control border border-line px-2 py-1 text-fg-secondary transition-colors hover:bg-elevated hover:text-fg"
           >
             <RotateCw size={11} /> Retry

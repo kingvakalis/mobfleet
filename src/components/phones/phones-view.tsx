@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { Search, Upload, Plus, Check, Briefcase, RotateCcw, UserPlus, Download, X, ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useFleet } from '@/hooks/use-fleet'
-import { client } from '@/lib/provider'
+import { client, safe } from '@/lib/provider'
 import { STATUS, ALL_STATUSES, type DeviceStatus } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
@@ -198,7 +198,7 @@ export function PhonesView() {
     if (!canReboot) return
     const names = devices.filter(d => selected.has(d.id)).map(d => d.name)
     selected.forEach(id => {
-      void client.stop(id).then(() => client.start(id))
+      safe(client.stop(id).then(() => client.start(id)), 'Could not reboot device')
     })
     logAudit({ actor: employee.name, action: 'phone.rebooted', target: `${names.length} devices`, detail: names.join(', '), result: 'success' })
     setSelected(new Set())
@@ -206,14 +206,14 @@ export function PhonesView() {
 
   const runJobSelected = () => {
     if (!canRunJob) return
-    selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' }))
+    selected.forEach(id => safe(client.runTask(id, { type: 'upload', label: 'Manual upload' }), 'Could not run job'))
     logAudit({ actor: employee.name, action: 'automation.run', target: `${selected.size} devices`, detail: 'manual upload job', result: 'success' })
     setSelected(new Set())
   }
 
   const assignGroupSelected = (g: string) => {
     if (!canAssignGroup) return
-    void client.assignGroup([...selected], g)
+    safe(client.assignGroup([...selected], g), 'Could not reassign group')
     logAudit({ actor: employee.name, action: 'phone.command', target: `${selected.size} devices`, detail: `assign group → ${g}`, result: 'success' })
     setGroupMenuOpen(false)
     setSelected(new Set())

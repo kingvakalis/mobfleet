@@ -84,7 +84,10 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
               aria-current={isActive ? 'page' : undefined}
               className={`group relative flex w-full items-center gap-3 py-2.5 text-left text-xs transition-all duration-150 ${collapsed ? 'justify-center px-0' : 'px-4'}`}
               style={{
-                color: isActive ? '#ffffff' : 'rgba(255,255,255,0.35)',
+                // Inactive labels at 0.55 (not 0.35) so the 10px nav text clears
+                // WCAG AA 4.5:1 on the dark rail, while staying clearly dimmer
+                // than the bright-white active item.
+                color: isActive ? '#ffffff' : 'rgba(255,255,255,0.55)',
                 borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
                 background: isActive ? 'var(--accent-soft)' : 'transparent',
               }}

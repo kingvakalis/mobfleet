@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useTeam, toMember, type Employee } from '@/services/team'
 import { useSession } from '@/state/session-store'
 import { useFleet } from '@/hooks/use-fleet'
+import { computeStats, type FleetStats } from '@/lib/provider/stats'
 import type { Device } from '@/lib/provider/types'
 import {
   can, resolvePermission, effectivePermissions,
@@ -72,6 +73,18 @@ export function useScopedDevices(): Device[] {
   const member = useActingMember()
   const { devices } = useFleet()
   return useMemo(() => scopePhones(member, devices), [member, devices])
+}
+
+/** Header/HUD counters computed over the acting member's SCOPED devices, so a
+ *  restricted operator's fleet totals match the devices they can actually see
+ *  (queue is a fleet-level job metric and stays global). */
+export function useScopedFleetStats(): FleetStats {
+  const member = useActingMember()
+  const snapshot = useFleet()
+  return useMemo(
+    () => computeStats({ ...snapshot, devices: scopePhones(member, snapshot.devices) }),
+    [member, snapshot],
+  )
 }
 
 export { phoneInScope, groupInScope, canActOnPhone, scopePhones }

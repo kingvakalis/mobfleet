@@ -20,7 +20,8 @@ import {
   ChevronDown, ChevronUp,
 } from 'lucide-react'
 import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
-import { useFleet, useFleetStats } from '@/hooks/use-fleet'
+import { useFleet } from '@/hooks/use-fleet'
+import { useScopedDevices, useScopedFleetStats } from '@/lib/authorization/use-access'
 import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
 import { matchesDevice } from '@/lib/fleet-filtering'
@@ -859,11 +860,13 @@ function Scene({
   filters?: FleetFilters
 }) {
   const snapshot = useFleet()
-  const stats    = useFleetStats()
+  // SECURITY: scope the constellation to the acting member's devices.
+  const scopedDevices = useScopedDevices()
+  const stats    = useScopedFleetStats()
   const filtersOn = filters ? fleetFiltersActive(filters) : false
 
   const nodes = useMemo<NodeData[]>(() => {
-    const devList = snapshot?.devices ?? []
+    const devList = scopedDevices
     const jobById = new Map((snapshot?.jobs ?? []).map(j => [j.id, j]))
     return devList
       .map((d, i) => {
@@ -887,7 +890,7 @@ function Scene({
       })
       // "Hide non-matching" removes them from the scene entirely.
       .filter(n => !(filters?.hideNonMatching && n.dimmed))
-  }, [snapshot.devices, snapshot.jobs, filters, filtersOn])
+  }, [scopedDevices, snapshot.jobs, filters, filtersOn])
 
   // Focus matches: frame all matching nodes with the camera (positions untouched).
   const [focusReq, setFocusReq] = useState<{ center: [number, number, number]; radius: number; key: number } | null>(null)
@@ -1034,14 +1037,14 @@ function FleetHealthBar({ collapsed, onToggle }: {
   collapsed: boolean
   onToggle: () => void
 }) {
-  const snapshot = useFleet()
-  const stats    = useFleetStats()
+  const devices = useScopedDevices()
+  const stats   = useScopedFleetStats()
 
   const counts = useMemo(() => {
     const c: Record<DeviceStatus, number> = { online: 0, busy: 0, warming: 0, offline: 0, error: 0 }
-    for (const d of snapshot?.devices ?? []) c[d.status as DeviceStatus] = (c[d.status as DeviceStatus] ?? 0) + 1
+    for (const d of devices) c[d.status as DeviceStatus] = (c[d.status as DeviceStatus] ?? 0) + 1
     return c
-  }, [snapshot])
+  }, [devices])
 
   const items = [
     { label: 'Total',   value: stats.total,    color: 'text-white/60' },
@@ -1061,6 +1064,8 @@ function FleetHealthBar({ collapsed, onToggle }: {
       >
         <button
           onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand fleet status' : 'Collapse fleet status'}
           className="w-full flex items-center justify-between gap-6 px-4 py-2"
         >
           <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-white/40">
@@ -1215,6 +1220,8 @@ function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
       {/* 3D Canvas */}
       <Suspense fallback={<Loader />}>
         <Canvas
+          role="img"
+          aria-label="3D fleet constellation — interactive device visualization. Use the Graph view for a keyboard-accessible list of devices."
           camera={{ position: INTRO_CAM, fov: 50 }}
           dpr={performanceMode === 'full' ? [1, 2] : [1, 1.25]}
           gl={{ antialias: false, alpha: false, powerPreference: 'high-performance' }}

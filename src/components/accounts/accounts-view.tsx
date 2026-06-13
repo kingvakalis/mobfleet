@@ -6,6 +6,7 @@ import {
   ShieldCheck, ShieldOff, Trash2, Pencil, Cpu, Tag, Lock,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
+import { useDialog } from '@/hooks/use-dialog'
 import { useFleet } from '@/hooks/use-fleet'
 import { useTeam } from '@/services/team'
 import { useToastStore } from '@/state/toast-store'
@@ -187,20 +188,31 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
 
 // ─── Add / Edit modal ────────────────────────────────────────────────────────
 
-function AccountModal({ initial, groups, owners, onClose }: {
+function AccountModal({ initial, groups, owners, canRevealPw, canRevealRecovery, onClose }: {
   initial: Account | null
   groups: string[]
   owners: string[]
+  /** Actor may see existing password plaintext when editing. */
+  canRevealPw: boolean
+  /** Actor may see existing email/recovery-phone plaintext when editing. */
+  canRevealRecovery: boolean
   onClose: () => void
 }) {
   const { add, update } = useAccounts()
   const addToast = useToastStore((s) => s.addToast)
   const { employee: actorEmp } = useActingEmployee()
-  const [form, setForm] = useState<AccountInput>(() => initial ?? {
-    handle: '', platform: 'Instagram', username: '', email: '', password: '', phone: '',
-    assignedPhone: null, group: groups[0] ?? 'Unassigned', owner: owners[0] ?? 'Unassigned',
-    twoFA: false, status: 'warming', tags: [], followers: 0, notes: '',
-  })
+  // SECURITY: editing must NOT expose credentials the actor can't reveal. When
+  // a sensitive field is "hidden", it is write-only — never prefilled into the
+  // DOM; left blank on save it keeps the stored value, typed it replaces it.
+  const pwHidden = Boolean(initial) && !canRevealPw
+  const recoveryHidden = Boolean(initial) && !canRevealRecovery
+  const [form, setForm] = useState<AccountInput>(() => initial
+    ? { ...initial, password: pwHidden ? '' : initial.password, email: recoveryHidden ? '' : initial.email, phone: recoveryHidden ? '' : initial.phone }
+    : {
+        handle: '', platform: 'Instagram', username: '', email: '', password: '', phone: '',
+        assignedPhone: null, group: groups[0] ?? 'Unassigned', owner: owners[0] ?? 'Unassigned',
+        twoFA: false, status: 'warming', tags: [], followers: 0, notes: '',
+      })
   const [showPassword, setShowPassword] = useState(false)
   const [dirty, setDirty] = useState(false)
   const set = <K extends keyof AccountInput>(k: K, v: AccountInput[K]) => {
@@ -208,11 +220,21 @@ function AccountModal({ initial, groups, owners, onClose }: {
     setDirty(true)
   }
 
-  const valid = form.handle.trim().length > 1 && form.username.trim().length > 1 && /\S+@\S+\.\S+/.test(form.email)
+  // A hidden recovery email validates against the stored value (unchanged & valid).
+  const emailToCheck = form.email.trim() ? form.email : recoveryHidden ? (initial?.email ?? '') : form.email
+  const valid = form.handle.trim().length > 1 && form.username.trim().length > 1 && /\S+@\S+\.\S+/.test(emailToCheck)
 
   const save = () => {
     if (!valid) return
-    const clean = { ...form, handle: form.handle.startsWith('@') ? form.handle : '@' + form.handle }
+    const keep = (typed: string, hidden: boolean, original: string | undefined) =>
+      hidden && !typed.trim() ? (original ?? '') : typed
+    const clean: AccountInput = {
+      ...form,
+      handle: form.handle.startsWith('@') ? form.handle : '@' + form.handle,
+      password: keep(form.password, pwHidden, initial?.password),
+      email: keep(form.email, recoveryHidden, initial?.email),
+      phone: keep(form.phone, recoveryHidden, initial?.phone),
+    }
     if (initial) update(initial.id, clean)
     else add(clean)
     logAudit({ actor: actorEmp.name, action: initial ? 'account.updated' : 'account.created', target: clean.handle, result: 'success' })
@@ -224,6 +246,7 @@ function AccountModal({ initial, groups, owners, onClose }: {
     if (dirty && !window.confirm('Discard unsaved changes?')) return
     onClose()
   }
+  const dialogRef = useDialog<HTMLDivElement>(tryClose)
 
   const input = 'mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]'
 
@@ -231,10 +254,11 @@ function AccountModal({ initial, groups, owners, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={tryClose} />
       <motion.div
+        ref={dialogRef} tabIndex={-1}
         role="dialog" aria-modal="true" aria-label={initial ? 'Edit account' : 'Add account'}
         initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
         transition={{ duration: 0.2, ease: EXPO_OUT }}
-        className="relative flex max-h-[85vh] w-[440px] flex-col border border-line bg-panel"
+        className="relative flex max-h-[85vh] w-[440px] flex-col border border-line bg-panel focus:outline-none"
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <span className="label text-fg">{initial ? 'Edit Account' : 'Add Account'}</span>
@@ -259,34 +283,39 @@ function AccountModal({ initial, groups, owners, onClose }: {
             <input value={form.username} onChange={e => set('username', e.target.value)} placeholder="username" className={input} />
           </div>
           <div>
-            <div className="label mb-1.5 text-fg-muted">Email</div>
-            <input value={form.email} onChange={e => set('email', e.target.value)} placeholder="name@domain.com"
+            <label className="label mb-1.5 block text-fg-muted" htmlFor="acct-email">Email{recoveryHidden && <span className="ml-1 normal-case tracking-normal text-white/30">· hidden, type to replace</span>}</label>
+            <input id="acct-email" value={form.email} onChange={e => set('email', e.target.value)}
+              placeholder={recoveryHidden ? '•••••• (no reveal permission)' : 'name@domain.com'}
               className={[input, form.email && !/\S+@\S+\.\S+/.test(form.email) ? '!border-status-error' : ''].join(' ')} />
           </div>
           <div>
-            <div className="label mb-1.5 text-fg-muted">Email Password</div>
+            <label className="label mb-1.5 block text-fg-muted" htmlFor="acct-password">Email Password{pwHidden && <span className="ml-1 normal-case tracking-normal text-white/30">· hidden, type to replace</span>}</label>
             <div className="relative">
               <input
-                type={showPassword ? 'text' : 'password'}
+                id="acct-password"
+                type={showPassword && !pwHidden ? 'text' : 'password'}
                 value={form.password}
                 onChange={e => set('password', e.target.value)}
-                placeholder="••••••••"
+                placeholder={pwHidden ? '•••••• (no reveal permission)' : '••••••••'}
                 autoComplete="new-password"
                 className={[input, 'pr-9'].join(' ')}
               />
-              <button
-                type="button"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                onClick={() => setShowPassword(v => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 transition-colors hover:text-white/60"
-              >
-                {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
+              {!pwHidden && (
+                <button
+                  type="button"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/25 transition-colors hover:text-white/60"
+                >
+                  {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              )}
             </div>
           </div>
           <div>
-            <div className="label mb-1.5 text-fg-muted">Phone</div>
-            <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+1-555-0100" className={input} />
+            <label className="label mb-1.5 block text-fg-muted" htmlFor="acct-phone">Phone{recoveryHidden && <span className="ml-1 normal-case tracking-normal text-white/30">· hidden, type to replace</span>}</label>
+            <input id="acct-phone" value={form.phone} onChange={e => set('phone', e.target.value)}
+              placeholder={recoveryHidden ? '•••••• (no reveal permission)' : '+1-555-0100'} className={input} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -383,14 +412,17 @@ function ImportModal({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.div
+        ref={dialogRef} tabIndex={-1}
         role="dialog" aria-modal="true" aria-label="Import accounts"
         initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
         transition={{ duration: 0.2, ease: EXPO_OUT }}
-        className="relative w-[440px] border border-line bg-panel"
+        className="relative w-[440px] border border-line bg-panel focus:outline-none"
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <span className="label text-fg">Import Accounts</span>
@@ -487,13 +519,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
     ? snapshot.devices.find((d) => d.name === account.assignedPhone)
     : undefined
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
 
   const copy = (label: string, value: string) => {
     navigator.clipboard.writeText(value).catch(() => {})
@@ -504,9 +530,10 @@ function AccountDrawer({ account, onClose, onEdit }: {
 
   return (
     <motion.div
+      ref={dialogRef} tabIndex={-1}
       role="dialog"
       aria-label={`Account ${account.handle}`}
-      className="fixed right-0 top-0 z-40 flex h-full w-[420px] max-w-[94vw] flex-col border-l border-line bg-panel shadow-[-24px_0_60px_-30px_rgba(0,0,0,0.8)]"
+      className="fixed right-0 top-0 z-40 flex h-full w-[420px] max-w-[94vw] flex-col border-l border-line bg-panel shadow-[-24px_0_60px_-30px_rgba(0,0,0,0.8)] focus:outline-none"
       initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
       transition={{ duration: 0.3, ease: EXPO_OUT }}
     >
@@ -775,6 +802,7 @@ export function AccountsView() {
   const { employee: actorEmp, member: actor } = useActingEmployee()
 
   // Action permissions for the acting user.
+  const canRevealPw       = can(actor, 'accounts.reveal_password')
   const canRevealRecovery = can(actor, 'accounts.reveal_recovery')
   const canCreate = can(actor, 'accounts.create')
   const canEdit   = can(actor, 'accounts.edit')
@@ -847,8 +875,23 @@ export function AccountsView() {
 
   const exportRows = (rows: Account[]) => {
     if (!canExport) { addToast('You lack permission to export accounts', 'error'); return }
-    const header = 'handle,platform,username,email,phone,group,owner,password,status'
-    const csv = [header, ...rows.map(a => [a.handle, a.platform, a.username, a.email, a.phone, a.group, a.owner, a.password, a.status].join(','))].join('\n')
+    // SECURITY: a CSV is an unaudited copy of the data. Only include credential
+    // columns the actor is actually permitted to reveal — export must not be a
+    // backdoor around accounts.reveal_password / accounts.reveal_recovery.
+    const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
+    const cols: { head: string; get: (a: Account) => string }[] = [
+      { head: 'handle', get: a => a.handle },
+      { head: 'platform', get: a => a.platform },
+      { head: 'username', get: a => a.username },
+      ...(canRevealRecovery ? [{ head: 'email', get: (a: Account) => a.email }, { head: 'phone', get: (a: Account) => a.phone }] : []),
+      { head: 'group', get: a => a.group },
+      { head: 'owner', get: a => a.owner },
+      ...(canRevealPw ? [{ head: 'password', get: (a: Account) => a.password }] : []),
+      { head: '2fa', get: a => (a.twoFA ? 'yes' : 'no') },
+      { head: 'status', get: a => a.status },
+    ]
+    const header = cols.map(c => c.head).join(',')
+    const csv = [header, ...rows.map(a => cols.map(c => csvCell(c.get(a))).join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -856,9 +899,9 @@ export function AccountsView() {
     link.download = 'mobfleet-accounts.csv'
     link.click()
     URL.revokeObjectURL(url)
-    // Export of credentials is a sensitive, audited operation.
-    logAudit({ actor: actorEmp.name, action: 'accounts.exported', target: `${rows.length} accounts`, detail: 'CSV incl. credentials', result: 'success' })
-    addToast(`Exported ${rows.length} accounts`, 'success')
+    const sensitive = [canRevealRecovery && 'recovery', canRevealPw && 'passwords'].filter(Boolean).join('+') || 'no credentials'
+    logAudit({ actor: actorEmp.name, action: 'accounts.exported', target: `${rows.length} accounts`, detail: `CSV (${sensitive})`, result: 'success' })
+    addToast(`Exported ${rows.length} accounts${canRevealPw || canRevealRecovery ? '' : ' (credentials excluded)'}`, 'success')
   }
 
   const drawerAcc = drawerId ? accounts.find(a => a.id === drawerId) ?? null : null
@@ -932,6 +975,7 @@ export function AccountsView() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="SEARCH ACCOUNTS..."
+            aria-label="Search accounts"
             className="mono h-8 w-full border border-line bg-transparent pl-8 pr-3 text-[10px] tracking-wider text-white/70 placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)]"
           />
         </div>
@@ -969,7 +1013,7 @@ export function AccountsView() {
         <table className="w-full min-w-[1020px] text-xs">
           <thead className="sticky top-0 z-10 bg-black">
             <tr className="border-b border-line">
-              <th className="w-8 px-4 py-3 text-left">
+              <th scope="col" className="w-8 px-4 py-3 text-left">
                 <button
                   onClick={toggleAll}
                   aria-label="Select all"
@@ -980,7 +1024,7 @@ export function AccountsView() {
                 </button>
               </th>
               {['ACCOUNT', 'USERNAME', 'EMAIL', 'ASSIGNED PHONE', 'GROUP', 'OWNER', '2FA', 'STATUS', 'UPDATED', ''].map(h => (
-                <th key={h} className="mono whitespace-nowrap px-3 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-white/25">{h}</th>
+                <th scope="col" key={h} className="mono whitespace-nowrap px-3 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-white/25">{h}</th>
               ))}
             </tr>
           </thead>
@@ -1030,8 +1074,8 @@ export function AccountsView() {
                   <td className="mono px-3 py-3 text-[11px] text-white/40">{a.owner}</td>
                   <td className="px-3 py-3">
                     {a.twoFA
-                      ? <ShieldCheck size={13} className="text-emerald-400" />
-                      : <ShieldOff size={13} className="text-white/20" />}
+                      ? <ShieldCheck size={13} className="text-emerald-400" role="img" aria-label="Two-factor enabled" />
+                      : <ShieldOff size={13} className="text-white/20" role="img" aria-label="Two-factor disabled" />}
                   </td>
                   <td className="px-3 py-3"><StatusPill status={a.status} /></td>
                   <td className="mono px-3 py-3 text-[10px] text-white/30">{relTime(a.updatedAt)}</td>
@@ -1153,10 +1197,10 @@ export function AccountsView() {
           />
         )}
         {modal === 'add' && (
-          <AccountModal key="add" initial={null} groups={fleetGroups} owners={teamNames} onClose={() => setModal(null)} />
+          <AccountModal key="add" initial={null} groups={fleetGroups} owners={teamNames} canRevealPw={canRevealPw} canRevealRecovery={canRevealRecovery} onClose={() => setModal(null)} />
         )}
         {modal === 'edit' && editAcc && (
-          <AccountModal key={'edit-' + editAcc.id} initial={editAcc} groups={fleetGroups} owners={teamNames} onClose={() => setModal(null)} />
+          <AccountModal key={'edit-' + editAcc.id} initial={editAcc} groups={fleetGroups} owners={teamNames} canRevealPw={canRevealPw} canRevealRecovery={canRevealRecovery} onClose={() => setModal(null)} />
         )}
         {modal === 'import' && <ImportModal key="import" onClose={() => setModal(null)} />}
       </AnimatePresence>

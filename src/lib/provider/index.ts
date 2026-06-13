@@ -3,6 +3,7 @@ import { createHttpProvider } from './http-provider'
 import type { ProviderClient } from './types'
 
 export * from './types'
+export { safe } from './safe'
 
 /**
  * THE SWAP POINT. The whole app talks to the fleet through `client`.

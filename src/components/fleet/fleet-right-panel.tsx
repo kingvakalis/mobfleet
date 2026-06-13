@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useFleet } from '@/hooks/use-fleet'
+import { useScopedDevices } from '@/lib/authorization/use-access'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X, Pause, Play, Activity, HeartPulse } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
@@ -53,7 +54,8 @@ function ActivityFeed({ paused }: { paused: boolean }) {
 
 function HealthBody() {
   const snapshot = useFleet()
-  const phones   = snapshot.devices
+  // SECURITY: health figures reflect only the acting member's scoped devices.
+  const phones   = useScopedDevices()
   const total   = Math.max(1, phones.length)
   const online  = phones.filter(p => p.status === 'online' || p.status === 'busy' || p.status === 'warming').length
   const running = phones.filter(p => p.status === 'busy').length

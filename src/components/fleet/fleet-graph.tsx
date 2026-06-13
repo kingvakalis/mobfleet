@@ -14,7 +14,8 @@ import {
 import { AnimatePresence, useReducedMotion } from 'framer-motion'
 import '@xyflow/react/dist/style.css'
 import { useFleet } from '@/hooks/use-fleet'
-import { client } from '@/lib/provider'
+import { useScopedDevices } from '@/lib/authorization/use-access'
+import { client, safe } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
 import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
 import { useSettings, motionDisabled } from '@/state/settings-store'
@@ -63,6 +64,9 @@ function deviceNode(d: Device, job: Job | null, opts: Partial<DeviceNodeData>): 
 
 function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) {
   const snapshot = useFleet()
+  // SECURITY: render only devices within the acting member's scope — the graph
+  // must not surface phones outside their assignment.
+  const scopedDevices = useScopedDevices()
   const { fitView } = useReactFlow()
   const filtersOn = fleetFiltersActive(filters)
 
@@ -78,8 +82,8 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   )
 
   const matchingIds = useMemo(
-    () => snapshot.devices.filter(matches).map((d) => d.id),
-    [snapshot.devices, matches],
+    () => scopedDevices.filter(matches).map((d) => d.id),
+    [scopedDevices, matches],
   )
 
   // Expose fit-to-screen + focus-matches to the command palette / filter bar.
@@ -97,7 +101,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
 
   const buildAll = useCallback((): Node[] => {
     const list: Node[] = [makeOrchestrator()]
-    for (const d of snapshot.devices) {
+    for (const d of scopedDevices) {
       const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
       list.push(deviceNode(d, job, { isNew: !hasWarped(d.id) }))
     }
@@ -125,8 +129,8 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   const [pinEpoch, setPinEpoch] = useState(0)
   useEffect(() => {
     const pins = new Set(pinnedIds())
-    sim.sync(snapshot.devices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
-  }, [snapshot.devices, sim])
+    sim.sync(scopedDevices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
+  }, [scopedDevices, sim])
 
   // Pin controls for the info card + filter bar.
   useEffect(() => {
@@ -183,13 +187,13 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   // Sync the live snapshot + filters + selection into managed nodes: update
   // data in place, warp in new devices, dissolve removed.
   useEffect(() => {
-    const currentIds = new Set(snapshot.devices.map((d) => d.id))
+    const currentIds = new Set(scopedDevices.map((d) => d.id))
     const anySelected = selectedIds.length > 0
     setNodes((prev) => {
       const byId = new Map(prev.map((n) => [n.id, n]))
       const next: Node[] = [byId.get('orchestrator') ?? makeOrchestrator()]
 
-      for (const d of snapshot.devices) {
+      for (const d of scopedDevices) {
         const job = d.jobId ? jobsById.get(d.jobId) ?? null : null
         const isMatch = matches(d)
         const dimmed = filtersOn && !isMatch
@@ -225,11 +229,11 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
       }
       return next
     })
-  }, [snapshot.devices, jobsById, setNodes, matches, filtersOn, filters.groups, filters.hideNonMatching, selectedIds, sim, pinEpoch])
+  }, [scopedDevices, jobsById, setNodes, matches, filtersOn, filters.groups, filters.hideNonMatching, selectedIds, sim, pinEpoch])
 
   const edges = useMemo<Edge[]>(
     () =>
-      snapshot.devices
+      scopedDevices
         .filter((d) => d.status !== 'offline')
         .filter((d) => !(filters.hideNonMatching && filtersOn && !matches(d)))
         .map((d) => {
@@ -252,7 +256,7 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
             },
           }
         }),
-    [snapshot.devices, filtersOn, filters.hideNonMatching, matches, selectedIds],
+    [scopedDevices, filtersOn, filters.hideNonMatching, matches, selectedIds],
   )
 
   // --- interaction ---------------------------------------------------------
@@ -365,12 +369,12 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
 
   const bulk = useMemo(
     () => ({
-      start: () => selectedIds.forEach((id) => void client.start(id)),
-      stop: () => selectedIds.forEach((id) => void client.stop(id)),
+      start: () => selectedIds.forEach((id) => safe(client.start(id), 'Could not start device')),
+      stop: () => selectedIds.forEach((id) => safe(client.stop(id), 'Could not stop device')),
       assign: () =>
-        selectedIds.forEach((id) => void client.runTask(id, { type: 'upload', label: 'Bulk upload' })),
+        selectedIds.forEach((id) => safe(client.runTask(id, { type: 'upload', label: 'Bulk upload' }), 'Could not assign task')),
       retire: () => {
-        selectedIds.forEach((id) => void client.delete(id))
+        selectedIds.forEach((id) => safe(client.delete(id), 'Could not retire device'))
         clearSelection()
       },
     }),

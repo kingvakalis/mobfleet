@@ -1,7 +1,7 @@
 import { useState, type ComponentType } from 'react'
 import { Check, Copy, Pin, PinOff, Play, ScrollText, Send, Square, Trash2 } from 'lucide-react'
 import { regionLabel } from '@/data/regions'
-import { client } from '@/lib/provider'
+import { client, safe } from '@/lib/provider'
 import { graphBus } from '@/lib/graph-bus'
 import { useUIStore } from '@/state/ui-store'
 import { uptimeSince } from '@/lib/format'
@@ -111,15 +111,15 @@ export function TelemetryCard({ device, job, noMatch, pinned }: { device: Device
 
       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3">
         {canStart ? (
-          <Action icon={Play} label="Start" onClick={() => void client.start(device.id)} />
+          <Action icon={Play} label="Start" onClick={() => safe(client.start(device.id), 'Could not start device')} />
         ) : (
-          <Action icon={Square} label="Stop" onClick={() => void client.stop(device.id)} />
+          <Action icon={Square} label="Stop" onClick={() => safe(client.stop(device.id), 'Could not stop device')} />
         )}
         <Action
           icon={Send}
           label="Assign"
           disabled={!idle}
-          onClick={() => void client.runTask(device.id, { type: 'upload', label: 'Manual upload' })}
+          onClick={() => safe(client.runTask(device.id, { type: 'upload', label: 'Manual upload' }), 'Could not assign task')}
         />
         <Action icon={ScrollText} label="Logs" onClick={() => openDrawer(device.id)} />
         <Action
@@ -132,7 +132,7 @@ export function TelemetryCard({ device, job, noMatch, pinned }: { device: Device
           label={copied ? 'Copied' : 'Copy ID'}
           onClick={copyId}
         />
-        <Action icon={Trash2} label="Retire" danger onClick={() => void client.delete(device.id)} />
+        <Action icon={Trash2} label="Retire" danger onClick={() => safe(client.delete(device.id), 'Could not retire device')} />
       </div>
     </div>
   )

@@ -14,11 +14,22 @@ export function ToastContainer() {
   const { toasts, removeToast } = useToastStore()
 
   return (
-    <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    // Screen-reader announcement region. Errors/warnings are assertive (they
+    // interrupt); success/info are polite. role + aria-live make transient
+    // toasts perceivable to AT users who never see the visual element.
+    <div
+      className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+      role="region"
+      aria-label="Notifications"
+    >
       <AnimatePresence>
-        {toasts.map(toast => (
+        {toasts.map(toast => {
+          const assertive = toast.level === 'error' || toast.level === 'warning'
+          return (
           <motion.div
             key={toast.id}
+            role={assertive ? 'alert' : 'status'}
+            aria-live={assertive ? 'assertive' : 'polite'}
             initial={{ opacity: 0, x: 60, scale: 0.95 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 60, scale: 0.95 }}
@@ -31,13 +42,15 @@ export function ToastContainer() {
             <span className="flex-1">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
+              aria-label="Dismiss notification"
               className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
             >
               <X size={13} />
             </button>
             <ToastTimer id={toast.id} duration={toast.duration} />
           </motion.div>
-        ))}
+          )
+        })}
       </AnimatePresence>
     </div>
   )

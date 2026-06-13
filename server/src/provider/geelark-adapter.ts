@@ -24,7 +24,6 @@ import type { DeviceProvider } from './device-provider'
  *                    at POST /callbacks and fan out into `store` → our WS feed.
  */
 export class GeelarkAdapter implements DeviceProvider {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   constructor(private store: FleetStore) {}
 
   private nyi(): never {

@@ -406,6 +406,7 @@ export function SettingsView() {
           <Section icon={Building2} title="Workspace" desc="Identity shown across the console." locked={!canWorkspace}>
             <Field label="Workspace name">
               <input
+                aria-label="Workspace name"
                 value={draft.workspaceName}
                 onChange={e => set('workspaceName', e.target.value)}
                 className="mono h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
@@ -413,6 +414,7 @@ export function SettingsView() {
             </Field>
             <Field label="Operator name" hint="Used to attribute actions in the activity feed">
               <input
+                aria-label="Operator name"
                 value={draft.operatorName}
                 onChange={e => set('operatorName', e.target.value)}
                 className="mono h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
@@ -435,6 +437,7 @@ export function SettingsView() {
           <Section icon={Gauge} title="Device Control" desc="Defaults applied when opening a phone-control session." locked={!canDevice}>
             <Field label="Default stream quality" hint="0–100">
               <input
+                aria-label="Default stream quality (0 to 100)"
                 type="number" min={0} max={100}
                 value={draft.defaultStreamQuality}
                 onChange={e => set('defaultStreamQuality', Number(e.target.value))}
@@ -446,6 +449,7 @@ export function SettingsView() {
             </Field>
             <Field label="Default stream FPS" hint="5–60">
               <input
+                aria-label="Default stream FPS (5 to 60)"
                 type="number" min={5} max={60}
                 value={draft.defaultStreamFps}
                 onChange={e => set('defaultStreamFps', Number(e.target.value))}

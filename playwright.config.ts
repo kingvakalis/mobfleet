@@ -35,6 +35,17 @@ export default defineConfig({
         launchOptions: { args: ['--use-gl=swiftshader', '--no-sandbox', '--disable-dev-shm-usage'] },
       },
     },
+    {
+      // Live diagnostics: console errors, uncaught exceptions, axe a11y, responsive overflow.
+      name: 'audit',
+      testMatch: /audit-.*\.spec\.ts/,
+      use: {
+        baseURL: 'http://localhost:4173',
+        headless: true,
+        viewport: { width: 1440, height: 900 },
+        launchOptions: { args: ['--use-gl=swiftshader', '--no-sandbox', '--disable-dev-shm-usage'] },
+      },
+    },
   ],
   // Engine tests need no server. Skip the build+preview when only that project
   // runs (or when PW_SKIP_SERVER=1) so unit tests stay fast and portable.

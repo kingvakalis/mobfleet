@@ -1,6 +1,7 @@
 import { lazy, Suspense, useSyncExternalStore, type ComponentType } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
+import { ErrorBoundary } from '@/components/system/error-boundary'
 import { DeviceDrawer } from '@/components/drawer/device-drawer'
 import { ScalePanel } from '@/components/scale/scale-panel'
 import { CommandPalette } from '@/components/palette/command-palette'
@@ -79,9 +80,14 @@ export default function App() {
           className="h-full"
         >
           {allowed ? (
-            <Suspense fallback={<ViewFallback />}>
-              <Current />
-            </Suspense>
+            // Per-view fault barrier: a crash in one view shows a recoverable
+            // fallback instead of taking down the whole shell, and navigating to
+            // another view (resetKeys=[view]) clears it without a reload.
+            <ErrorBoundary resetKeys={[view]} label={view}>
+              <Suspense fallback={<ViewFallback />}>
+                <Current />
+              </Suspense>
+            </ErrorBoundary>
           ) : (
             <AccessDenied onBack={() => setView('fleet')} />
           )}

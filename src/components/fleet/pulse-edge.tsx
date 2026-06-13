@@ -20,8 +20,9 @@ export const PulseEdge = memo(function PulseEdge({
   const dimmed = Boolean(d?.dimmed)
   const isSelected = Boolean(d?.selected)
   const reduce = useReducedMotion()
-  // Skip render until positions are resolved
-  if (!sourceX || !sourceY || !targetX || !targetY) return null
+  // Skip render until React Flow has resolved real positions. Use finite-checks
+  // (not truthiness) so a legitimate 0 coordinate isn't treated as "unresolved".
+  if (![sourceX, sourceY, targetX, targetY].every(Number.isFinite)) return null
 
   return (
     <>
@@ -39,8 +40,14 @@ export const PulseEdge = memo(function PulseEdge({
       {active && !reduce && (
         <motion.circle
           r={2.4}
+          // Explicit base cx/cy so the very first paint frame (before framer
+          // applies the keyframes) has valid coords — avoids the SVG
+          // `cx="undefined"` console error.
+          cx={sourceX}
+          cy={sourceY}
           fill="var(--accent)"
           style={{ filter: 'drop-shadow(0 0 3px var(--accent))' }}
+          initial={{ cx: sourceX, cy: sourceY, opacity: 0 }}
           animate={{
             cx: [sourceX, targetX],
             cy: [sourceY, targetY],

@@ -1,17 +1,21 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Layers, Box, Network, Activity, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import { useFleet, useFleetStats } from '@/hooks/use-fleet'
+import { useFleet } from '@/hooks/use-fleet'
+import { useScopedDevices, useScopedFleetStats } from '@/lib/authorization/use-access'
 import { STATUS, type DeviceStatus } from '@/lib/status'
 import { EXPO_OUT } from '@/lib/motion'
 import { graphBus } from '@/lib/graph-bus'
 import { isLayoutLocked, setLayoutLocked, resetLayout } from '@/lib/layout/constellation'
 import { useUIStore } from '@/state/ui-store'
 import { FleetGraph } from './fleet-graph'
-import { Fleet3D } from './fleet-3d'
+// Fleet3D pulls in three.js / @react-three (~1.3 MB). Lazy-load it so that
+// weight is code-split into its own chunk and only fetched when an operator
+// actually switches to the 3D view — the default 2D graph stays light.
+const Fleet3D = lazy(() => import('./fleet-3d').then((m) => ({ default: m.Fleet3D })))
 import { FleetControls } from './fleet-controls'
 import { FleetActivityDrawer } from './fleet-right-panel'
 
@@ -42,13 +46,13 @@ function FleetBoot() {
  * mono, backdrop-blur) so it reads as part of the constellation overlay.
  */
 function FleetStatusStrip() {
-  const snapshot = useFleet()
-  const stats = useFleetStats()
+  const devices = useScopedDevices()
+  const stats = useScopedFleetStats()
   const counts = useMemo(() => {
     const c: Record<DeviceStatus, number> = { online: 0, busy: 0, warming: 0, offline: 0, error: 0 }
-    for (const d of snapshot?.devices ?? []) c[d.status as DeviceStatus]++
+    for (const d of devices) c[d.status as DeviceStatus]++
     return c
-  }, [snapshot])
+  }, [devices])
 
   const segments: { label: string; value: number; color: string; dot?: boolean }[] = [
     { label: 'Total',   value: stats.total,    color: 'rgba(255,255,255,0.72)' },
@@ -106,7 +110,8 @@ function FleetEmpty() {
 
 export function FleetView() {
   const snapshot = useFleet()
-  const stats    = useFleetStats()
+  const scopedDevices = useScopedDevices()
+  const stats    = useScopedFleetStats()
   // Filters live in the UI store so they survive 2D↔3D switches and
   // phone-control round-trips (session-scoped, not permanently saved).
   const filters    = useUIStore((s) => s.fleetFilters)
@@ -136,7 +141,7 @@ export function FleetView() {
         <motion.div key="boot" className="h-full" exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           <FleetBoot />
         </motion.div>
-      ) : snapshot.devices.length === 0 ? (
+      ) : scopedDevices.length === 0 ? (
         <motion.div key="empty" className="h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <FleetEmpty />
         </motion.div>
@@ -212,7 +217,7 @@ export function FleetView() {
 
             {/* Visualization */}
             {mode === '3d'
-              ? <Fleet3D filters={filters} />
+              ? <Suspense fallback={<FleetBoot />}><Fleet3D filters={filters} /></Suspense>
               : <FleetGraph key={layoutEpoch} filters={filters} locked={locked} />}
           </div>
 

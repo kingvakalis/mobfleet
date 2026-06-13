@@ -394,9 +394,18 @@ export function createMockProvider(): ProviderClient {
       }
       return () => {
         listeners.delete(listener)
-        if (listeners.size === 0 && timer) {
-          clearInterval(timer)
-          timer = null
+        if (listeners.size === 0) {
+          if (timer) {
+            clearInterval(timer)
+            timer = null
+          }
+          // Also cancel a still-pending boot handshake — otherwise it would fire
+          // commit() after every listener has detached (a timer leak that, in
+          // dev StrictMode's mount/unmount cycle, runs against a dead store).
+          if (bootTimer) {
+            clearTimeout(bootTimer)
+            bootTimer = null
+          }
         }
       }
     },

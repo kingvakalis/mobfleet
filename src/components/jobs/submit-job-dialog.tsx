@@ -1,30 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { useDialog } from '@/hooks/use-dialog'
 import { useFleet } from '@/hooks/use-fleet'
 import { regionLabel } from '@/data/regions'
 import { AUTOMATIONS } from '@/data/automations'
 import { client } from '@/lib/provider'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
+import { useToastStore } from '@/state/toast-store'
 import { cn } from '@/lib/utils'
 
 function Inner({ onClose, presetId }: { onClose: () => void; presetId: string | null }) {
   const snapshot = useFleet()
+  const addToast = useToastStore((s) => s.addToast)
   const [automationId, setAutomationId] = useState(presetId ?? AUTOMATIONS[0].id)
   const [target, setTarget] = useState('auto')
   const [busy, setBusy] = useState(false)
 
   const idle = snapshot.devices.filter((d) => d.status === 'online')
   const automation = AUTOMATIONS.find((a) => a.id === automationId) ?? AUTOMATIONS[0]
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
 
   const submit = async () => {
     setBusy(true)
@@ -33,6 +31,11 @@ function Inner({ onClose, presetId }: { onClose: () => void; presetId: string | 
       if (target === 'auto') await client.enqueueTask(task)
       else await client.runTask(target, task)
       onClose()
+    } catch (err) {
+      // Surface the failure instead of leaving the dialog stuck "busy" with no
+      // feedback (and an unhandled rejection in the console).
+      console.error('[submit-job] dispatch failed', err)
+      addToast('Could not dispatch the automation — please try again', 'error')
     } finally {
       setBusy(false)
     }
@@ -49,10 +52,12 @@ function Inner({ onClose, presetId }: { onClose: () => void; presetId: string | 
         onClick={onClose}
       />
       <motion.div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label="Run automation"
-        className="relative w-[440px] max-w-full rounded-card border border-line bg-panel p-5 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.85)]"
+        className="relative w-[440px] max-w-full rounded-card border border-line bg-panel p-5 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.85)] focus:outline-none"
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 6 }}

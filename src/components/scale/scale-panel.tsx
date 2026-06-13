@@ -5,7 +5,7 @@ import { Counter } from '@/components/ui/counter'
 import { Label } from '@/components/ui/label'
 import { useFleet, useFleetStats } from '@/hooks/use-fleet'
 import { REGIONS, regionLabel, regionRate } from '@/data/regions'
-import { client } from '@/lib/provider'
+import { client, safe } from '@/lib/provider'
 import { formatCost } from '@/lib/format'
 import { EXPO_OUT } from '@/lib/motion'
 import type { DeviceStatus } from '@/lib/status'
@@ -111,10 +111,10 @@ function Inner({ onClose }: { onClose: () => void }) {
   }, [onClose])
 
   const provision = () => {
-    if (addable > 0) void client.createDevices(addable, { region })
+    if (addable > 0) safe(client.createDevices(addable, { region }), 'Could not provision devices')
   }
   const retire = () => {
-    for (const d of victims) void client.delete(d.id)
+    for (const d of victims) safe(client.delete(d.id), 'Could not retire device')
   }
 
   return (

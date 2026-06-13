@@ -16,7 +16,10 @@
   --border-bright: rgba(148,163,184,0.22);
   --text: #f3f5f8;
   --text-secondary: rgba(226,232,240,0.72);
-  --text-muted: rgba(148,163,184,0.45);
+  /* Muted text raised from 0.45 → 0.72 opacity: at 0.45 the slate computed to
+     ~2:1 on the dark surfaces (fails WCAG AA); 0.72 lands at ~4.4:1 while
+     staying clearly dimmer than primary/secondary text. */
+  --text-muted: rgba(148,163,184,0.72);
   /* One product accent — controlled teal. */
   --accent: #2dd4bf;
   --accent-soft: rgba(45,212,191,0.12);
@@ -39,12 +42,12 @@
   --border-legacy: #161c26;
   --text-primary: #f3f5f8;
   --text-secondary-legacy: rgba(226,232,240,0.72);
-  --text-muted-legacy: rgba(148,163,184,0.45);
+  --text-muted-legacy: rgba(148,163,184,0.72);
   --color-surface: #0B0F15;
   --color-surface-2: #0E131B;
   --color-border: rgba(148,163,184,0.10);
   --color-text-primary: rgba(243,245,248,0.92);
-  --color-text-secondary: rgba(148,163,184,0.45);
+  --color-text-secondary: rgba(148,163,184,0.72);
   --color-accent: #2dd4bf;
   --color-online: #34d399;
   --color-warning: #fbbf24;

@@ -123,17 +123,21 @@ export function AmbientBackground() {
       ctx.fillRect(0, 0, W, H)
 
       t++
-      frameRef.current = requestAnimationFrame(draw)
+      // Only loop when motion is allowed. In reduced mode draw() renders a
+      // single static frame and stops — otherwise a tab refocus (below) would
+      // silently start an animation loop the user opted out of.
+      if (!reduced) frameRef.current = requestAnimationFrame(draw)
     }
 
-    if (!reduced) {
-      draw()
-    }
+    // Render once always (static backdrop in reduced mode, first animated frame
+    // otherwise); draw() itself decides whether to keep looping.
+    draw()
 
     const handleVis = () => {
       if (document.hidden) {
         cancelAnimationFrame(frameRef.current)
-      } else {
+      } else if (!reduced) {
+        // Resume the loop only when motion is allowed.
         draw()
       }
     }

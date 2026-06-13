@@ -12,8 +12,9 @@ import { GRID_APPS } from '@/components/phone/app-catalog'
 import { LivePhone, type LivePhoneHandle } from '@/components/phone/live-phone'
 import { useDeviceLog } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
+import { useScopedDevices } from '@/lib/authorization/use-access'
 import { regionLabel } from '@/data/regions'
-import { client } from '@/lib/provider'
+import { client, safe } from '@/lib/provider'
 import { formatUptime } from '@/lib/format'
 import { EXPO_OUT } from '@/lib/motion'
 import { STATUS } from '@/lib/status'
@@ -62,7 +63,10 @@ const QUICK = [
  *  selection moves to another phone (the panel shell itself stays mounted). */
 function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
   const snapshot = useFleet()
-  const device = snapshot.devices.find((d) => d.id === deviceId)
+  // SECURITY: resolve the device from the SCOPED set so the drawer can never be
+  // opened against a phone outside the acting member's scope.
+  const scopedDevices = useScopedDevices()
+  const device = scopedDevices.find((d) => d.id === deviceId)
   const job = device?.jobId ? snapshot.jobs.find((j) => j.id === device.jobId) ?? null : null
   const { lines: logs, push } = useDeviceLog(deviceId)
   const phoneRef = useRef<LivePhoneHandle>(null)
@@ -281,7 +285,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                   <Label className="text-fg-muted">Group</Label>
                   <select
                     value={device.group}
-                    onChange={(e) => void client.assignGroup([device.id], e.target.value)}
+                    onChange={(e) => safe(client.assignGroup([device.id], e.target.value), 'Could not reassign group')}
                     aria-label="Device group"
                     className="mono mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40"
                   >
@@ -311,11 +315,11 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
             {/* actions */}
             <div className="flex flex-wrap gap-2 border-b border-line px-5 py-3">
               {canStart ? (
-                <Button size="sm" variant="outline" onClick={() => void client.start(device.id)}>
+                <Button size="sm" variant="outline" onClick={() => safe(client.start(device.id), 'Could not start device')}>
                   <Play size={13} /> Start
                 </Button>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => void client.stop(device.id)}>
+                <Button size="sm" variant="outline" onClick={() => safe(client.stop(device.id), 'Could not stop device')}>
                   <Square size={12} /> Stop
                 </Button>
               )}
@@ -323,7 +327,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                 size="sm"
                 variant="outline"
                 disabled={device.status !== 'online'}
-                onClick={() => void client.runTask(device.id, { type: 'upload', label: 'Manual upload' })}
+                onClick={() => safe(client.runTask(device.id, { type: 'upload', label: 'Manual upload' }), 'Could not assign task')}
               >
                 <Send size={13} /> Assign
               </Button>
@@ -355,7 +359,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                 variant="danger"
                 onClick={() => {
                   if (confirmDestructive && !window.confirm(`Retire ${device.name}? This removes it from the pool.`)) return
-                  void client.delete(device.id)
+                  safe(client.delete(device.id), 'Could not retire device')
                 }}
               >
                 <Trash2 size={13} /> Retire

@@ -5,6 +5,7 @@ import {
   ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown, Eye,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
+import { useDialog } from '@/hooks/use-dialog'
 import {
   useTeam, toMember, shiftDurationMs, activeMs, currentSessionMs, fmtDur,
   type Employee, type RoleId, type ShiftStatus,
@@ -272,6 +273,8 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp, rangeSessions])
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
+
   return (
     <div className="fixed inset-0 z-50">
       <motion.div
@@ -281,8 +284,9 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
         onClick={onClose}
       />
       <motion.div
+        ref={dialogRef} tabIndex={-1}
         role="dialog" aria-modal="true" aria-label={`Employee ${emp.name}`}
-        className="absolute right-0 top-0 flex h-full w-[440px] max-w-[94vw] flex-col border-l border-line bg-panel"
+        className="absolute right-0 top-0 flex h-full w-[440px] max-w-[94vw] flex-col border-l border-line bg-panel focus:outline-none"
         initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
         transition={{ duration: 0.3, ease: EXPO_OUT }}
       >
@@ -533,15 +537,17 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<RoleId>('operator')
   const valid = name.trim().length > 1 && /\S+@\S+\.\S+/.test(email)
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
       <motion.div
+        ref={dialogRef} tabIndex={-1}
         role="dialog" aria-modal="true" aria-label="Add employee"
         initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.2, ease: EXPO_OUT }}
-        className="relative w-[400px] border border-line bg-panel p-5"
+        className="relative w-[400px] border border-line bg-panel p-5 focus:outline-none"
       >
         <div className="mb-4 flex items-center justify-between">
           <span className="label text-fg">Add Employee</span>
@@ -695,7 +701,7 @@ export function TeamView() {
                     { h: 'SHIFT', live: true }, { h: 'CURRENT PHONE', live: true },
                     { h: 'HOURS' }, { h: 'ACTIVE' }, { h: 'BREAK' }, { h: 'SHIFTS' }, { h: 'PHONES' }, { h: 'JOBS' }, { h: '' },
                   ].map(({ h, live }) => (
-                    <th key={h || 'x'} className="mono whitespace-nowrap px-4 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em]"
+                    <th scope="col" key={h || 'x'} className="mono whitespace-nowrap px-4 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em]"
                       style={{ color: live ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}>
                       {h}{live ? ' ·' : ''}
                     </th>
