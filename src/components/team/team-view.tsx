@@ -2,17 +2,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, X, Users, Smartphone, Coffee, LogOut, LogIn, Calendar,
-  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown,
+  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown, Eye,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import {
-  useTeam, shiftDurationMs, activeMs, currentSessionMs, fmtDur,
-  PERMISSION_GROUPS, type Employee, type RoleId, type ShiftStatus, type PermissionId,
+  useTeam, toMember, shiftDurationMs, activeMs, currentSessionMs, fmtDur,
+  type Employee, type RoleId, type ShiftStatus,
 } from '@/services/team'
 import {
   RANGE_OPTIONS, rangeFor, previousRange, periodStats, sumStats, deltaPct, tzName,
   type RangeKey, type DateRange,
 } from '@/services/team-range'
+import {
+  SCOPE_LABELS, can, canManageMember, canRemoveMember, type Member,
+} from '@/lib/authorization'
+import { useActingEmployee } from '@/lib/authorization/use-access'
+import { useSession } from '@/state/session-store'
+import { logAudit } from '@/services/audit'
+import { EmployeeAccessTab } from './access/EmployeeAccessTab'
+import { PermissionMatrix } from './access/PermissionMatrix'
 
 const SHIFT_META: Record<ShiftStatus, { label: string; color: string }> = {
   'on-shift':  { label: 'On Shift',  color: 'var(--status-online)' },
@@ -218,15 +226,21 @@ function PeriodKpis({ employees, range, now }: { employees: Employee[]; range: D
 
 // ─── Employee detail drawer (inherits the selected range) ────────────────────
 
-function EmployeeDrawer({ emp, range, now, onClose }: {
+function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose }: {
   emp: Employee
   range: DateRange
   now: number
+  actor: Member
+  actorName: string
+  allMembers: Member[]
   onClose: () => void
 }) {
-  const { startShift, endShift, toggleBreak, setSuspended, removeEmployee, updateEmployee, roles } = useTeam()
+  const { startShift, endShift, toggleBreak, setSuspended, removeEmployee } = useTeam()
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const [tab, setTab] = useState<'overview' | 'sessions' | 'history'>('overview')
+  const [tab, setTab] = useState<'overview' | 'access' | 'sessions' | 'history'>('overview')
+  const target = toMember(emp)
+  const manageable = canManageMember(actor, emp.id === actor.id ? actor : target)
+  const removeCheck = canRemoveMember(actor, target, allMembers)
   const meta = SHIFT_META[emp.shiftStatus]
   const onDuty = emp.shiftStatus === 'on-shift' || emp.shiftStatus === 'on-break'
   const stats = useMemo(() => periodStats(emp, range, now), [emp, range, now])
@@ -312,7 +326,7 @@ function EmployeeDrawer({ emp, range, now, onClose }: {
 
         {/* tabs */}
         <div className="flex border-b border-line">
-          {([['overview', 'Overview'], ['sessions', 'Phone Usage'], ['history', 'Shift History']] as const).map(([id, label]) => (
+          {([['overview', 'Overview'], ['access', 'Access'], ['sessions', 'Phone Usage'], ['history', 'Shift History']] as const).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -336,23 +350,27 @@ function EmployeeDrawer({ emp, range, now, onClose }: {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {tab === 'overview' && (
             <>
-              {/* role + groups */}
-              <div className="space-y-2.5">
-                <div>
-                  <div className="label text-fg-muted mb-1.5">Role</div>
-                  <select
-                    value={emp.role}
-                    onChange={(e) => updateEmployee(emp.id, { role: e.target.value as RoleId })}
-                    className="mono h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]"
-                  >
-                    {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <div className="label text-fg-muted mb-1">Groups</div>
-                  <div className="mono text-[11px] text-fg-secondary">{emp.groups.length ? emp.groups.join(' · ') : '—'}</div>
-                </div>
+              {/* role + scope (read-only here — edit in the Access tab) */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {[
+                  ['Role', emp.role.toUpperCase()],
+                  ['Scope', SCOPE_LABELS[emp.scopeType]],
+                  ['Groups', emp.groups.length ? emp.groups.join(', ') : '—'],
+                  ['Phones', emp.phones.length ? `${emp.phones.length}` : '—'],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
+                    <div className="mono text-[12px] text-white/75">{v}</div>
+                  </div>
+                ))}
               </div>
+              <button
+                type="button"
+                onClick={() => setTab('access')}
+                className="btn-ghost mono flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] uppercase tracking-wider"
+              >
+                <ShieldCheck size={11} /> {manageable ? 'Edit Access' : 'View Access'}
+              </button>
 
               {/* period summary */}
               <div>
@@ -414,34 +432,43 @@ function EmployeeDrawer({ emp, range, now, onClose }: {
                 )}
               </div>
 
-              {/* danger zone */}
-              <div className="flex gap-2 border-t border-line pt-4">
-                <button
-                  onClick={() => setSuspended(emp.id, !emp.suspended)}
-                  className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
-                >
-                  {emp.suspended ? <CheckCircle2 size={11} /> : <Ban size={11} />}
-                  {emp.suspended ? 'Reinstate' : 'Suspend Access'}
-                </button>
-                {!confirmRemove ? (
+              {/* danger zone — permission + invariant gated */}
+              {manageable && (
+                <div className="flex gap-2 border-t border-line pt-4">
                   <button
-                    onClick={() => setConfirmRemove(true)}
-                    disabled={emp.role === 'owner'}
-                    title={emp.role === 'owner' ? 'The workspace owner cannot be removed' : undefined}
-                    className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
+                    onClick={() => {
+                      setSuspended(emp.id, !emp.suspended)
+                      logAudit({ actor: actorName, action: emp.suspended ? 'employee.reinstated' : 'employee.suspended', target: emp.name, result: 'success' })
+                    }}
+                    className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
                   >
-                    <Trash2 size={11} /> Remove
+                    {emp.suspended ? <CheckCircle2 size={11} /> : <Ban size={11} />}
+                    {emp.suspended ? 'Reinstate' : 'Suspend Access'}
                   </button>
-                ) : (
-                  <button
-                    onClick={() => { removeEmployee(emp.id); onClose() }}
-                    className="mono flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error"
-                  >
-                    <Trash2 size={11} /> Confirm Remove
-                  </button>
-                )}
-              </div>
+                  {!confirmRemove ? (
+                    <button
+                      onClick={() => setConfirmRemove(true)}
+                      disabled={!removeCheck.ok}
+                      title={removeCheck.reason}
+                      className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
+                    >
+                      <Trash2 size={11} /> Remove
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { removeEmployee(emp.id); logAudit({ actor: actorName, action: 'employee.removed', target: emp.name, result: 'success' }); onClose() }}
+                      className="mono flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error"
+                    >
+                      <Trash2 size={11} /> Confirm Remove
+                    </button>
+                  )}
+                </div>
+              )}
             </>
+          )}
+
+          {tab === 'access' && (
+            <EmployeeAccessTab employee={emp} actor={actor} actorName={actorName} />
           )}
 
           {tab === 'sessions' && (
@@ -551,77 +578,31 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─── Roles & permissions ─────────────────────────────────────────────────────
+// ─── Acting-as switcher ──────────────────────────────────────────────────────
+// No login exists in the SPA, so the operator chooses who they're acting as.
+// This is how the permission system is observable + testable; in production it
+// is replaced by the authenticated session and hidden.
 
-function RolesPanel() {
-  const { roles, employees, setRolePermissions } = useTeam()
-  const [activeRole, setActiveRole] = useState<RoleId>('manager')
-  const role = roles.find(r => r.id === activeRole)!
-  const usage = employees.filter(e => e.role === activeRole).length
-
-  const togglePerm = (p: PermissionId) => {
-    if (role.locked) return
-    const next = role.permissions.includes(p)
-      ? role.permissions.filter(x => x !== p)
-      : [...role.permissions, p]
-    setRolePermissions(role.id, next)
-  }
-
+function ActingSwitcher() {
+  const employees = useTeam((s) => s.employees)
+  const { employee } = useActingEmployee()
+  const setActingId = useSession((s) => s.setActingId)
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="w-52 shrink-0 border-r border-line py-3">
-        {roles.map(r => (
-          <button
-            key={r.id}
-            onClick={() => setActiveRole(r.id)}
-            className={[
-              'flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors',
-              activeRole === r.id ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/50 hover:bg-hover hover:text-white/80',
-            ].join(' ')}
-          >
-            <span className="mono text-[11px] uppercase tracking-wider">{r.name}</span>
-            <span className="mono text-[10px] text-white/25">{employees.filter(e => e.role === r.id).length}</span>
-          </button>
-        ))}
-      </div>
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="mb-4 flex items-center gap-3">
-          <ShieldCheck size={15} className="text-[var(--accent-text)]" />
-          <span className="text-sm font-medium text-white/85">{role.name}</span>
-          <span className="mono text-[10px] text-white/30">{usage} member{usage === 1 ? '' : 's'}</span>
-          {role.locked && <span className="mono border border-line px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/30">Locked — full access</span>}
-        </div>
-        <div className="grid grid-cols-2 gap-5">
-          {PERMISSION_GROUPS.map(g => (
-            <div key={g.group}>
-              <div className="label mb-2 text-fg-muted">{g.group}</div>
-              <div className="space-y-1">
-                {g.permissions.map(p => {
-                  const on = role.permissions.includes(p.id)
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => togglePerm(p.id)}
-                      disabled={role.locked}
-                      className={[
-                        'flex w-full items-center justify-between border px-3 py-2 text-left transition-colors',
-                        on ? 'border-[var(--accent-border)] bg-[var(--accent-soft)]' : 'border-line bg-transparent hover:bg-hover',
-                        role.locked ? 'cursor-not-allowed opacity-60' : '',
-                      ].join(' ')}
-                    >
-                      <span className="text-[11px] text-white/70">{p.label}</span>
-                      <span className={['mono text-[9px] uppercase', on ? 'text-[var(--accent-text)]' : 'text-white/25'].join(' ')}>
-                        {on ? 'Allowed' : 'Denied'}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <label className="flex items-center gap-1.5 rounded-lg border border-line bg-black/40 px-2.5 py-1.5" title="Preview the dashboard as a different role (no login in this build)">
+      <Eye size={11} className="text-white/35" />
+      <span className="mono text-[8px] uppercase tracking-widest text-white/30">Acting as</span>
+      <select
+        value={employee.id}
+        onChange={(e) => {
+          const next = employees.find((x) => x.id === e.target.value)
+          setActingId(e.target.value)
+          logAudit({ actor: employee.name, action: 'acting.switched', target: next?.name, detail: next?.role, result: 'success' })
+        }}
+        className="mono cursor-pointer bg-transparent text-[10px] uppercase tracking-wider text-white/80 outline-none"
+      >
+        {employees.map((e) => <option key={e.id} value={e.id} className="bg-elevated">{e.name} · {e.role}</option>)}
+      </select>
+    </label>
   )
 }
 
@@ -629,9 +610,13 @@ function RolesPanel() {
 
 export function TeamView() {
   const employees = useTeam(s => s.employees)
+  const { member: actor, employee: actorEmployee } = useActingEmployee()
+  const allMembers = useMemo(() => employees.map(toMember), [employees])
   const [tab, setTab] = useState<'people' | 'roles'>('people')
   const [openId, setOpenId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const canInvite = can(actor, 'team.invite')
+  const canSeeRoles = can(actor, 'roles.view')
 
   // Shared date-range state — every historical widget reads this one range.
   const [rangeKey, setRangeKey] = useState<RangeKey>('today')
@@ -662,11 +647,14 @@ export function TeamView() {
           <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Team</h1>
         </div>
         <div className="flex items-center gap-2">
+          <ActingSwitcher />
           {tab === 'people' && (
             <RangeControl rangeKey={rangeKey} setRangeKey={setRangeKey} custom={custom} setCustom={setCustom} />
           )}
           <div className="flex items-center gap-1 rounded-lg border border-line bg-black/40 p-1">
-            {([['people', 'People', Users], ['roles', 'Roles', ShieldCheck]] as const).map(([id, label, Icon]) => (
+            {([['people', 'People', Users], ['roles', 'Roles & Permissions', ShieldCheck]] as const)
+              .filter(([id]) => id === 'people' || canSeeRoles)
+              .map(([id, label, Icon]) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
@@ -679,9 +667,11 @@ export function TeamView() {
               </button>
             ))}
           </div>
-          <button onClick={() => setAdding(true)} className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest">
-            <Plus size={12} /> Add Employee
-          </button>
+          {canInvite && (
+            <button onClick={() => setAdding(true)} className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest">
+              <Plus size={12} /> Add Employee
+            </button>
+          )}
         </div>
       </div>
 
@@ -701,7 +691,7 @@ export function TeamView() {
               <thead className="sticky top-0 z-10 bg-black">
                 <tr className="border-b border-line">
                   {[
-                    { h: 'EMPLOYEE' }, { h: 'ROLE' },
+                    { h: 'EMPLOYEE' }, { h: 'ROLE' }, { h: 'ACCESS' },
                     { h: 'SHIFT', live: true }, { h: 'CURRENT PHONE', live: true },
                     { h: 'HOURS' }, { h: 'ACTIVE' }, { h: 'BREAK' }, { h: 'SHIFTS' }, { h: 'PHONES' }, { h: 'JOBS' }, { h: '' },
                   ].map(({ h, live }) => (
@@ -734,6 +724,13 @@ export function TeamView() {
                         </span>
                       </td>
                       <td className="mono px-4 py-3 text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
+                      <td className="px-4 py-3">
+                        {e.suspended ? (
+                          <span className="mono text-[9px] uppercase tracking-wider text-status-error">Suspended</span>
+                        ) : (
+                          <span className="mono text-[9px] uppercase tracking-wider text-white/40">{SCOPE_LABELS[e.scopeType]}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-1.5">
                           <span className={`h-1.5 w-1.5 rounded-full ${e.shiftStatus === 'on-shift' ? 'status-dot-pulse' : ''}`} style={{ background: meta.color }} />
@@ -773,11 +770,22 @@ export function TeamView() {
           </div>
         </>
       ) : (
-        <RolesPanel />
+        <PermissionMatrix actor={actor} actorName={actorEmployee.name} />
       )}
 
       <AnimatePresence>
-        {openEmp && <EmployeeDrawer key={openEmp.id} emp={openEmp} range={range} now={now} onClose={() => setOpenId(null)} />}
+        {openEmp && (
+          <EmployeeDrawer
+            key={openEmp.id}
+            emp={openEmp}
+            range={range}
+            now={now}
+            actor={actor}
+            actorName={actorEmployee.name}
+            allMembers={allMembers}
+            onClose={() => setOpenId(null)}
+          />
+        )}
         {adding && <AddEmployeeModal key="add" onClose={() => setAdding(false)} />}
       </AnimatePresence>
     </div>

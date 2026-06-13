@@ -12,6 +12,8 @@ import { GRID_APPS, DOCK_APPS, ALL_APPS, type AppDef } from './app-catalog'
 
 // ─── Imperative control surface ──────────────────────────────────────────────
 
+export type SwipeDir = 'up' | 'down' | 'left' | 'right'
+
 export interface LivePhoneHandle {
   home: () => void
   back: () => void
@@ -19,9 +21,12 @@ export interface LivePhoneHandle {
   screenshot: () => void
   switcher: () => void
   launchApp: (name: string) => void
+  swipe: (dir: SwipeDir) => void
+  tapCenter: () => void
 }
 
 interface Ripple { x: number; y: number; id: number }
+interface SwipeViz { dir: SwipeDir; id: number }
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -260,8 +265,10 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   job?: Job | null
   width?: number
   gesture?: string
+  /** When true, direct screen interaction is disabled (no control permission). */
+  readOnly?: boolean
   onLog: (level: LogLevel, text: string) => void
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', onLog }, ref) {
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog }, ref) {
   const f = width / 260
   const screenH = Math.round(width * 1.95)
   const clock = useClock()
@@ -272,6 +279,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   const [recents, setRecents] = useState<string[]>([])
   const [flash, setFlash] = useState(false)
   const [ripple, setRipple] = useState<Ripple | null>(null)
+  const [swipeViz, setSwipeViz] = useState<SwipeViz | null>(null)
 
   const statusColor = STATUS[device.status].color
   const interactive = awake && (device.status === 'online' || device.status === 'busy')
@@ -315,10 +323,23 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
     onLog('info', 'app switcher')
   }, [onLog])
 
-  useImperativeHandle(ref, () => ({ home, back, lock, screenshot, switcher, launchApp }),
-    [home, back, lock, screenshot, switcher, launchApp])
+  const swipe = useCallback((dir: SwipeDir) => {
+    if (!awake) return
+    setSwipeViz({ dir, id: Date.now() })
+    onLog('info', `swipe ${dir}`)
+  }, [awake, onLog])
+
+  const tapCenter = useCallback(() => {
+    if (!awake) { lock(); return }
+    setRipple({ x: Math.round(width / 2), y: Math.round(screenH / 2), id: Date.now() })
+    onLog('info', 'tap (center)')
+  }, [awake, lock, onLog, width, screenH])
+
+  useImperativeHandle(ref, () => ({ home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter }),
+    [home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter])
 
   const tap = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
     const r = e.currentTarget.getBoundingClientRect()
     const x = Math.round(e.clientX - r.left)
     const y = Math.round(e.clientY - r.top)
@@ -471,6 +492,28 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
                 onAnimationComplete={() => setRipple(null)}
               />
             )}
+          </AnimatePresence>
+
+          {/* directional swipe trail (D-pad / gesture feedback) */}
+          <AnimatePresence>
+            {swipeViz && (() => {
+              const dist = Math.min(width, screenH) * 0.34
+              const vec = {
+                up:    { x: 0, y: -dist }, down: { x: 0, y: dist },
+                left:  { x: -dist, y: 0 }, right: { x: dist, y: 0 },
+              }[swipeViz.dir]
+              return (
+                <motion.span
+                  key={swipeViz.id}
+                  className="pointer-events-none absolute left-1/2 top-1/2 z-30 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                  style={{ background: 'rgba(79,195,247,0.9)', boxShadow: '0 0 14px 3px rgba(79,195,247,0.45)' }}
+                  initial={{ x: -vec.x * 0.5, y: -vec.y * 0.5, opacity: 0, scale: 0.6 }}
+                  animate={{ x: vec.x * 0.5, y: vec.y * 0.5, opacity: [0, 1, 1, 0], scale: 1 }}
+                  transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+                  onAnimationComplete={() => setSwipeViz(null)}
+                />
+              )
+            })()}
           </AnimatePresence>
 
           {/* screenshot flash */}

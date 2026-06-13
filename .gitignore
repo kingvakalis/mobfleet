@@ -27,6 +27,12 @@ dist-ssr
 
 # Local dev screenshots
 .shots
+screenshots
+
+# Playwright
+test-results
+playwright-report
+.playwright
 
 # Server (env + local SQLite db; migrations ARE committed)
 .env

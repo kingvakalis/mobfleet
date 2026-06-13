@@ -5,6 +5,8 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFleet } from '@/hooks/use-fleet'
 import { useUIStore } from '@/state/ui-store'
+import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
 import type { Job, JobStatus } from '@/lib/provider/types'
 import { cn } from '@/lib/utils'
 import { JobsTable } from './jobs-table'
@@ -60,19 +62,33 @@ export function JobsView() {
   const snapshot = useFleet()
   const [filter, setFilter] = useState<Filter>('all')
   const openSubmit = useUIStore((s) => s.openSubmit)
+  const { member } = useActingEmployee()
+  const scopedDevices = useScopedDevices()
+  const canDispatch = can(member, 'automations.run')
+  const canViewAll = can(member, 'jobs.view_all')
+
+  // Scope: a job is visible if the user can view all jobs, or it targets a phone
+  // within their scope. Same predicate must run server-side.
+  const allowedDeviceIds = useMemo(() => new Set(scopedDevices.map((d) => d.id)), [scopedDevices])
+  const inScope = useMemo(
+    () => (j: Job) => canViewAll || (j.deviceId != null && allowedDeviceIds.has(j.deviceId)),
+    [canViewAll, allowedDeviceIds],
+  )
+
+  const scopedJobs = useMemo(() => snapshot.jobs.filter(inScope), [snapshot.jobs, inScope])
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = { all: 0, active: 0, done: 0, failed: 0 }
-    for (const j of snapshot.jobs) {
+    for (const j of scopedJobs) {
       for (const f of FILTERS) if (f.match(j.status)) c[f.id]++
     }
     return c
-  }, [snapshot.jobs])
+  }, [scopedJobs])
 
   const rows = useMemo(() => {
     const f = FILTERS.find((x) => x.id === filter)!
-    return snapshot.jobs.filter((j) => f.match(j.status)).sort(sortJobs)
-  }, [snapshot.jobs, filter])
+    return scopedJobs.filter((j) => f.match(j.status)).sort(sortJobs)
+  }, [scopedJobs, filter])
 
   return (
     <div className="flex h-full flex-col">
@@ -81,7 +97,7 @@ export function JobsView() {
           <Label className="text-fg">Job Pipeline</Label>
           <FilterTabs value={filter} onChange={setFilter} counts={counts} />
         </div>
-        <Button variant="primary" size="sm" onClick={() => openSubmit()}>
+        <Button variant="primary" size="sm" onClick={() => openSubmit()} disabled={!canDispatch} title={canDispatch ? undefined : 'Requires run-automation permission'}>
           <Plus size={14} /> Dispatch Job
         </Button>
       </div>
@@ -98,9 +114,11 @@ export function JobsView() {
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <Label className="text-fg-muted">No {filter === 'all' ? '' : filter} jobs</Label>
-            <Button variant="outline" size="sm" onClick={() => openSubmit()}>
-              <Plus size={14} /> Dispatch one
-            </Button>
+            {canDispatch && (
+              <Button variant="outline" size="sm" onClick={() => openSubmit()}>
+                <Plus size={14} /> Dispatch one
+              </Button>
+            )}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, RotateCcw, Save, Monitor, Gauge, Bell, Building2, Palette, PanelLeft, Anchor } from 'lucide-react'
+import { Check, RotateCcw, Save, Monitor, Gauge, Bell, Building2, Palette, PanelLeft, Anchor, Lock } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { THEMES, ACCENTS, appearanceStyle, type ThemeId, type AccentId } from '@/lib/themes'
 import {
@@ -8,6 +8,9 @@ import {
   type WorkspaceSettings, type PerformanceMode, type MotionPref,
   type SurfaceStyle, type BackgroundIntensity, type Density, type SidebarMode,
 } from '@/state/settings-store'
+import { useActingEmployee } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
+import { logAudit } from '@/services/audit'
 
 /**
  * Workspace settings. Every control here is consumed by real app logic:
@@ -24,8 +27,10 @@ import {
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof WorkspaceSettings)[]
 
-function Section({ icon: Icon, title, desc, children, wide }: {
+function Section({ icon: Icon, title, desc, children, wide, locked }: {
   icon: typeof Monitor; title: string; desc: string; children: React.ReactNode; wide?: boolean
+  /** When true, every control inside is disabled (insufficient permission). */
+  locked?: boolean
 }) {
   return (
     <div className={`card-surface p-5 ${wide ? 'lg:col-span-2' : ''}`}>
@@ -33,12 +38,16 @@ function Section({ icon: Icon, title, desc, children, wide }: {
         <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-line bg-black/40">
           <Icon size={14} className="text-[var(--accent-text)]" />
         </div>
-        <div>
-          <div className="text-[13px] font-medium text-white/85">{title}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[13px] font-medium text-white/85">
+            {title}
+            {locked && <span className="mono flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[8px] uppercase tracking-wider text-white/35"><Lock size={8} /> Read-only</span>}
+          </div>
           <div className="mt-0.5 text-[11px] text-white/35">{desc}</div>
         </div>
       </div>
-      <div className="space-y-4">{children}</div>
+      {/* fieldset[disabled] natively disables every control inside the section */}
+      <fieldset disabled={locked} className={`space-y-4 border-0 p-0 m-0 ${locked ? 'opacity-50' : ''}`}>{children}</fieldset>
     </div>
   )
 }
@@ -176,6 +185,13 @@ function AppearancePreview({ draft }: { draft: WorkspaceSettings }) {
 
 export function SettingsView() {
   const store = useSettings()
+  const { employee, member } = useActingEmployee()
+  // Per-section edit permissions.
+  const canWorkspace  = can(member, 'settings.edit_workspace')
+  const canAppearance = can(member, 'settings.edit_appearance')
+  const canDevice     = can(member, 'settings.edit_device')
+  const canSecurity   = can(member, 'settings.edit_security')
+  const canEditAny    = canWorkspace || canAppearance || canDevice || canSecurity
   const [draft, setDraft] = useState<WorkspaceSettings>(() => {
     const d = {} as Record<string, unknown>
     for (const k of SETTING_KEYS) d[k] = store[k]
@@ -199,8 +215,10 @@ export function SettingsView() {
     setDraft(d => ({ ...d, [k]: v }))
 
   const save = () => {
-    if (!valid) return
+    if (!valid || !canEditAny) return
     store.update(draft)
+    const changed = SETTING_KEYS.filter((k) => draft[k] !== store[k])
+    logAudit({ actor: employee.name, action: 'settings.changed', target: 'Workspace settings', detail: changed.join(', '), result: 'success' })
     setSaved(true)
   }
 
@@ -225,15 +243,17 @@ export function SettingsView() {
           </AnimatePresence>
           <button
             onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"
+            disabled={!canEditAny}
+            title={canEditAny ? undefined : 'You do not have permission to edit settings'}
+            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <RotateCcw size={11} /> Defaults
           </button>
           <button
             onClick={save}
-            disabled={!dirty || !valid}
-            title={!valid ? 'Fix validation errors first' : undefined}
-            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest"
+            disabled={!dirty || !valid || !canEditAny}
+            title={!canEditAny ? 'You do not have permission to edit settings' : !valid ? 'Fix validation errors first' : undefined}
+            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saved ? <Check size={12} /> : <Save size={12} />} {saved ? 'Saved' : 'Save'}
           </button>
@@ -247,7 +267,7 @@ export function SettingsView() {
           className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2"
         >
           {/* ── Appearance ─────────────────────────────────────────────────── */}
-          <Section icon={Palette} title="Appearance" desc="Theme, accent, surfaces, and density — applied across the entire console." wide>
+          <Section icon={Palette} title="Appearance" desc="Theme, accent, surfaces, and density — applied across the entire console." wide locked={!canAppearance}>
             <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
               <div className="space-y-4">
                 <div>
@@ -383,7 +403,7 @@ export function SettingsView() {
             </div>
           </Section>
 
-          <Section icon={Building2} title="Workspace" desc="Identity shown across the console.">
+          <Section icon={Building2} title="Workspace" desc="Identity shown across the console." locked={!canWorkspace}>
             <Field label="Workspace name">
               <input
                 value={draft.workspaceName}
@@ -412,7 +432,7 @@ export function SettingsView() {
             </Field>
           </Section>
 
-          <Section icon={Gauge} title="Device Control" desc="Defaults applied when opening a phone-control session.">
+          <Section icon={Gauge} title="Device Control" desc="Defaults applied when opening a phone-control session." locked={!canDevice}>
             <Field label="Default stream quality" hint="0–100">
               <input
                 type="number" min={0} max={100}
@@ -446,7 +466,7 @@ export function SettingsView() {
             </Field>
           </Section>
 
-          <Section icon={Bell} title="Notifications" desc="Live event surfacing across the console.">
+          <Section icon={Bell} title="Notifications" desc="Live event surfacing across the console." locked={!canAppearance}>
             <Field label="Live activity feed" hint="Stream fleet events into the Fleet activity panel">
               <Toggle on={draft.activityNotifications} onChange={v => set('activityNotifications', v)} label="Live activity feed" />
             </Field>
@@ -456,7 +476,7 @@ export function SettingsView() {
             </p>
           </Section>
 
-          <Section icon={PanelLeft} title="Shortcuts" desc="Keyboard access to layout controls.">
+          <Section icon={PanelLeft} title="Shortcuts" desc="Keyboard access to layout controls." locked={!canAppearance}>
             <div className="space-y-2">
               {[
                 ['Ctrl / Cmd + B', 'Toggle sidebar (or open auto-hidden menu)'],

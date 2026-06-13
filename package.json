@@ -10,7 +10,10 @@
     "dev:all": "concurrently -k -n web,api -c blue,magenta \"npm:dev:web\" \"npm:dev:api\"",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "playwright test",
+    "test:engine": "playwright test --project=engine",
+    "test:e2e": "playwright test --project=e2e"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",

@@ -1,82 +1,44 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { ROLE_TEMPLATES, type RoleId } from '@/lib/authorization/roles'
+import type { PermissionKey } from '@/lib/authorization/permissions'
+import type { ScopeType, AccessScope } from '@/lib/authorization/scopes'
+import type { Member, OverrideEffect } from '@/lib/authorization/effective-access'
 
 /**
- * Team, roles, shifts, and per-phone time tracking.
+ * Team, roles, shifts, per-phone time tracking, and per-employee access.
  *
  * HONESTY NOTE / BACKEND INTEGRATION POINT
  * ----------------------------------------
- * The current backend has no employee/session resources, so this service owns
- * a typed contract + local persistence (zustand/persist). Shift and session
- * records here are controlled development data: real events the UI *would*
- * receive — `shift.started`, `shift.ended`, `break.started`, `break.ended`,
- * `phone.session.started`, `phone.session.ended` — are documented on each
- * action below. Wire those actions to the server and the UI is unchanged.
- *
- * "Time on a phone" = an explicit control session (operator opened control),
- * ended on exit / shift end. It is NOT merely having a tab open.
+ * The deployed SPA has no auth/session/employee backend, so this service owns
+ * the typed contract + local persistence (zustand/persist). Roles, permission
+ * overrides, and resource scopes here are the SAME shape the server would
+ * persist (see lib/authorization + DEPLOY.md). Authorization is computed by the
+ * shared engine in lib/authorization and enforced at the `client` seam + UI
+ * guards; wire the engine into the Fastify/Prisma backend for true server
+ * enforcement — the contract does not change.
  */
 
-export type RoleId = 'owner' | 'admin' | 'manager' | 'operator' | 'viewer'
-
-export type PermissionId =
-  | 'phones.view' | 'phones.control' | 'phones.reboot' | 'phones.assign'
-  | 'automations.run' | 'automations.edit'
-  | 'accounts.view' | 'accounts.reveal'
-  | 'groups.manage' | 'team.manage' | 'reports.view' | 'settings.manage'
-
-export const PERMISSION_GROUPS: { group: string; permissions: { id: PermissionId; label: string }[] }[] = [
-  {
-    group: 'Phones',
-    permissions: [
-      { id: 'phones.view',    label: 'View phones' },
-      { id: 'phones.control', label: 'Control phones' },
-      { id: 'phones.reboot',  label: 'Reboot phones' },
-      { id: 'phones.assign',  label: 'Assign phones' },
-    ],
-  },
-  {
-    group: 'Automations',
-    permissions: [
-      { id: 'automations.run',  label: 'Run automations' },
-      { id: 'automations.edit', label: 'Edit automations' },
-    ],
-  },
-  {
-    group: 'Accounts',
-    permissions: [
-      { id: 'accounts.view',   label: 'View account database' },
-      { id: 'accounts.reveal', label: 'Reveal protected data' },
-    ],
-  },
-  {
-    group: 'Administration',
-    permissions: [
-      { id: 'groups.manage',   label: 'Manage groups' },
-      { id: 'team.manage',     label: 'Manage employees' },
-      { id: 'reports.view',    label: 'View reports' },
-      { id: 'settings.manage', label: 'Change settings' },
-    ],
-  },
-]
-
-const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.permissions.map(p => p.id))
+export type { RoleId, PermissionKey }
 
 export interface Role {
   id: RoleId
   name: string
-  permissions: PermissionId[]
-  /** Owner/admin roles cannot be edited or removed from the UI. */
+  description: string
+  rank: number
+  permissions: PermissionKey[]
+  /** Owner/admin permission sets are locked. */
   locked?: boolean
 }
 
-export const DEFAULT_ROLES: Role[] = [
-  { id: 'owner',    name: 'Owner',    permissions: [...ALL_PERMISSIONS], locked: true },
-  { id: 'admin',    name: 'Admin',    permissions: [...ALL_PERMISSIONS], locked: true },
-  { id: 'manager',  name: 'Manager',  permissions: ['phones.view', 'phones.control', 'phones.reboot', 'phones.assign', 'automations.run', 'automations.edit', 'accounts.view', 'groups.manage', 'reports.view'] },
-  { id: 'operator', name: 'Operator', permissions: ['phones.view', 'phones.control', 'automations.run', 'accounts.view'] },
-  { id: 'viewer',   name: 'Viewer',   permissions: ['phones.view', 'reports.view'] },
-]
+export const DEFAULT_ROLES: Role[] = (Object.values(ROLE_TEMPLATES)).map((t) => ({
+  id: t.id,
+  name: t.name,
+  description: t.description,
+  rank: t.rank,
+  permissions: [...t.permissions],
+  locked: t.locked,
+}))
 
 export type ShiftStatus = 'on-shift' | 'on-break' | 'offline' | 'completed'
 
@@ -105,6 +67,12 @@ export interface Employee {
   email: string
   role: RoleId
   groups: string[]
+  /** Phone names in the member's phone scope (for assigned_phones scope). */
+  phones: string[]
+  /** Resource scope type — how groups/phones constrain visibility. */
+  scopeType: ScopeType
+  /** Per-permission overrides layered on the role (inherit = absent). */
+  overrides: Partial<Record<PermissionKey, OverrideEffect>>
   createdAt: number
   suspended?: boolean
   shiftStatus: ShiftStatus
@@ -163,40 +131,56 @@ function seedEmployees(): Employee[] {
   return [
     {
       id: 'emp-01', name: 'A. Rivera', email: 'a.rivera@mobfleet.io', role: 'owner',
-      groups: ['Carolina', 'Instagram Farm'], createdAt: now - 220 * 24 * HOUR,
+      groups: ['Carolina', 'Instagram Farm'], phones: [], scopeType: 'workspace', overrides: {},
+      createdAt: now - 220 * 24 * HOUR,
       shiftStatus: 'on-shift', shiftStart: now - 3.4 * HOUR, breakStart: null, breakMinutesToday: 18,
       currentPhone: 'CAROLINA 1', currentSessionStart: now - 0.6 * HOUR, lastActivity: now - 50_000,
       history: seedHistory(1, ['CAROLINA 1', 'CAROLINA 2', 'IG FARM 1']),
     },
     {
       id: 'emp-02', name: 'M. Chen', email: 'm.chen@mobfleet.io', role: 'manager',
-      groups: ['TikTok Farm', 'Warmup Pool'], createdAt: now - 160 * 24 * HOUR,
+      groups: ['TikTok Farm', 'Warmup Pool'], phones: [], scopeType: 'assigned_groups', overrides: {},
+      createdAt: now - 160 * 24 * HOUR,
       shiftStatus: 'on-shift', shiftStart: now - 5.1 * HOUR, breakStart: null, breakMinutesToday: 32,
       currentPhone: 'TIKTOK 2', currentSessionStart: now - 1.2 * HOUR, lastActivity: now - 120_000,
       history: seedHistory(2, ['TIKTOK 1', 'TIKTOK 2', 'WARMUP 3']),
     },
     {
       id: 'emp-03', name: 'K. Novak', email: 'k.novak@mobfleet.io', role: 'operator',
-      groups: ['Backup'], createdAt: now - 90 * 24 * HOUR,
+      groups: ['Backup'], phones: ['BACKUP 1', 'BACKUP 2'], scopeType: 'assigned_phones', overrides: {},
+      createdAt: now - 90 * 24 * HOUR,
       shiftStatus: 'on-break', shiftStart: now - 2.2 * HOUR, breakStart: now - 9 * 60_000, breakMinutesToday: 9,
       currentPhone: null, currentSessionStart: null, lastActivity: now - 9 * 60_000,
       history: seedHistory(3, ['BACKUP 1', 'BACKUP 2']),
     },
     {
       id: 'emp-04', name: 'S. Petrov', email: 's.petrov@mobfleet.io', role: 'operator',
-      groups: ['Lucia', 'Warmup Pool'], createdAt: now - 45 * 24 * HOUR,
+      groups: ['Lucia', 'Warmup Pool'], phones: ['LUCIA 1', 'LUCIA 2', 'WARMUP 1'], scopeType: 'assigned_phones', overrides: {},
+      createdAt: now - 45 * 24 * HOUR,
       shiftStatus: 'offline', shiftStart: null, breakStart: null, breakMinutesToday: 0,
       currentPhone: null, currentSessionStart: null, lastActivity: now - 14 * HOUR,
       history: seedHistory(4, ['LUCIA 1', 'LUCIA 2', 'WARMUP 1']),
     },
     {
       id: 'emp-05', name: 'J. Okafor', email: 'j.okafor@mobfleet.io', role: 'viewer',
-      groups: [], createdAt: now - 12 * 24 * HOUR,
+      groups: [], phones: [], scopeType: 'workspace', overrides: {},
+      createdAt: now - 12 * 24 * HOUR,
       shiftStatus: 'completed', shiftStart: null, breakStart: null, breakMinutesToday: 41,
       currentPhone: null, currentSessionStart: null, lastActivity: now - 1.5 * HOUR,
       history: seedHistory(5, ['IG FARM 3']),
     },
   ]
+}
+
+/** Adapt an Employee to the authorization engine's Member shape. */
+export function toMember(e: Employee): Member {
+  return {
+    id: e.id,
+    role: e.role,
+    suspended: e.suspended,
+    overrides: e.overrides ?? {},
+    scope: { type: e.scopeType ?? 'workspace', groups: e.groups ?? [], phones: e.phones ?? [] } as AccessScope,
+  }
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -208,7 +192,9 @@ interface TeamState {
   /** event: employee.created */
   addEmployee: (e: { name: string; email: string; role: RoleId; groups: string[] }) => void
   /** event: employee.updated */
-  updateEmployee: (id: string, patch: Partial<Pick<Employee, 'name' | 'email' | 'role' | 'groups'>>) => void
+  updateEmployee: (id: string, patch: Partial<Pick<Employee, 'name' | 'email' | 'role' | 'groups' | 'phones' | 'scopeType'>>) => void
+  /** event: permission.override.set — null clears the override (inherit). */
+  setOverride: (id: string, key: PermissionKey, effect: OverrideEffect | null) => void
   /** event: employee.suspended / employee.reinstated */
   setSuspended: (id: string, suspended: boolean) => void
   /** event: employee.removed */
@@ -220,7 +206,7 @@ interface TeamState {
   /** events: break.started / break.ended */
   toggleBreak: (id: string) => void
   /** event: role.permissions.updated */
-  setRolePermissions: (roleId: RoleId, permissions: PermissionId[]) => void
+  setRolePermissions: (roleId: RoleId, permissions: PermissionKey[]) => void
 }
 
 export const useTeam = create<TeamState>()(
@@ -236,6 +222,9 @@ export const useTeam = create<TeamState>()(
             {
               id: 'emp-' + Math.random().toString(36).slice(2, 8),
               name, email, role, groups,
+              phones: [],
+              scopeType: role === 'owner' || role === 'admin' ? 'workspace' : role === 'operator' ? 'assigned_phones' : 'assigned_groups',
+              overrides: {},
               createdAt: Date.now(),
               shiftStatus: 'offline' as const,
               shiftStart: null, breakStart: null, breakMinutesToday: 0,
@@ -248,6 +237,17 @@ export const useTeam = create<TeamState>()(
 
       updateEmployee: (id, patch) =>
         set((s) => ({ employees: s.employees.map((e) => (e.id === id ? { ...e, ...patch } : e)) })),
+
+      setOverride: (id, key, effect) =>
+        set((s) => ({
+          employees: s.employees.map((e) => {
+            if (e.id !== id) return e
+            const overrides = { ...e.overrides }
+            if (effect === null) delete overrides[key]
+            else overrides[key] = effect
+            return { ...e, overrides }
+          }),
+        })),
 
       setSuspended: (id, suspended) =>
         set((s) => ({ employees: s.employees.map((e) => (e.id === id ? { ...e, suspended } : e)) })),
@@ -310,8 +310,8 @@ export const useTeam = create<TeamState>()(
           roles: s.roles.map((r) => (r.id === roleId && !r.locked ? { ...r, permissions } : r)),
         })),
     }),
-    // v2: 30-day seeded shift history for date-range aggregation.
-    { name: 'mobfleet-team-v2' },
+    // v3: adds resource scope + per-permission overrides per employee.
+    { name: 'mobfleet-team-v3' },
   ),
 )
 

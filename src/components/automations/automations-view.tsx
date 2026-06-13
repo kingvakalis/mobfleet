@@ -3,6 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Play, Pause, Plus, X, Trash2, ArrowUp, ArrowDown, Pencil, Copy } from 'lucide-react'
 import { useAutomations } from '@/hooks/use-automations'
 import { useUIStore } from '@/state/ui-store'
+import { useActingEmployee } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
+import { logAudit } from '@/services/audit'
 import { EXPO_OUT, fadeRise, staggerContainer } from '@/lib/motion'
 import {
   useAutomationLocal, STEP_META, defaultSteps, newStepId,
@@ -213,6 +216,11 @@ export function AutomationsView() {
   const providerList = useAutomations()
   const { paused, custom, togglePaused, removeCustom } = useAutomationLocal()
   const openSubmit = useUIStore(s => s.openSubmit)
+  const { employee, member } = useActingEmployee()
+  const canCreate = can(member, 'automations.create')
+  const canRun    = can(member, 'automations.run')
+  const canEdit   = can(member, 'automations.edit')
+  const canDelete = can(member, 'automations.delete')
   const [search, setSearch] = useState('')
   const [builder, setBuilder] = useState<{ open: boolean; editing: CustomAutomation | null }>({ open: false, editing: null })
 
@@ -263,7 +271,9 @@ export function AutomationsView() {
         </div>
         <button
           onClick={() => setBuilder({ open: true, editing: null })}
-          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest"
+          disabled={!canCreate}
+          title={canCreate ? 'Create a new automation' : 'Requires create permission'}
+          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} /> New Automation
         </button>
@@ -335,50 +345,57 @@ export function AutomationsView() {
               <div className="flex gap-1.5 border-t border-line pt-2">
                 <button
                   type="button"
-                  onClick={() => togglePaused(a.id)}
+                  disabled={!canEdit}
+                  title={canEdit ? undefined : 'Requires edit permission'}
+                  onClick={() => { togglePaused(a.id); logAudit({ actor: employee.name, action: 'automation.edited', target: a.name, detail: a.paused ? 'resumed' : 'paused', result: 'success' }) }}
                   className={[
-                    'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] transition-colors',
+                    'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-35',
                     !a.paused
-                      ? 'bg-amber-400/10 text-amber-400 hover:bg-amber-400/20'
-                      : 'bg-emerald-400/10 text-emerald-400 hover:bg-emerald-400/20',
+                      ? 'bg-amber-400/10 text-amber-400 enabled:hover:bg-amber-400/20'
+                      : 'bg-emerald-400/10 text-emerald-400 enabled:hover:bg-emerald-400/20',
                   ].join(' ')}
                 >
                   {!a.paused ? <><Pause size={10} /> Pause</> : <><Play size={10} /> Resume</>}
                 </button>
                 <button
                   type="button"
-                  disabled={a.paused}
-                  title={a.paused ? 'Resume the automation to run it' : undefined}
-                  onClick={() => openSubmit(a.custom ? undefined : a.id)}
+                  disabled={a.paused || !canRun}
+                  title={!canRun ? 'Requires run permission' : a.paused ? 'Resume the automation to run it' : undefined}
+                  onClick={() => { openSubmit(a.custom ? undefined : a.id); logAudit({ actor: employee.name, action: 'automation.run', target: a.name, result: 'success' }) }}
                   className="btn-accent flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] disabled:opacity-35 disabled:cursor-not-allowed"
                 >
                   <Play size={10} /> Run Now
                 </button>
                 {a.custom ? (
                   <>
-                    <button
-                      type="button"
-                      title="Edit"
-                      onClick={() => setBuilder({ open: true, editing: custom.find(c => c.id === a.id) ?? null })}
-                      className="btn-ghost flex items-center justify-center rounded-lg px-2.5"
-                    >
-                      <Pencil size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Delete"
-                      onClick={() => { if (window.confirm(`Delete "${a.name}"?`)) removeCustom(a.id) }}
-                      className="flex items-center justify-center rounded-lg border border-status-error/25 px-2.5 text-status-error transition-colors hover:bg-status-error/10"
-                    >
-                      <Trash2 size={11} />
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        title="Edit"
+                        onClick={() => setBuilder({ open: true, editing: custom.find(c => c.id === a.id) ?? null })}
+                        className="btn-ghost flex items-center justify-center rounded-lg px-2.5"
+                      >
+                        <Pencil size={11} />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        title="Delete"
+                        onClick={() => { if (window.confirm(`Delete "${a.name}"?`)) { removeCustom(a.id); logAudit({ actor: employee.name, action: 'automation.deleted', target: a.name, result: 'success' }) } }}
+                        className="flex items-center justify-center rounded-lg border border-status-error/25 px-2.5 text-status-error transition-colors hover:bg-status-error/10"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
                   </>
                 ) : (
                   <button
                     type="button"
-                    title="Duplicate as custom automation"
+                    disabled={!canCreate}
+                    title={canCreate ? 'Duplicate as custom automation' : 'Requires create permission'}
                     onClick={() => duplicate(a)}
-                    className="btn-ghost flex items-center justify-center rounded-lg px-2.5"
+                    className="btn-ghost flex items-center justify-center rounded-lg px-2.5 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Copy size={11} />
                   </button>

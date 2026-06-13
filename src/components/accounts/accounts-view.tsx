@@ -3,13 +3,16 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, Upload, Download, Search, Eye, EyeOff, Copy, Check,
   ChevronDown, ChevronRight, X, Camera, Music2,
-  ShieldCheck, ShieldOff, Trash2, Pencil, Cpu, Tag,
+  ShieldCheck, ShieldOff, Trash2, Pencil, Cpu, Tag, Lock,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { useFleet } from '@/hooks/use-fleet'
 import { useTeam } from '@/services/team'
 import { useToastStore } from '@/state/toast-store'
 import { useUIStore } from '@/state/ui-store'
+import { useActingEmployee } from '@/lib/authorization/use-access'
+import { can, groupInScope, type Member } from '@/lib/authorization'
+import { logAudit } from '@/services/audit'
 import {
   useAccounts, relTime, parseAccountsCsv, ACCOUNT_STATUSES, ACCOUNT_STATUS_COLOR,
   type Account, type AccountInput, type AccountStatus, type Platform,
@@ -36,8 +39,18 @@ function StatusPill({ status }: { status: AccountStatus }) {
   )
 }
 
-/** Masked credential cell: explicit reveal, auto re-mask, copy feedback. */
-function RevealCell({ value }: { value: string }) {
+/**
+ * Masked credential cell. Sensitive values stay masked by default; reveal and
+ * copy are gated by an explicit permission and EVERY reveal/copy is written to
+ * the security audit log. Without permission the value cannot be unmasked.
+ */
+function RevealCell({ value, canReveal, onAudit }: {
+  value: string
+  /** When false, the value can never be unmasked or copied. */
+  canReveal: boolean
+  /** Fired on reveal and on copy — wire to the audit log. */
+  onAudit?: (kind: 'reveal' | 'copy') => void
+}) {
   const [shown, setShown] = useState(false)
   const [copied, setCopied] = useState(false)
   const addToast = useToastStore((s) => s.addToast)
@@ -48,20 +61,38 @@ function RevealCell({ value }: { value: string }) {
     return () => clearTimeout(id)
   }, [shown])
 
+  if (!value) return <span className="mono text-[10px] text-white/20">—</span>
+
+  // No permission: permanently masked, with a lock affordance.
+  if (!canReveal) {
+    return (
+      <span className="flex items-center gap-1.5" title="You do not have permission to reveal this value">
+        <span className="mono text-[11px] text-white/35">••••••</span>
+        <Lock size={10} className="text-white/20" />
+      </span>
+    )
+  }
+
+  const reveal = () => {
+    setShown((v) => {
+      if (!v) onAudit?.('reveal')
+      return !v
+    })
+  }
   const copy = () => {
     navigator.clipboard.writeText(value).catch(() => {})
     setCopied(true)
+    onAudit?.('copy')
     addToast('Copied to clipboard', 'success', 1600)
     setTimeout(() => setCopied(false), 1200)
   }
 
-  if (!value) return <span className="mono text-[10px] text-white/20">—</span>
   return (
     <span className="group/cell flex items-center gap-1.5">
       <span className="mono text-[11px] text-white/50 transition-colors">{shown ? value : '••••••'}</span>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); setShown(v => !v) }}
+        onClick={(e) => { e.stopPropagation(); reveal() }}
         aria-label={shown ? 'Hide value' : 'Reveal value'}
         className="p-0.5 text-white/25 opacity-0 transition-all hover:text-white/60 group-hover/cell:opacity-100"
       >
@@ -164,6 +195,7 @@ function AccountModal({ initial, groups, owners, onClose }: {
 }) {
   const { add, update } = useAccounts()
   const addToast = useToastStore((s) => s.addToast)
+  const { employee: actorEmp } = useActingEmployee()
   const [form, setForm] = useState<AccountInput>(() => initial ?? {
     handle: '', platform: 'Instagram', username: '', email: '', password: '', phone: '',
     assignedPhone: null, group: groups[0] ?? 'Unassigned', owner: owners[0] ?? 'Unassigned',
@@ -183,6 +215,7 @@ function AccountModal({ initial, groups, owners, onClose }: {
     const clean = { ...form, handle: form.handle.startsWith('@') ? form.handle : '@' + form.handle }
     if (initial) update(initial.id, clean)
     else add(clean)
+    logAudit({ actor: actorEmp.name, action: initial ? 'account.updated' : 'account.created', target: clean.handle, result: 'success' })
     addToast(initial ? 'Account updated' : 'Account created', 'success')
     onClose()
   }
@@ -326,6 +359,7 @@ function AccountModal({ initial, groups, owners, onClose }: {
 function ImportModal({ onClose }: { onClose: () => void }) {
   const importMany = useAccounts((s) => s.importMany)
   const addToast = useToastStore((s) => s.addToast)
+  const { employee: actorEmp } = useActingEmployee()
   const [rows, setRows] = useState<AccountInput[] | null>(null)
   const [fileName, setFileName] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -339,6 +373,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   const doImport = () => {
     if (!rows?.length) return
     const { added, duplicates } = importMany(rows)
+    logAudit({ actor: actorEmp.name, action: 'accounts.imported', target: `${added} accounts`, detail: duplicates.length ? `${duplicates.length} duplicates skipped` : undefined, result: 'success' })
     addToast(
       duplicates.length
         ? `Imported ${added} accounts — ${duplicates.length} duplicates skipped`
@@ -429,8 +464,24 @@ function AccountDrawer({ account, onClose, onEdit }: {
   const employees = useTeam((s) => s.employees)
   const openPhoneControl = useUIStore((s) => s.openPhoneControl)
   const addToast = useToastStore((s) => s.addToast)
+  const { employee: actorEmp, member: actor } = useActingEmployee()
   const [notes, setNotes] = useState(account.notes)
   const statusColor = ACCOUNT_STATUS_COLOR[account.status]
+
+  // Sensitive-data + mutation permissions for the acting user.
+  const canRevealPw       = can(actor, 'accounts.reveal_password')
+  const canRevealRecovery = can(actor, 'accounts.reveal_recovery')
+  const canEdit           = can(actor, 'accounts.edit')
+  const canDelete         = can(actor, 'accounts.delete')
+  const auditReveal = (field: 'password' | 'recovery', kind: 'reveal' | 'copy') => {
+    logAudit({
+      actor: actorEmp.name,
+      action: field === 'password' ? 'account.password_revealed' : 'account.recovery_revealed',
+      target: account.handle,
+      detail: kind === 'copy' ? 'copied to clipboard' : 'revealed',
+      result: 'success',
+    })
+  }
 
   const assignedDevice = account.assignedPhone
     ? snapshot.devices.find((d) => d.name === account.assignedPhone)
@@ -504,15 +555,15 @@ function AccountDrawer({ account, onClose, onEdit }: {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Email</span>
-              <RevealCell value={account.email} />
+              <RevealCell value={account.email} canReveal={canRevealRecovery} onAudit={(k) => auditReveal('recovery', k)} />
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Email Password</span>
-              <RevealCell value={account.password} />
+              <RevealCell value={account.password} canReveal={canRevealPw} onAudit={(k) => auditReveal('password', k)} />
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Recovery Phone</span>
-              <RevealCell value={account.phone} />
+              <RevealCell value={account.phone} canReveal={canRevealRecovery} onAudit={(k) => auditReveal('recovery', k)} />
             </div>
           </div>
         </div>
@@ -525,8 +576,9 @@ function AccountDrawer({ account, onClose, onEdit }: {
             <select
               value={account.assignedPhone ?? ''}
               onChange={(e) => update(account.id, { assignedPhone: e.target.value || null })}
+              disabled={!canEdit}
               aria-label="Assigned phone"
-              className={select}
+              className={`${select} disabled:cursor-not-allowed disabled:opacity-50`}
             >
               <option value="">Unassigned</option>
               {snapshot.devices.map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
@@ -538,8 +590,9 @@ function AccountDrawer({ account, onClose, onEdit }: {
               <select
                 value={account.group}
                 onChange={(e) => update(account.id, { group: e.target.value })}
+                disabled={!canEdit}
                 aria-label="Group"
-                className={select}
+                className={`${select} disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 {[...new Set([account.group, ...snapshot.devices.map((d) => d.group)])].sort().map((g) => <option key={g}>{g}</option>)}
               </select>
@@ -549,8 +602,9 @@ function AccountDrawer({ account, onClose, onEdit }: {
               <select
                 value={account.owner}
                 onChange={(e) => update(account.id, { owner: e.target.value })}
+                disabled={!canEdit}
                 aria-label="Owner"
-                className={select}
+                className={`${select} disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 {[...new Set([account.owner, ...employees.map((e) => e.name)])].map((o) => <option key={o}>{o}</option>)}
               </select>
@@ -568,9 +622,10 @@ function AccountDrawer({ account, onClose, onEdit }: {
                   key={s}
                   type="button"
                   onClick={() => update(account.id, { status: s })}
+                  disabled={!canEdit}
                   className={[
-                    'mono border px-2 py-1 text-[9px] uppercase tracking-wider transition-colors',
-                    account.status === s ? 'border-[var(--accent-border)] bg-[var(--accent-soft)]' : 'border-line text-white/40 hover:bg-hover',
+                    'mono border px-2 py-1 text-[9px] uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                    account.status === s ? 'border-[var(--accent-border)] bg-[var(--accent-soft)]' : 'border-line text-white/40 enabled:hover:bg-hover',
                   ].join(' ')}
                   style={account.status === s ? { color: ACCOUNT_STATUS_COLOR[s] } : undefined}
                 >
@@ -585,27 +640,31 @@ function AccountDrawer({ account, onClose, onEdit }: {
               {account.tags.map((t) => (
                 <span key={t} className="flex items-center gap-1 rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--accent-text)]">
                   <Tag size={8} /> {t}
-                  <button
-                    type="button"
-                    aria-label={`Remove tag ${t}`}
-                    onClick={() => update(account.id, { tags: account.tags.filter((x) => x !== t) })}
-                    className="opacity-50 hover:opacity-100"
-                  >
-                    <X size={8} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      aria-label={`Remove tag ${t}`}
+                      onClick={() => update(account.id, { tags: account.tags.filter((x) => x !== t) })}
+                      className="opacity-50 hover:opacity-100"
+                    >
+                      <X size={8} />
+                    </button>
+                  )}
                 </span>
               ))}
-              <input
-                placeholder="+ tag"
-                onKeyDown={(e) => {
-                  const v = (e.target as HTMLInputElement).value.trim()
-                  if (e.key === 'Enter' && v) {
-                    update(account.id, { tags: [...new Set([...account.tags, v])] })
-                    ;(e.target as HTMLInputElement).value = ''
-                  }
-                }}
-                className="mono h-6 w-16 border border-line bg-transparent px-1.5 text-[9px] text-white/60 outline-none placeholder-white/20 focus:border-[var(--accent-border)]"
-              />
+              {canEdit && (
+                <input
+                  placeholder="+ tag"
+                  onKeyDown={(e) => {
+                    const v = (e.target as HTMLInputElement).value.trim()
+                    if (e.key === 'Enter' && v) {
+                      update(account.id, { tags: [...new Set([...account.tags, v])] })
+                      ;(e.target as HTMLInputElement).value = ''
+                    }
+                  }}
+                  className="mono h-6 w-16 border border-line bg-transparent px-1.5 text-[9px] text-white/60 outline-none placeholder-white/20 focus:border-[var(--accent-border)]"
+                />
+              )}
             </div>
           </div>
         </div>
@@ -617,10 +676,11 @@ function AccountDrawer({ account, onClose, onEdit }: {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            placeholder="Add notes…"
-            className="mono w-full resize-none rounded-control border border-line bg-elevated p-2.5 text-[11px] text-fg-secondary outline-none transition-colors focus:border-[var(--accent-border)]"
+            readOnly={!canEdit}
+            placeholder={canEdit ? 'Add notes…' : 'View only'}
+            className="mono w-full resize-none rounded-control border border-line bg-elevated p-2.5 text-[11px] text-fg-secondary outline-none transition-colors focus:border-[var(--accent-border)] read-only:opacity-60"
           />
-          {notes !== account.notes && (
+          {canEdit && notes !== account.notes && (
             <button
               type="button"
               onClick={() => { update(account.id, { notes }); addToast('Notes saved', 'success', 1600) }}
@@ -656,37 +716,78 @@ function AccountDrawer({ account, onClose, onEdit }: {
           <button type="button" onClick={() => copy('Username', account.username)} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
             <Copy size={11} /> Username
           </button>
-          <button type="button" onClick={() => copy('Email', account.email)} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
-            <Copy size={11} /> Email
-          </button>
-          <button type="button" onClick={onEdit} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
-            <Pencil size={11} /> Edit
-          </button>
           <button
             type="button"
-            onClick={() => {
-              if (!window.confirm(`Delete ${account.handle}? This cannot be undone.`)) return
-              remove([account.id])
-              addToast('Account deleted', 'success')
-              onClose()
-            }}
-            className="mono flex items-center gap-1.5 border border-status-error/25 px-3 py-2 text-[10px] uppercase tracking-widest text-status-error transition-colors hover:bg-status-error/10"
+            disabled={!canRevealRecovery}
+            title={canRevealRecovery ? 'Copy email' : 'Requires reveal-recovery permission'}
+            onClick={() => { copy('Email', account.email); auditReveal('recovery', 'copy') }}
+            className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Trash2 size={11} /> Delete
+            <Copy size={11} /> Email
           </button>
+          {canEdit && (
+            <button type="button" onClick={onEdit} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
+              <Pencil size={11} /> Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!window.confirm(`Delete ${account.handle}? This cannot be undone.`)) return
+                remove([account.id])
+                logAudit({ actor: actorEmp.name, action: 'account.deleted', target: account.handle, result: 'success' })
+                addToast('Account deleted', 'success')
+                onClose()
+              }}
+              className="mono flex items-center gap-1.5 border border-status-error/25 px-3 py-2 text-[10px] uppercase tracking-widest text-status-error transition-colors hover:bg-status-error/10"
+            >
+              <Trash2 size={11} /> Delete
+            </button>
+          )}
         </div>
       </div>
     </motion.div>
   )
 }
 
+// ─── Scope filter ────────────────────────────────────────────────────────────
+// SECURITY: filter accounts to the member's resource scope at the selector
+// boundary. Mirror this predicate in the server query — never ship the whole
+// workspace and hide rows in the browser.
+function scopeAccounts(member: Member, selfName: string, accounts: Account[]): Account[] {
+  if (!can(member, 'accounts.view')) return []
+  switch (member.scope.type) {
+    case 'workspace':       return accounts
+    case 'assigned_groups': return accounts.filter((a) => groupInScope(member.scope, a.group))
+    case 'assigned_phones': return accounts.filter((a) => a.assignedPhone != null && member.scope.phones.includes(a.assignedPhone))
+    case 'self':            return accounts.filter((a) => a.owner === selfName)
+  }
+}
+
 // ─── Main view ───────────────────────────────────────────────────────────────
 
 export function AccountsView() {
-  const { accounts, update, remove } = useAccounts()
+  const { accounts: allAccounts, update, remove } = useAccounts()
   const snapshot = useFleet()
   const employees = useTeam((s) => s.employees)
   const addToast = useToastStore((s) => s.addToast)
+  const { employee: actorEmp, member: actor } = useActingEmployee()
+
+  // Action permissions for the acting user.
+  const canRevealRecovery = can(actor, 'accounts.reveal_recovery')
+  const canCreate = can(actor, 'accounts.create')
+  const canEdit   = can(actor, 'accounts.edit')
+  const canDelete = can(actor, 'accounts.delete')
+  const canExport = can(actor, 'accounts.export')
+  const canImport = can(actor, 'accounts.import')
+
+  // Scope filtering at the selector boundary — accounts outside the member's
+  // resource scope never reach the table. The same predicate belongs server-side.
+  const accounts = useMemo(
+    () => scopeAccounts(actor, actorEmp.name, allAccounts),
+    [actor, actorEmp.name, allAccounts],
+  )
 
   const [search, setSearch] = useState('')
   const [platFilter, setPlatFilter] = useState<string | null>(null)
@@ -745,6 +846,7 @@ export function AccountsView() {
     setSelected(prev => prev.size === visible.length ? new Set() : new Set(visible.map(a => a.id)))
 
   const exportRows = (rows: Account[]) => {
+    if (!canExport) { addToast('You lack permission to export accounts', 'error'); return }
     const header = 'handle,platform,username,email,phone,group,owner,password,status'
     const csv = [header, ...rows.map(a => [a.handle, a.platform, a.username, a.email, a.phone, a.group, a.owner, a.password, a.status].join(','))].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -754,6 +856,8 @@ export function AccountsView() {
     link.download = 'mobfleet-accounts.csv'
     link.click()
     URL.revokeObjectURL(url)
+    // Export of credentials is a sensitive, audited operation.
+    logAudit({ actor: actorEmp.name, action: 'accounts.exported', target: `${rows.length} accounts`, detail: 'CSV incl. credentials', result: 'success' })
     addToast(`Exported ${rows.length} accounts`, 'success')
   }
 
@@ -774,20 +878,25 @@ export function AccountsView() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => exportRows(selected.size ? accounts.filter(a => selected.has(a.id)) : visible)}
-            title={selected.size ? `Export ${selected.size} selected` : 'Export the current view as CSV'}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"
+            disabled={!canExport}
+            title={!canExport ? 'Requires export permission' : selected.size ? `Export ${selected.size} selected` : 'Export the current view as CSV'}
+            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Download size={11} /> Export
           </button>
           <button
             onClick={() => setModal('import')}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"
+            disabled={!canImport}
+            title={canImport ? 'Import accounts from CSV' : 'Requires import permission'}
+            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Upload size={11} /> Import
           </button>
           <button
             onClick={() => setModal('add')}
-            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest"
+            disabled={!canCreate}
+            title={canCreate ? 'Add a new account' : 'Requires create permission'}
+            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={12} /> Add Account
           </button>
@@ -905,7 +1014,13 @@ export function AccountsView() {
                     </span>
                   </td>
                   <td className="mono px-3 py-3 text-[11px] text-white/55">{a.username}</td>
-                  <td className="px-3 py-3" onClick={e => e.stopPropagation()}><RevealCell value={a.email} /></td>
+                  <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                    <RevealCell
+                      value={a.email}
+                      canReveal={canRevealRecovery}
+                      onAudit={(k) => logAudit({ actor: actorEmp.name, action: 'account.recovery_revealed', target: a.handle, detail: k === 'copy' ? 'copied' : 'revealed', result: 'success' })}
+                    />
+                  </td>
                   <td className="px-3 py-3">
                     {a.assignedPhone
                       ? <span className="mono text-[11px] text-white/55">{a.assignedPhone}</span>
@@ -954,8 +1069,10 @@ export function AccountsView() {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setStatusMenuOpen(o => !o)}
-                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white/90"
+                  onClick={() => { if (!canEdit) { addToast('You lack permission to edit accounts', 'error'); return } setStatusMenuOpen(o => !o) }}
+                  disabled={!canEdit}
+                  title={canEdit ? 'Set status on selected accounts' : 'Requires edit permission'}
+                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <ShieldCheck size={11} /> SET STATUS
                 </button>
@@ -989,19 +1106,26 @@ export function AccountsView() {
               <button
                 type="button"
                 onClick={() => exportRows(accounts.filter(a => selected.has(a.id)))}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white/90"
+                disabled={!canExport}
+                title={canExport ? 'Export selected' : 'Requires export permission'}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Download size={11} /> EXPORT
               </button>
               <button
                 type="button"
                 onClick={() => {
+                  if (!canDelete) { addToast('You lack permission to delete accounts', 'error'); return }
                   if (!window.confirm(`Delete ${selected.size} accounts? This cannot be undone.`)) return
+                  const names = accounts.filter(a => selected.has(a.id)).map(a => a.handle)
                   remove([...selected])
+                  logAudit({ actor: actorEmp.name, action: 'account.deleted', target: `${names.length} accounts`, detail: names.join(', '), result: 'success' })
                   addToast(`${selected.size} accounts deleted`, 'success')
                   setSelected(new Set())
                 }}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-status-error transition-colors hover:bg-status-error/10"
+                disabled={!canDelete}
+                title={canDelete ? 'Delete selected' : 'Requires delete permission'}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-status-error transition-colors enabled:hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Trash2 size={11} /> DELETE
               </button>

@@ -8,9 +8,12 @@ import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
 const PhoneControlPage = lazy(() => import('@/components/phone/phone-control-page').then(m => ({ default: m.PhoneControlPage })))
 import { Spinner } from '@/components/ui/spinner'
+import { AccessDenied } from '@/components/access/Can'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
-import type { ViewId } from '@/lib/views'
+import { VIEW_REQUIRED, type ViewId } from '@/lib/views'
+import { useActingMember } from '@/lib/authorization/use-access'
+import { canAny } from '@/lib/authorization/effective-access'
 
 const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
 const JobsView        = lazy(() => import('@/components/jobs/jobs-view').then(m => ({ default: m.JobsView })))
@@ -55,23 +58,33 @@ function ViewFallback() {
 export default function App() {
   const hash = useHash()
   const view = useUIStore(s => s.view)
+  const setView = useUIStore(s => s.setView)
+  const member = useActingMember()
   const Current = VIEW_MAP[view] ?? VIEW_MAP.fleet
+  // Centralized route guard: the active view must be permitted for the acting
+  // user. Computed synchronously from the store, so restricted content never
+  // flashes before redirect. (Backend remains the source of truth once wired.)
+  const allowed = canAny(member, VIEW_REQUIRED[view] ?? [])
   if (hash === '#style') return <StyleGuide />
   return (
     <>
     <AppShell>
       <AnimatePresence mode="wait">
         <motion.div
-          key={view}
+          key={allowed ? view : `denied-${view}`}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.24, ease: EXPO_OUT }}
           className="h-full"
         >
-          <Suspense fallback={<ViewFallback />}>
-            <Current />
-          </Suspense>
+          {allowed ? (
+            <Suspense fallback={<ViewFallback />}>
+              <Current />
+            </Suspense>
+          ) : (
+            <AccessDenied onBack={() => setView('fleet')} />
+          )}
         </motion.div>
       </AnimatePresence>
       <DeviceDrawer />
@@ -79,6 +92,6 @@ export default function App() {
       <SubmitJobDialog />
       <CommandPalette />
     </AppShell>
-    </>  
+    </>
   )
 }

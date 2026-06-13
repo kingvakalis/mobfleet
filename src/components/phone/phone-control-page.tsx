@@ -6,6 +6,7 @@ import {
   Camera, RefreshCw, Power,
   Send, Copy, X, Rocket, FileText,
   Video, Zap, Shield, BatteryMedium, Gauge, Anchor,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
 } from 'lucide-react'
 import type { AppDef } from '@/components/phone/app-catalog'
 import { LivePhone, type LivePhoneHandle } from '@/components/phone/live-phone'
@@ -14,6 +15,10 @@ import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
+import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
+import { canActOnPhone, can } from '@/lib/authorization'
+import { AccessDenied } from '@/components/access/Can'
+import { logAudit } from '@/services/audit'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 9) }
@@ -95,6 +100,44 @@ function TealSlider({ value, min, max, onChange }: {
   )
 }
 
+// ─── D-pad button ─────────────────────────────────────────────────────────────
+function DPadButton({ icon, label, onClick, className = '', center, disabled }: {
+  icon: React.ReactNode; label: string; onClick: () => void; className?: string; center?: boolean; disabled?: boolean
+}) {
+  return (
+    <motion.button
+      type="button"
+      aria-label={label}
+      title={disabled ? 'Control permission required' : label}
+      whileTap={disabled ? undefined : { scale: 0.9 }}
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${className}`}
+      style={
+        center
+          ? { background: 'rgba(45,212,191,0.12)', borderColor: 'rgba(45,212,191,0.4)', color: '#7ce8da' }
+          : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)' }
+      }
+      onMouseEnter={(e) => {
+        if (center || disabled) return
+        const el = e.currentTarget
+        el.style.background = 'rgba(255,255,255,0.08)'
+        el.style.borderColor = 'rgba(255,255,255,0.25)'
+        el.style.color = '#fff'
+      }}
+      onMouseLeave={(e) => {
+        if (center) return
+        const el = e.currentTarget
+        el.style.background = 'rgba(255,255,255,0.04)'
+        el.style.borderColor = 'rgba(255,255,255,0.1)'
+        el.style.color = 'rgba(255,255,255,0.7)'
+      }}
+    >
+      {icon}
+    </motion.button>
+  )
+}
+
 // ─── Card wrapper ─────────────────────────────────────────────────────────────
 function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
   return (
@@ -153,7 +196,9 @@ function PhoneStage({ statusColor, stabilized, children }: {
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
-  const { devices, jobs } = useFleet()
+  const { jobs } = useFleet()
+  const devices = useScopedDevices()
+  const { employee, member } = useActingEmployee()
   const phoneControlDeviceId = useUIStore(s => s.phoneControlDeviceId)
   const closePhoneControl    = useUIStore(s => s.closePhoneControl)
 
@@ -162,6 +207,13 @@ export function PhoneControlPage() {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const device = devices[currentIndex] ?? devices[0] ?? null
   const job = device?.jobId ? jobs.find(j => j.id === device.jobId) ?? null : null
+
+  // ── Authorization (permission + per-phone scope) ──────────────────────────
+  const canView       = can(member, 'phones.view')
+  const canControl    = device ? canActOnPhone(member, 'phones.control', device) : false
+  const canReboot     = device ? canActOnPhone(member, 'phones.reboot', device) : false
+  const canScreenshot = device ? canActOnPhone(member, 'phones.screenshot', device) : false
+  const readOnly      = !canControl
 
   // UI state — stream defaults come from workspace settings
   const defaultQuality = useSettings(s => s.defaultStreamQuality)
@@ -207,9 +259,16 @@ export function PhoneControlPage() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [logs, activeTab])
 
+  if (!canView) return (
+    <AccessDenied
+      onBack={closePhoneControl}
+      message="You do not have permission to view or control phones in this workspace."
+    />
+  )
+
   if (!device) return (
     <div className="flex h-full items-center justify-center bg-[#0a0b0e]">
-      <span className="mono text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE SELECTED</span>
+      <span className="mono text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE IN YOUR SCOPE</span>
     </div>
   )
 
@@ -233,16 +292,28 @@ export function PhoneControlPage() {
     setTimeout(() => addLog(`✓ ${ack}`, 'screenshot'), 450)
   }
 
+  const denyAction = (need: string) => {
+    addLog(`✗ Action blocked — requires ${need} permission`, 'error')
+    logAudit({ actor: employee.name, action: 'phone.command', target: device.name, detail: `denied: ${need}`, result: 'denied' })
+  }
+
   const runQuick = (key: string) => {
     const p = phoneRef.current
     switch (key) {
-      case 'lock':       p?.lock(); break
-      case 'home':       p?.home(); break
-      case 'back':       p?.back(); break
-      case 'switcher':   p?.switcher(); break
-      case 'screenshot': p?.screenshot(); break
-      case 'restart':    dispatchCommand('Restart stream', 'Stream re-established'); break
+      case 'lock': case 'home': case 'back': case 'switcher': case 'restart':
+        if (!canControl) { denyAction('phone control'); return }
+        if (key === 'lock') p?.lock()
+        else if (key === 'home') p?.home()
+        else if (key === 'back') p?.back()
+        else if (key === 'switcher') p?.switcher()
+        else dispatchCommand('Restart stream', 'Stream re-established')
+        break
+      case 'screenshot':
+        if (!canScreenshot) { denyAction('screenshot'); return }
+        p?.screenshot()
+        break
       case 'reboot':
+        if (!canReboot) { denyAction('reboot'); return }
         if (confirmDestructive && !confirmingReboot) {
           setConfirmingReboot(true)
           setTimeout(() => setConfirmingReboot(false), 3000)
@@ -250,9 +321,13 @@ export function PhoneControlPage() {
         }
         setConfirmingReboot(false)
         dispatchCommand('Device reboot', 'Reboot accepted — device restarting')
+        logAudit({ actor: employee.name, action: 'phone.rebooted', target: device.name, result: 'success' })
         break
     }
   }
+
+  // Body-level handler so the JSX array below never reads phoneRef during render.
+  const captureScreenshot = () => phoneRef.current?.screenshot()
 
   const avatarLetters = device.name.slice(0, 2).toUpperCase()
 
@@ -394,6 +469,25 @@ export function PhoneControlPage() {
             </div>
           </Card>
 
+          {/* Directional Control — D-pad drives the live phone */}
+          <Card title="Directional Control">
+            <div className="mx-auto grid w-[132px] grid-cols-3 grid-rows-3 gap-1.5">
+              <DPadButton disabled={readOnly} className="col-start-2" icon={<ArrowUp size={15} />} label="Swipe up" onClick={() => phoneRef.current?.swipe('up')} />
+              <DPadButton disabled={readOnly} className="col-start-1 row-start-2" icon={<ArrowLeft size={15} />} label="Swipe left" onClick={() => phoneRef.current?.swipe('left')} />
+              <DPadButton
+                disabled={readOnly}
+                className="col-start-2 row-start-2"
+                icon={<Crosshair size={15} />}
+                label="Tap center"
+                center
+                onClick={() => phoneRef.current?.tapCenter()}
+              />
+              <DPadButton disabled={readOnly} className="col-start-3 row-start-2" icon={<ArrowRight size={15} />} label="Swipe right" onClick={() => phoneRef.current?.swipe('right')} />
+              <DPadButton disabled={readOnly} className="col-start-2 row-start-3" icon={<ArrowDown size={15} />} label="Swipe down" onClick={() => phoneRef.current?.swipe('down')} />
+            </div>
+            <p className="mt-2.5 text-center text-[10px] text-white/30">{readOnly ? 'Control permission required' : 'Arrows swipe · center taps'}</p>
+          </Card>
+
           {/* Send Text */}
           <Card title="Send Text">
             <textarea
@@ -405,8 +499,9 @@ export function PhoneControlPage() {
             />
             <div className="flex gap-2 mt-2">
               <button
-                onClick={() => { addLog(`Send text: "${sendText}"`); setSendText('') }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium text-[#0d1117] transition-colors hover:bg-[#5eead4]"
+                onClick={() => { if (!canControl) { denyAction('phone control'); return } addLog(`Send text: "${sendText}"`); setSendText('') }}
+                disabled={!canControl}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium text-[#0d1117] transition-colors enabled:hover:bg-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ background: '#2dd4bf' }}
               >
                 <Send size={13} />Send
@@ -479,6 +574,14 @@ export function PhoneControlPage() {
             </button>
           </div>
 
+          {/* Read-only banner — viewer/scoped user without control permission */}
+          {readOnly && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2">
+              <Lock size={13} className="text-amber-400" />
+              <span className="text-[11px] text-amber-200/90">View only — you don’t have control permission for this phone.</span>
+            </div>
+          )}
+
           {/* Live interactive phone — dominant object, subtle cursor tilt */}
           <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
@@ -488,6 +591,7 @@ export function PhoneControlPage() {
                 job={job}
                 width={330}
                 gesture={gesture}
+                readOnly={readOnly}
                 onLog={phoneLog}
               />
             </div>
@@ -496,26 +600,40 @@ export function PhoneControlPage() {
           {/* Bottom action bar */}
           <div className="flex gap-2 mt-5">
             <button
-              onClick={() => phoneRef.current?.launchApp('Instagram')}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] hover:bg-[#5eead4] transition-colors"
+              onClick={() => { if (!canControl) { denyAction('phone control'); return } phoneRef.current?.launchApp('Instagram') }}
+              disabled={!canControl}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] transition-colors enabled:hover:bg-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: '#2dd4bf' }}
             >
               <Rocket size={14} />Launch App
             </button>
-            {[
-              { label: 'Screenshot', icon: <Camera size={14} />, action: () => addLog('Screenshot captured', 'screenshot') },
-              { label: 'Record',     icon: <Video size={14} />,  action: () => addLog('Recording started') },
-              { label: 'Open Logs',  icon: <FileText size={14} />, action: () => setActiveTab('logs') },
-              { label: 'Restart Stream', icon: <RefreshCw size={14} />, action: () => addLog('Stream restarted') },
-            ].map(({ label, icon, action }) => (
-              <button
-                key={label}
-                onClick={action}
-                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] hover:border-white/30 hover:text-white transition-colors"
-              >
-                {icon}{label}
-              </button>
-            ))}
+            <button
+              onClick={() => { if (!canScreenshot) { denyAction('screenshot'); return } captureScreenshot() }}
+              disabled={!canScreenshot}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/30 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Camera size={14} />Screenshot
+            </button>
+            <button
+              onClick={() => { if (!canScreenshot) { denyAction('screenshot'); return } addLog('Recording started') }}
+              disabled={!canScreenshot}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/30 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Video size={14} />Record
+            </button>
+            <button
+              onClick={() => setActiveTab('logs')}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] transition-colors hover:border-white/30 hover:text-white"
+            >
+              <FileText size={14} />Open Logs
+            </button>
+            <button
+              onClick={() => { if (!canControl) { denyAction('phone control'); return } addLog('Stream restarted') }}
+              disabled={!canControl}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/30 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshCw size={14} />Restart Stream
+            </button>
           </div>
         </div>
 
@@ -527,17 +645,21 @@ export function PhoneControlPage() {
             <div className="grid grid-cols-4 gap-2">
               {quickControls.map(({ key, label: rawLabel, icon, danger }) => {
                 const label = key === 'reboot' && confirmingReboot ? 'Confirm?' : rawLabel
+                const need = key === 'reboot' ? canReboot : key === 'screenshot' ? canScreenshot : canControl
                 return (
                 <button
                   key={key}
                   onClick={() => runQuick(key)}
-                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all"
+                  disabled={!need}
+                  title={!need ? 'You lack permission for this action' : label}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all disabled:cursor-not-allowed disabled:opacity-35"
                   style={{
                     background: 'rgba(255,255,255,0.03)',
                     borderColor: danger ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.08)',
                     color: danger ? '#f87171' : 'rgba(255,255,255,0.6)',
                   }}
                   onMouseEnter={e => {
+                    if (!need) return
                     const el = e.currentTarget as HTMLElement
                     el.style.borderColor = danger ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.25)'
                     el.style.background = danger ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.07)'
@@ -610,8 +732,9 @@ export function PhoneControlPage() {
                       </div>
                       <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
                       <button
-                        onClick={() => phoneRef.current?.launchApp(app.name)}
-                        className="text-[10px] text-[#2dd4bf] hover:text-[#5eead4] shrink-0 transition-colors px-1 py-0.5 rounded hover:border hover:border-[#2dd4bf]/40"
+                        onClick={() => { if (!canControl) { denyAction('phone control'); return } phoneRef.current?.launchApp(app.name) }}
+                        disabled={!canControl}
+                        className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] enabled:hover:border enabled:hover:border-[#2dd4bf]/40 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Launch
                       </button>

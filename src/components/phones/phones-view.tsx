@@ -5,6 +5,9 @@ import { useFleet } from '@/hooks/use-fleet'
 import { client } from '@/lib/provider'
 import { STATUS, ALL_STATUSES, type DeviceStatus } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
+import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
+import { logAudit } from '@/services/audit'
 
 const STATUS_COLORS: Record<string, string> = {
   online:  'var(--status-online)',
@@ -121,7 +124,15 @@ export function PhonesView() {
   const openDrawer            = useUIStore((s) => s.openDrawer)
   const openScale             = useUIStore((s) => s.openScale)
 
-  const devices = snapshot.devices
+  // Scope-filtered at the selector boundary — out-of-scope devices never reach
+  // the table. The same predicate must run server-side (see lib/authorization).
+  const { employee, member } = useActingEmployee()
+  const devices = useScopedDevices()
+  const canReboot      = can(member, 'phones.reboot')
+  const canExport      = can(member, 'phones.export')
+  const canAssignGroup = can(member, 'phones.assign_group')
+  const canRunJob      = can(member, 'automations.run')
+  const canImport      = can(member, 'phones.import')
   const jobById = useMemo(() => new Map(snapshot.jobs.map(j => [j.id, j])), [snapshot.jobs])
 
   const groups = useMemo(() => [...new Set(devices.map(d => d.group))].sort(), [devices])
@@ -169,6 +180,7 @@ export function PhonesView() {
   }
 
   const exportSelected = () => {
+    if (!canExport) return
     const rows = devices
       .filter(d => selected.has(d.id))
       .map(d => ({ id: d.id, name: d.name, status: d.status, group: d.group, model: d.model, os: d.osVersion, battery: d.battery }))
@@ -179,12 +191,31 @@ export function PhonesView() {
     a.download = 'mobfleet-devices.json'
     a.click()
     URL.revokeObjectURL(url)
+    logAudit({ actor: employee.name, action: 'phone.command', target: `${rows.length} devices`, detail: 'export device registry', result: 'success' })
   }
 
   const rebootSelected = () => {
+    if (!canReboot) return
+    const names = devices.filter(d => selected.has(d.id)).map(d => d.name)
     selected.forEach(id => {
       void client.stop(id).then(() => client.start(id))
     })
+    logAudit({ actor: employee.name, action: 'phone.rebooted', target: `${names.length} devices`, detail: names.join(', '), result: 'success' })
+    setSelected(new Set())
+  }
+
+  const runJobSelected = () => {
+    if (!canRunJob) return
+    selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' }))
+    logAudit({ actor: employee.name, action: 'automation.run', target: `${selected.size} devices`, detail: 'manual upload job', result: 'success' })
+    setSelected(new Set())
+  }
+
+  const assignGroupSelected = (g: string) => {
+    if (!canAssignGroup) return
+    void client.assignGroup([...selected], g)
+    logAudit({ actor: employee.name, action: 'phone.command', target: `${selected.size} devices`, detail: `assign group → ${g}`, result: 'success' })
+    setGroupMenuOpen(false)
     setSelected(new Set())
   }
 
@@ -207,7 +238,9 @@ export function PhonesView() {
           </button>
           <button
             onClick={openScale}
-            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 hover:bg-white hover:text-black transition-colors"
+            disabled={!canImport}
+            title={canImport ? 'Add a device to the fleet' : 'Requires import permission'}
+            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 transition-colors enabled:hover:bg-white enabled:hover:text-black disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Plus size={11} className="inline mr-1.5" />ADD UNIT
           </button>
@@ -372,23 +405,29 @@ export function PhonesView() {
               <div className="w-px h-4 bg-white/[0.08]" />
               <button
                 type="button"
-                onClick={() => { selected.forEach(id => void client.runTask(id, { type: 'upload', label: 'Manual upload' })); setSelected(new Set()) }}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                onClick={runJobSelected}
+                disabled={!canRunJob}
+                title={canRunJob ? 'Run a job on the selected devices' : 'Requires run-automation permission'}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Briefcase size={11} /> RUN JOB
               </button>
               <button
                 type="button"
                 onClick={rebootSelected}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                disabled={!canReboot}
+                title={canReboot ? 'Reboot the selected devices' : 'Requires reboot permission'}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <RotateCcw size={11} /> REBOOT
               </button>
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setGroupMenuOpen(o => !o)}
-                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                  onClick={() => { if (!canAssignGroup) return; setGroupMenuOpen(o => !o) }}
+                  disabled={!canAssignGroup}
+                  title={canAssignGroup ? 'Assign the selected devices to a group' : 'Requires assign-group permission'}
+                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <UserPlus size={11} /> GROUP
                 </button>
@@ -405,11 +444,7 @@ export function PhonesView() {
                         <button
                           key={g}
                           type="button"
-                          onClick={() => {
-                            void client.assignGroup([...selected], g)
-                            setGroupMenuOpen(false)
-                            setSelected(new Set())
-                          }}
+                          onClick={() => assignGroupSelected(g)}
                           className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 hover:bg-hover hover:text-white/90 transition-colors"
                         >
                           {g}
@@ -422,7 +457,9 @@ export function PhonesView() {
               <button
                 type="button"
                 onClick={exportSelected}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                disabled={!canExport}
+                title={canExport ? 'Export the selected devices' : 'Requires export permission'}
+                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Download size={11} /> EXPORT
               </button>

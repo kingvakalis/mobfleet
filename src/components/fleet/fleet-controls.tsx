@@ -6,6 +6,7 @@ import {
 import { STATUS, ALL_STATUSES } from '@/lib/status'
 import { graphBus } from '@/lib/graph-bus'
 import { useFleet } from '@/hooks/use-fleet'
+import { usePermission } from '@/lib/authorization/use-access'
 import { matchesDevice, groupColor } from '@/lib/fleet-filtering'
 import { EMPTY_FLEET_FILTERS, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
 
@@ -184,6 +185,8 @@ export interface FleetControlsProps {
 /** Floating fleet filter + layout bar. Shared by the 2D and 3D views. */
 export function FleetControls({ filters, setFilters, locked, setLocked, onResetPositions, onFocusMatches }: FleetControlsProps) {
   const snapshot = useFleet()
+  // Layout-mutating controls (lock, unpin, reset positions) require save_layout.
+  const canSaveLayout = usePermission('fleet.save_layout')
   // Debounce search so the graph doesn't recompute per keystroke.
   const [searchDraft, setSearchDraft] = useState(filters.search)
   // External clears (chips / Clear all) re-sync the draft — render-adjustment pattern.
@@ -306,12 +309,13 @@ export function FleetControls({ filters, setFilters, locked, setLocked, onResetP
         <div className="mx-1 h-5 w-px bg-line" />
         <button
           type="button"
-          title={locked ? 'Unlock layout (allow dragging phones)' : 'Lock layout (prevent dragging phones)'}
+          disabled={!canSaveLayout}
+          title={!canSaveLayout ? 'Requires save-layout permission' : locked ? 'Unlock layout (allow dragging phones)' : 'Lock layout (prevent dragging phones)'}
           aria-pressed={locked}
           onClick={() => setLocked(!locked)}
           className={[
-            'flex h-7 items-center gap-1.5 rounded-lg px-2 text-[10px] transition-colors',
-            locked ? 'bg-amber-400/10 text-amber-400' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/80',
+            'flex h-7 items-center gap-1.5 rounded-lg px-2 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+            locked ? 'bg-amber-400/10 text-amber-400' : 'text-white/40 enabled:hover:bg-white/[0.06] enabled:hover:text-white/80',
           ].join(' ')}
         >
           {locked ? <Lock size={11} /> : <Unlock size={11} />}
@@ -319,17 +323,19 @@ export function FleetControls({ filters, setFilters, locked, setLocked, onResetP
         </button>
         <button
           type="button"
-          title="Unpin all phones (everything rejoins the simulation)"
+          disabled={!canSaveLayout}
+          title={canSaveLayout ? 'Unpin all phones (everything rejoins the simulation)' : 'Requires save-layout permission'}
           onClick={() => graphBus.unpinAll?.()}
-          className="mono flex h-7 items-center rounded-lg px-2 text-[10px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80"
+          className="mono flex h-7 items-center rounded-lg px-2 text-[10px] text-white/40 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Unpin all
         </button>
         <button
           type="button"
-          title="Reset all phone positions (asks for confirmation)"
+          disabled={!canSaveLayout}
+          title={canSaveLayout ? 'Reset all phone positions (asks for confirmation)' : 'Requires save-layout permission'}
           onClick={onResetPositions}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80"
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-white/40 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <RotateCcw size={12} />
         </button>

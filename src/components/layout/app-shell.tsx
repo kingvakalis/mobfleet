@@ -11,6 +11,8 @@ import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
 import { useFleetStats } from '@/hooks/use-fleet'
+import { useActingMember } from '@/lib/authorization/use-access'
+import { canAny } from '@/lib/authorization/effective-access'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
@@ -32,6 +34,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   const setView = useUIStore((s) => s.setView)
   const stats   = useFleetStats()
   const workspaceName = useSettings((s) => s.workspaceName)
+  const member  = useActingMember()
   const [time, setTime] = useState(() => new Date())
 
   useEffect(() => {
@@ -40,6 +43,8 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   }, [])
 
   const online = stats.idle + stats.busy
+  // Permission-aware nav: only sections the acting user may open.
+  const visibleViews = VIEWS.filter((v) => canAny(member, v.requiredAny))
 
   return (
     <>
@@ -67,7 +72,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0 overflow-y-auto py-2" aria-label="Primary">
-        {VIEWS.map((v) => {
+        {visibleViews.map((v) => {
           const Icon    = ICON_MAP[v.icon] ?? Network
           const isActive = view === v.id
           return (

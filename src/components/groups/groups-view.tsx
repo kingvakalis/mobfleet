@@ -6,6 +6,9 @@ import { client } from '@/lib/provider'
 import { STATUS } from '@/lib/status'
 import { EXPO_OUT, fadeRise, staggerContainer } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
+import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
+import { logAudit } from '@/services/audit'
 
 /** Searchable multi-select phone picker used by New Group / Assign / Edit flows. */
 function PhonePicker({
@@ -133,35 +136,42 @@ type Modal =
   | null
 
 export function GroupsView() {
-  const snapshot = useFleet()
+  // Scope-filtered devices → a member only sees groups containing in-scope phones.
+  const devices = useScopedDevices()
+  const { employee, member } = useActingEmployee()
   const focusGroup = useUIStore(s => s.focusGroup)
   const openSubmit = useUIStore(s => s.openSubmit)
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<Modal>(null)
 
+  const canCreate    = can(member, 'groups.create')
+  const canEdit      = can(member, 'groups.edit')
+  const canAssign    = can(member, 'groups.assign_phones')
+  const canRunAuto   = can(member, 'groups.run_automation')
+
   const groups = useMemo(() => {
-    const map = new Map<string, typeof snapshot.devices>()
-    for (const d of snapshot.devices) {
+    const map = new Map<string, typeof devices>()
+    for (const d of devices) {
       const arr = map.get(d.group) ?? []
       arr.push(d)
       map.set(d.group, arr)
     }
     return [...map.entries()]
-      .map(([name, devices]) => ({
+      .map(([name, groupDevices]) => ({
         name,
-        devices,
-        online: devices.filter(d => d.status === 'online').length,
-        busy: devices.filter(d => d.status === 'busy').length,
-        offline: devices.filter(d => d.status === 'offline' || d.status === 'error').length,
-        regions: new Set(devices.map(d => d.region)).size,
-        users: [...new Set(devices.map(d => d.assignedUser).filter(Boolean))] as string[],
+        devices: groupDevices,
+        online: groupDevices.filter(d => d.status === 'online').length,
+        busy: groupDevices.filter(d => d.status === 'busy').length,
+        offline: groupDevices.filter(d => d.status === 'offline' || d.status === 'error').length,
+        regions: new Set(groupDevices.map(d => d.region)).size,
+        users: [...new Set(groupDevices.map(d => d.assignedUser).filter(Boolean))] as string[],
       }))
       .sort((a, b) => b.devices.length - a.devices.length)
-  }, [snapshot.devices])
+  }, [devices])
 
   const visible = groups.filter(g => search === '' || g.name.toLowerCase().includes(search.toLowerCase()))
-  const totalBusy = snapshot.devices.filter(d => d.status === 'busy').length
-  const totalOnline = snapshot.devices.filter(d => d.status !== 'offline' && d.status !== 'error').length
+  const totalBusy = devices.filter(d => d.status === 'busy').length
+  const totalOnline = devices.filter(d => d.status !== 'offline' && d.status !== 'error').length
 
   return (
     <div className="flex h-full flex-col">
@@ -173,7 +183,9 @@ export function GroupsView() {
         </div>
         <button
           onClick={() => setModal({ kind: 'new' })}
-          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest"
+          disabled={!canCreate}
+          title={canCreate ? 'Create a new group' : 'Requires create-groups permission'}
+          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} /> New Group
         </button>
@@ -183,7 +195,7 @@ export function GroupsView() {
       <div className="flex gap-4 border-b border-line px-6 py-3">
         {[
           { label: 'Total Groups', value: groups.length },
-          { label: 'Total Phones', value: snapshot.devices.length },
+          { label: 'Total Phones', value: devices.length },
           { label: 'Online',       value: totalOnline },
           { label: 'Running Jobs', value: totalBusy },
         ].map(k => (
@@ -264,21 +276,27 @@ export function GroupsView() {
                 <button
                   type="button"
                   onClick={() => setModal({ kind: 'assign', group: g.name })}
-                  className="btn-ghost flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px]"
+                  disabled={!canAssign}
+                  title={canAssign ? undefined : 'Requires assign-phones permission'}
+                  className="btn-ghost flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Smartphone size={11} /> Assign Phones
                 </button>
                 <button
                   type="button"
-                  onClick={() => openSubmit()}
-                  className="btn-accent flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px]"
+                  onClick={() => { openSubmit(); logAudit({ actor: employee.name, action: 'automation.run', target: `group ${g.name}`, result: 'success' }) }}
+                  disabled={!canRunAuto}
+                  title={canRunAuto ? undefined : 'Requires run-automation permission'}
+                  className="btn-accent flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Play size={11} /> Run Automation
                 </button>
                 <button
                   type="button"
                   onClick={() => setModal({ kind: 'edit', group: g.name })}
-                  className="btn-ghost flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px]"
+                  disabled={!canEdit}
+                  title={canEdit ? undefined : 'Requires edit-groups permission'}
+                  className="btn-ghost flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Settings size={11} /> Edit
                 </button>
@@ -301,7 +319,7 @@ export function GroupsView() {
             title="New Group"
             confirmLabel="Create Group"
             askName
-            onConfirm={(name, ids) => client.assignGroup(ids, name)}
+            onConfirm={(name, ids) => { client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: `group created · ${ids.length} phones`, result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}
@@ -310,8 +328,8 @@ export function GroupsView() {
             key={'assign-' + modal.group}
             title={`Assign Phones — ${modal.group}`}
             confirmLabel="Assign"
-            preselected={new Set(snapshot.devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={(_, ids) => client.assignGroup(ids, modal.group)}
+            preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
+            onConfirm={(_, ids) => { client.assignGroup(ids, modal.group); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${modal.group}`, detail: `${ids.length} phones assigned`, result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}
@@ -322,8 +340,8 @@ export function GroupsView() {
             confirmLabel="Save"
             askName
             initialName={modal.group}
-            preselected={new Set(snapshot.devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={(name, ids) => client.assignGroup(ids, name)}
+            preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
+            onConfirm={(name, ids) => { client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: 'group edited', result: 'success' }) }}
             onClose={() => setModal(null)}
           />
         )}
