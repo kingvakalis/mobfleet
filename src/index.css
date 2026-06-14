@@ -1,0 +1,323 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── MobFleet Design System — layered dark command center ─────────────────── */
+:root {
+  /* Layered near-black foundation (never flat #000 for page surfaces).
+     These are DEFAULTS — lib/themes.ts overrides them per theme preset. */
+  --bg-base-rgb: 7 9 13;
+  --bg-base: #07090D;
+  --bg-surface: #0B0F15;
+  --bg-elevated: #0E131B;
+  --bg-card: #0E131B;
+  --bg-hover: #121924;
+  --border: rgba(148,163,184,0.10);
+  --border-bright: rgba(148,163,184,0.22);
+  --text: #f3f5f8;
+  --text-secondary: rgba(226,232,240,0.72);
+  /* Muted text raised from 0.45 → 0.72 opacity: at 0.45 the slate computed to
+     ~2:1 on the dark surfaces (fails WCAG AA); 0.72 lands at ~4.4:1 while
+     staying clearly dimmer than primary/secondary text. */
+  --text-muted: rgba(148,163,184,0.72);
+  /* One product accent — controlled teal. */
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45,212,191,0.12);
+  --accent-border: rgba(45,212,191,0.35);
+  --accent-text: #7ce8da;
+  --accent-red: #ff4d4d;
+  --accent-green: #34d399;
+  --accent-blue: #4fc3f7;
+  --accent-amber: #fbbf24;
+  --status-online: #34d399;
+  --status-busy: #4fc3f7;
+  --status-warming: #fbbf24;
+  --status-offline: #4b5563;
+  --status-error: #ff4d4d;
+
+  /* Legacy token aliases */
+  --canvas: #07090D;
+  --panel: #0B0F15;
+  --elevated: #0E131B;
+  --border-legacy: #161c26;
+  --text-primary: #f3f5f8;
+  --text-secondary-legacy: rgba(226,232,240,0.72);
+  --text-muted-legacy: rgba(148,163,184,0.72);
+  --color-surface: #0B0F15;
+  --color-surface-2: #0E131B;
+  --color-border: rgba(148,163,184,0.10);
+  --color-text-primary: rgba(243,245,248,0.92);
+  --color-text-secondary: rgba(148,163,184,0.72);
+  --color-accent: #2dd4bf;
+  --color-online: #34d399;
+  --color-warning: #fbbf24;
+  --color-offline: #ff4d4d;
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * { border-color: rgba(255,255,255,0.08); }
+
+  html, body, #root { height: 100%; }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-base);
+    color: var(--text);
+    font-family: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'tnum';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(255,255,255,0.12);
+  }
+
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+  :focus-visible {
+    outline: 2px solid rgba(255,255,255,0.55);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+@layer components {
+  .label {
+    font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.6875rem;
+    line-height: 1;
+    color: rgba(255,255,255,0.35);
+  }
+
+  .mono {
+    font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* ── Global ambient background system ──────────────────────────────────────
+     One reusable atmosphere: technical grid + soft radial light + vignette.
+     CSS-only (no canvas), readable, and cheap. Apply via <AppBackground/>. */
+  /* No mask-image here — masking a full-viewport layer is pathologically slow
+     to rasterize on software/low-end GPUs. The vignette supplies the fade. */
+  .app-bg-grid {
+    background-image:
+      linear-gradient(rgba(148,163,184,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .app-bg-glow {
+    background:
+      radial-gradient(ellipse 55% 45% at 50% 32%, rgba(45,212,191,0.045), transparent 70%),
+      radial-gradient(ellipse 70% 60% at 80% 90%, rgba(79,195,247,0.025), transparent 70%);
+  }
+  .app-bg-vignette {
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(2,3,6,0.5) 100%);
+  }
+  .app-bg-noise {
+    opacity: 0.35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ── Shared control language ─────────────────────────────────────────────── */
+  .btn-accent {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.06), transparent),
+      var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    color: var(--accent-text);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease,
+      box-shadow 150ms ease, transform 120ms ease;
+  }
+  .btn-accent:hover {
+    background: linear-gradient(180deg, rgba(255,255,255,0.07), transparent), rgba(45,212,191,0.2);
+    border-color: var(--accent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  .btn-accent:active { transform: translateY(0.5px); }
+  .btn-accent:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms ease;
+  }
+  .btn-ghost:hover { background: var(--bg-hover); border-color: var(--border-bright); color: var(--text-secondary); }
+  .btn-ghost:active { transform: translateY(0.5px); }
+  .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* Premium cards: hairline border + a faint top-edge highlight (lit from above). */
+  .card-surface {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
+    transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+  .card-surface:hover { border-color: var(--border-bright); }
+
+  /* ── Surface styles (data-surface on <html>) ───────────────────────────── */
+  [data-surface="soft"] .card-surface {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 30px -18px rgba(0,0,0,0.7);
+  }
+  [data-surface="soft"] .card-surface:hover {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 14px 36px -16px rgba(0,0,0,0.72);
+  }
+  [data-surface="glass"] .card-surface {
+    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+    backdrop-filter: blur(8px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 30px -18px rgba(0,0,0,0.6);
+  }
+
+  /* ── Interface density (data-density on <html>) ────────────────────────── */
+  [data-density="compact"] table td, [data-density="compact"] table th { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+  [data-density="dense"] table td, [data-density="dense"] table th { padding-top: 0.28rem; padding-bottom: 0.28rem; }
+  [data-density="compact"] .card-surface { padding: 0.7rem; }
+  [data-density="dense"] .card-surface { padding: 0.5rem; }
+
+  /* ── Sci-fi HUD primitives ─────────────────────────────────────────────── */
+
+  /* Four corner brackets drawn with background gradients — no extra DOM. */
+  .hud-corners {
+    --hud-c: rgba(255,255,255,0.28);
+    --hud-len: 10px;
+    --hud-w: 1px;
+    background-image:
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)), linear-gradient(var(--hud-c), var(--hud-c));
+    background-repeat: no-repeat;
+    background-size:
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len),
+      var(--hud-len) var(--hud-w), var(--hud-w) var(--hud-len);
+    background-position:
+      top left, top left,
+      top right, top right,
+      bottom left, bottom left,
+      bottom right, bottom right;
+  }
+
+  /* CRT scanlines overlay. */
+  .scanlines { position: relative; }
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 30;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,0.025) 0 1px,
+      transparent 1px 3px
+    );
+  }
+
+  /* One-shot scan sweep on mount (use on a relatively-positioned overflow-hidden box). */
+  .scan-sweep::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 12%;
+    background: linear-gradient(180deg, transparent, rgba(79,195,247,0.12), transparent);
+    animation: scan-sweep 1.2s cubic-bezier(0.16,1,0.3,1) 1 both;
+    pointer-events: none;
+    z-index: 31;
+  }
+
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+    background-color: #111111;
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent 0,
+      rgba(255,255,255,0.04) 40%,
+      rgba(255,255,255,0.06) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+@keyframes scan-sweep {
+  0%   { transform: translateY(-110%); opacity: 0; }
+  12%  { opacity: 1; }
+  100% { transform: translateY(900%); opacity: 0; }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bg-drift {
+  0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+  100% { transform: translate3d(1.5%, 1%, 0) scale(1.05); }
+}
+.spin-slow { animation: spin-slow 14s linear infinite; }
+.spin-slow-rev { animation: spin-slow 22s linear infinite reverse; }
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.status-dot-pulse {
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink { animation: blink 1.2s step-end infinite; }
+
+@keyframes flash-value {
+  0% { color: #ffffff; }
+  50% { color: var(--accent-blue); }
+  100% { color: inherit; }
+}
+.flash { animation: flash-value 0.4s ease-out; }
+
+/* Fleet graph pane: grab/grabbing cursors + no text selection mid-drag. */
+.fleet-flow .react-flow__pane { cursor: grab; }
+.fleet-flow .react-flow__pane.dragging { cursor: grabbing; }
+.fleet-flow, .fleet-flow * { user-select: none; -webkit-user-select: none; }
+
+/* A dragged phone lifts slightly above the field. (Elastic trailing of the
+   rest of the constellation comes from the force simulation itself.) */
+.fleet-flow .react-flow__node.dragging {
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

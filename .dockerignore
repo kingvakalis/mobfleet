@@ -1,0 +1,24 @@
+# Build context = repo root. Keep it lean and never copy host artifacts/secrets.
+**/node_modules
+**/dist
+.git
+.github
+.vercel
+.husky
+
+# Local env / secrets — never bake into the image (provided by Railway at runtime)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dev databases + logs
+**/*.db
+**/*.db-journal
+**/*.log
+
+# Client build/test outputs not needed by the server build
+playwright-report
+test-results
+coverage
+**/*.tsbuildinfo
+.DS_Store

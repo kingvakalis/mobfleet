@@ -1,0 +1,216 @@
+// v1 dev persistence: SQLite (zero external infra, restart-persistent).
+// PROD: schema.postgres.prisma is the migration-compatible Postgres mirror
+// (see server/.env.example). Timestamps are stored as Float (epoch ms fits
+// exactly in a double) to keep JSON serialization clean.
+//
+// MULTI-TENANCY: every tenant is a Team. Users authenticate via an external
+// identity provider (Clerk / Supabase — see src/auth) and join teams through
+// Membership (which carries the role). EVERY fleet row carries teamId and is
+// keyed compositely by [teamId, …] so two teams can never collide and so a
+// query that forgets the teamId filter cannot silently read another tenant.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Tenancy & identity ──────────────────────────────────────────────────────
+
+model Team {
+  id            String               @id
+  name          String
+  createdAt     Float
+  memberships   Membership[]
+  invites       Invite[]
+  devices       Device[]
+  jobs          Job[]
+  proxies       Proxy[]
+  automations   Automation[]
+  pairingTokens DevicePairingToken[]
+  apiKeys       DeviceApiKey[]
+  auditLogs     AuditLog[]
+}
+
+model User {
+  id             String       @id
+  // Stable subject from the auth provider's JWT (Clerk/Supabase user id).
+  authProviderId String       @unique
+  email          String       @unique
+  name           String?
+  createdAt      Float
+  memberships    Membership[]
+  sentInvites    Invite[]     @relation("InviteInvitedBy")
+}
+
+model Membership {
+  id          String @id
+  userId      String
+  teamId      String
+  role        String // owner | admin | manager | operator | viewer
+  // Suspension: a suspended member keeps the row (history) but loses ALL access
+  // server-side (resolveAuthContext refuses to build a context for them).
+  status      String @default("active") // active | suspended
+  // Per-member resource scope (defaults to whole workspace). Enforced server-side
+  // for device reads + commands via the shared effective-access engine.
+  scopeType   String @default("workspace") // workspace | assigned_groups | assigned_phones | self
+  scopeGroups Json? // string[] of group names (for assigned_groups)
+  scopePhones Json? // string[] of phone ids/names (for assigned_phones)
+  createdAt   Float
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+  @@index([teamId])
+}
+
+// Append-only authorization/audit trail (role changes, suspensions, removals,
+// sensitive reveals, denied attempts). Never store secrets here.
+model AuditLog {
+  id        String  @id
+  teamId    String
+  actorId   String
+  action    String // role.change | member.suspend | member.reinstate | member.remove | member.scope | authz.denied | ...
+  target    String? // affected user/resource id
+  result    String // allowed | denied
+  detail    String? // short human/JSON context, NO secrets
+  createdAt Float
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([teamId, createdAt])
+}
+
+model Invite {
+  id              String  @id
+  teamId          String
+  email           String
+  role            String
+  token           String  @unique
+  status          String // pending | accepted | revoked | expired
+  invitedByUserId String
+  createdAt       Float
+  expiresAt       Float
+  acceptedAt      Float?
+  team            Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy       User    @relation("InviteInvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([teamId])
+  @@index([email])
+}
+
+// ─── Fleet (all tenant-scoped) ───────────────────────────────────────────────
+
+model Device {
+  id            String  @default("")
+  teamId        String
+  name          String
+  status        String
+  region        String
+  osVersion     String
+  model         String
+  proxy         String
+  battery       Int
+  group         String
+  assignedUser  String?
+  jobId         String?
+  createdAt     Float
+  // Infra identity + live heartbeat telemetry (mirror src/shared/types.ts).
+  // Nullable: populated by the seed / device-agent heartbeats over the WS feed.
+  udid          String?
+  platform      String?
+  ipAddress     String?
+  wdaPort       Int?
+  lastHeartbeat Float?
+  cpuUsage      Float?
+  memoryUsage   Float?
+  team          Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
+}
+
+model Job {
+  id         String  @default("")
+  teamId     String
+  deviceId   String?
+  type       String
+  status     String
+  progress   Float
+  createdAt  Float
+  startedAt  Float?
+  finishedAt Float?
+  error      String?
+  // Run configuration (mirrors src/shared/types.ts Job.config / Supabase
+  // automation_jobs.config). Nullable: simulator-created jobs omit it.
+  config     Json?
+  team       Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
+}
+
+model Proxy {
+  ip         String
+  teamId     String
+  region     String
+  provider   String
+  assignedTo String?
+  status     String
+  latency    Int
+  lastCheck  Float
+  team       Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, ip])
+  @@index([teamId])
+}
+
+model Automation {
+  id          String @default("")
+  teamId      String
+  name        String
+  description String
+  taskType    String
+  successRate Float
+  runs        Int
+  lastRun     String
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
+}
+
+// ─── Device provisioning (pairing tokens + per-device API keys) ───────────────
+
+// A short-lived, single-use token minted when a user clicks "Add Device". The
+// device scans the QR (containing this token), then POSTs /v1/devices/claim to
+// exchange it for a real device + an API key. Tenant-scoped via teamId.
+model DevicePairingToken {
+  token             String  @id // UUID, embedded in the QR
+  teamId            String
+  createdAt         Float
+  expiresAt         Float
+  claimedByDeviceId String? // set once claimed → token can't be reused
+  team              Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+}
+
+// A long-lived credential returned (once, in plaintext) on claim; only the
+// SHA-256 hash is stored. The device authenticates its heartbeat WebSocket with
+// it (/ws?deviceKey=…). deviceId is a plain string (no FK) so it can be created
+// alongside a device that is still being written through the in-memory store.
+model DeviceApiKey {
+  id         String @id
+  teamId     String
+  deviceId   String
+  keyHash    String @unique
+  createdAt  Float
+  lastUsedAt Float?
+  team       Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([deviceId])
+}
