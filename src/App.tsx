@@ -17,10 +17,12 @@ import { useActingMember } from '@/lib/authorization/use-access'
 import { canAny } from '@/lib/authorization/effective-access'
 
 const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
-const JobsView        = lazy(() => import('@/components/jobs/jobs-view').then(m => ({ default: m.JobsView })))
+// Phones + Jobs go through a route wrapper that uses live Supabase data when
+// configured, falling back to the mock views otherwise.
+const PhonesRoute     = lazy(() => import('@/components/phones/phones-route').then(m => ({ default: m.PhonesRoute })))
+const JobsRoute       = lazy(() => import('@/components/jobs/jobs-route').then(m => ({ default: m.JobsRoute })))
 const AutomationsView = lazy(() => import('@/components/automations/automations-view').then(m => ({ default: m.AutomationsView })))
 const GroupsView      = lazy(() => import('@/components/groups/groups-view').then(m => ({ default: m.GroupsView })))
-const PhonesView      = lazy(() => import('@/components/phones/phones-view').then(m => ({ default: m.PhonesView })))
 const ActivityView    = lazy(() => import('@/components/logs/logs-view').then(m => ({ default: m.ActivityView })))
 const AccountsView    = lazy(() => import('@/components/accounts/accounts-view').then(m => ({ default: m.AccountsView })))
 const TeamView        = lazy(() => import('@/components/team/team-view').then(m => ({ default: m.TeamView })))
@@ -33,12 +35,12 @@ function Soon({ label }: { label: string }) {
 const VIEW_MAP: Record<ViewId, ComponentType> = {
   'phone-control': PhoneControlPage,
   fleet:       FleetView,
-  phones:      PhonesView,
+  phones:      PhonesRoute,
   accounts:    AccountsView,
   groups:      GroupsView,
   team:        TeamView,
   automations: AutomationsView,
-  jobs:        JobsView,
+  jobs:        JobsRoute,
   scale:       () => <Soon label="Scale — coming soon" />,
 
   logs:        ActivityView,

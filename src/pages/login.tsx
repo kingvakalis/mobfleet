@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { useAuth } from '@/auth/auth-context'
+import { useAuth } from '@/contexts/AuthContext'
 import { AuthError, AuthField, AuthShell } from './auth-shell'
 
 export function LoginPage() {
-  const { enabled, session, signIn } = useAuth()
+  const { enabled, session, login } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const redirect = params.get('redirect') || '/'
@@ -26,7 +26,7 @@ export function LoginPage() {
     }
     setBusy(true)
     setError(null)
-    const { error: err } = await signIn(email, password)
+    const { error: err } = await login(email, password)
     setBusy(false)
     if (err) {
       setError(err)

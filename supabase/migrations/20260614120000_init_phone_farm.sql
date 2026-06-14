@@ -15,7 +15,7 @@ create extension if not exists pgcrypto; -- gen_random_uuid(), crypt() (seed)
 
 -- ── Enums ────────────────────────────────────────────────────────────────────
 create type public.team_role as enum ('owner', 'admin', 'operator', 'viewer');
-create type public.device_status as enum ('online', 'offline', 'error');
+create type public.device_status as enum ('online', 'offline', 'error', 'busy', 'warming');
 -- automation_jobs.status wasn't given an explicit enum in the spec; a small,
 -- closed set keeps job state honest and indexable. Adjust as the runner evolves.
 create type public.job_status as enum ('queued', 'running', 'succeeded', 'failed', 'cancelled');
@@ -74,7 +74,12 @@ create table public.automation_jobs (
 -- ── Indexes (team_id + status, plus the FK/lookup columns RLS leans on) ──────--
 create index idx_team_members_team   on public.team_members (team_id);
 create index idx_team_members_user   on public.team_members (user_id);
-create index idx_teams_owner         on public.teams (owner_user_id);
+-- UNIQUE: at most one auto-provisioned team per owner. This is the deterministic
+-- backstop for the first-login provisioning race — a second concurrent INSERT
+-- (StrictMode double-invoke / remount) fails with 23505, which useTeam treats as
+-- "already provisioned" and re-reads, instead of creating a duplicate workspace.
+-- (A unique index also serves the owner_user_id FK lookup, so no separate index.)
+create unique index uniq_team_owner  on public.teams (owner_user_id);
 create index idx_devices_team        on public.devices (team_id);
 create index idx_devices_team_status on public.devices (team_id, status);
 create index idx_jobs_team           on public.automation_jobs (team_id);
@@ -208,3 +213,10 @@ grant execute on function
   public.is_team_member(uuid), public.team_role_of(uuid),
   public.can_write_team(uuid), public.is_team_admin(uuid)
   to authenticated;
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Realtime — stream row changes for live dashboards. RLS still applies, so a
+-- subscriber only receives changes for rows they're allowed to read.
+-- ════════════════════════════════════════════════════════════════════════════
+alter publication supabase_realtime add table public.devices;
+alter publication supabase_realtime add table public.automation_jobs;

@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { useAuth } from '@/auth/auth-context'
+import { useAuth } from '@/contexts/AuthContext'
 import { AuthError, AuthField, AuthShell } from './auth-shell'
 
 export function SignupPage() {
-  const { enabled, session, signUp } = useAuth()
+  const { enabled, session, signup } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const redirect = params.get('redirect') || '/'
@@ -33,7 +33,7 @@ export function SignupPage() {
     setError(null)
     // Creating the account also creates the workspace with this user as OWNER
     // (the backend provisions the team on first authenticated request).
-    const { error: err, needsConfirmation } = await signUp(email, password, workspace)
+    const { error: err, needsConfirmation } = await signup(email, password, workspace)
     setBusy(false)
     if (err) {
       setError(err)

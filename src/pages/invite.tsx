@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { useAuth } from '@/auth/auth-context'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTeamContext } from '@/contexts/TeamContext'
 import { AuthShell } from './auth-shell'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
@@ -19,7 +20,8 @@ type State =
  * token survives the round-trip.
  */
 export function InvitePage() {
-  const { session, refreshMe } = useAuth()
+  const { session } = useAuth()
+  const { refresh } = useTeamContext()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
@@ -41,14 +43,14 @@ export function InvitePage() {
           setState({ kind: 'error', message: body.error ?? `Could not accept invitation (HTTP ${res.status}).` })
           return
         }
-        await refreshMe() // switch the active team to the one just joined
+        await refresh() // reload the active team to the one just joined
         setState({ kind: 'done', teamName: body.teamName, role: body.role })
       } catch {
         setState({ kind: 'error', message: 'Could not reach the server to accept the invitation.' })
       }
     }
     void accept()
-  }, [token, session, refreshMe])
+  }, [token, session, refresh])
 
   // Missing token — derived during render (no setState-in-effect needed).
   if (!token) {

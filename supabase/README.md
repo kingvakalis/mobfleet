@@ -16,7 +16,7 @@ supabase/
 |---|---|---|
 | `teams` | tenant / workspace | `id` (uuid pk), `name`, `owner_user_id → auth.users`, `created_at` |
 | `team_members` | membership + role | `team_id`, `user_id → auth.users`, `role` enum `owner\|admin\|operator\|viewer`, `invited_at`, `joined_at`, unique `(team_id, user_id)` |
-| `devices` | phones | `team_id`, `name`, `udid`, `platform`, `os_version`, `status` enum `online\|offline\|error`, `ip_address` (inet), `wda_port`, `last_heartbeat`, `created_at` |
+| `devices` | phones | `team_id`, `name`, `udid`, `platform`, `os_version`, `status` enum `online\|offline\|error\|busy\|warming`, `ip_address` (inet), `wda_port`, `last_heartbeat`, `created_at` |
 | `automation_jobs` | runs | `team_id`, `device_id → devices`, `type`, `status` enum, `config` jsonb, `started_at`, `finished_at`, `error` |
 
 All four tables carry `team_id`; UUID primary keys; FKs cascade from `teams`

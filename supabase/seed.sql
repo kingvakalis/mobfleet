@@ -6,7 +6,6 @@
 -- NOTE: auth.users rows are seeded ONLY for local dev so the FKs resolve. On a
 -- hosted project, users come from real Supabase Auth sign-ups — seed just the
 -- public.* tables there (or create users via the Auth admin API first).
--- App device statuses busy/warming collapse to 'online' in this schema's enum.
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- ── Demo auth users (LOCAL ONLY) ─────────────────────────────────────────────
@@ -39,8 +38,8 @@ on conflict (team_id, user_id) do nothing;
 -- ── Devices (Acme) ───────────────────────────────────────────────────────────
 insert into public.devices (id, team_id, name, udid, platform, os_version, status, ip_address, wda_port, last_heartbeat, created_at) values
   ('d0000000-0000-0000-0000-0000000000a1', 'a0000000-0000-0000-0000-000000000001', 'CAROLINA 1', '00008110-000a1c2e0e88401e', 'ios', 'iOS 18.1.1', 'online',  '10.0.0.11', 8100, now() - interval '20 seconds', now() - interval '9 days'),
-  ('d0000000-0000-0000-0000-0000000000a2', 'a0000000-0000-0000-0000-000000000001', 'CAROLINA 2', '00008120-001a44de3a02201e', 'ios', 'iOS 18.0',   'online',  '10.0.0.12', 8101, now() - interval '15 seconds', now() - interval '9 days'),
-  ('d0000000-0000-0000-0000-0000000000a3', 'a0000000-0000-0000-0000-000000000001', 'LUCIA 1',    '00008101-0012650a1e88001e', 'ios', 'iOS 17.6',   'offline', '10.0.0.13', 8102, now() - interval '6 hours',     now() - interval '6 days'),
+  ('d0000000-0000-0000-0000-0000000000a2', 'a0000000-0000-0000-0000-000000000001', 'CAROLINA 2', '00008120-001a44de3a02201e', 'ios', 'iOS 18.0',   'busy',    '10.0.0.12', 8101, now() - interval '15 seconds', now() - interval '9 days'),
+  ('d0000000-0000-0000-0000-0000000000a3', 'a0000000-0000-0000-0000-000000000001', 'LUCIA 1',    '00008101-0012650a1e88001e', 'ios', 'iOS 17.6',   'warming', '10.0.0.13', 8102, now() - interval '2 minutes',    now() - interval '6 days'),
   ('d0000000-0000-0000-0000-0000000000a4', 'a0000000-0000-0000-0000-000000000001', 'IG FARM 1',  '00008030-000d2a9c0e88401e', 'ios', 'iOS 17.5.1', 'error',   '10.0.0.14', 8103, now() - interval '3 minutes',    now() - interval '5 days')
 on conflict (id) do nothing;
 
