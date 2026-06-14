@@ -25,7 +25,7 @@ export interface RoleTemplate {
 const MANAGER_PERMS: PermissionKey[] = [
   'fleet.view', 'fleet.view_3d', 'fleet.save_layout',
   'phones.view', 'phones.control', 'phones.screenshot', 'phones.reboot',
-  'phones.assign_group', 'phones.assign_employee',
+  'phones.provision', 'phones.assign_group', 'phones.assign_employee',
   'groups.view', 'groups.edit', 'groups.assign_phones', 'groups.run_automation',
   'accounts.view', 'accounts.edit', 'accounts.assign',
   'automations.view', 'automations.run',

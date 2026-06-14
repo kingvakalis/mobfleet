@@ -9,21 +9,40 @@ import type {
   Proxy,
   TaskSpec,
 } from '@/shared/types'
+import { getActiveTeam, getAuthToken, onAuthChange } from './auth-token'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '' // '' → relative (dev Vite proxy)
 const WS_BASE = import.meta.env.VITE_WS_URL ?? ''
 
 function wsUrl(): string {
-  if (WS_BASE) return `${WS_BASE.replace(/\/$/, '')}/ws`
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}/ws`
+  const base = WS_BASE
+    ? `${WS_BASE.replace(/\/$/, '')}/ws`
+    : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
+  // Browsers can't set headers on a WS upgrade → pass auth via the query.
+  const params = new URLSearchParams()
+  const token = getAuthToken()
+  const team = getActiveTeam()
+  if (token) params.set('token', token)
+  if (team) params.set('teamId', team)
+  const qs = params.toString()
+  return qs ? `${base}?${qs}` : base
+}
+
+/** Auth headers applied to every REST call (bearer token + active team). */
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = {}
+  const token = getAuthToken()
+  const team = getActiveTeam()
+  if (token) h.Authorization = `Bearer ${token}`
+  if (team) h['x-team-id'] = team
+  return h
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(API_BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     ...init,
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
   })
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
@@ -83,6 +102,18 @@ export function createHttpProvider(): ProviderClient {
       }
     }
   }
+
+  // When the user logs in / switches team, drop the socket so it reconnects
+  // with the new credentials (onclose → reconnect picks up the new token).
+  onAuthChange(() => {
+    if (started && socket) {
+      try {
+        socket.close()
+      } catch {
+        /* noop */
+      }
+    }
+  })
 
   return {
     subscribe(listener) {

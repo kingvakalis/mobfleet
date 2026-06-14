@@ -3,10 +3,14 @@ import { repo } from './repo'
 import { seedFleet } from './seed'
 
 /**
- * The authoritative fleet state. In-memory maps are the source of truth for
- * fast reads + WS broadcast; mutations write through to the DB (debounced) and
- * notify listeners (the WS layer). `runBatch` coalesces many mutations from a
- * simulation tick into a single change notification.
+ * The authoritative fleet state for ONE team. In-memory maps are the source of
+ * truth for fast reads + WS broadcast; mutations write through to the DB
+ * (debounced, team-scoped) and notify listeners (the WS layer). `runBatch`
+ * coalesces many mutations from a simulation tick into a single change.
+ *
+ * One FleetStore exists per tenant (see tenancy/engine-registry.ts). Because
+ * the store only ever holds its own team's rows and persists via the
+ * teamId-scoped repo, cross-tenant leakage is impossible by construction.
  */
 export class FleetStore {
   private devices = new Map<string, Device>()
@@ -19,15 +23,17 @@ export class FleetStore {
   private batching = false
   private saveTimer: ReturnType<typeof setTimeout> | null = null
 
+  constructor(public readonly teamId: string) {}
+
   async init(): Promise<void> {
-    const data = await repo.load()
+    const data = await repo.load(this.teamId)
     if (data.devices.length === 0) {
       const seeded = seedFleet()
       seeded.devices.forEach((d) => this.devices.set(d.id, d))
       seeded.jobs.forEach((j) => this.jobs.set(j.id, j))
       seeded.proxies.forEach((p) => this.proxies.set(p.ip, p))
       seeded.automations.forEach((a) => this.automations.set(a.id, a))
-      await repo.persist(this.persistData())
+      await repo.persist(this.teamId, this.persistData())
     } else {
       data.devices.forEach((d) => this.devices.set(d.id, d))
       data.jobs.forEach((j) => this.jobs.set(j.id, j))
@@ -37,8 +43,9 @@ export class FleetStore {
     // Backfill automations for DBs created before the feature existed.
     if (this.automations.size === 0) {
       seedFleet().automations.forEach((a) => this.automations.set(a.id, a))
-      await repo.persist(this.persistData())
+      await repo.persist(this.teamId, this.persistData())
     }
+    this.ready = true
   }
 
   private persistData() {
@@ -102,7 +109,13 @@ export class FleetStore {
     if (this.saveTimer) return
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
-      repo.persist(this.persistData()).catch((e) => console.error('[persist]', e))
+      repo.persist(this.teamId, this.persistData()).catch((e) => console.error('[persist]', this.teamId, e))
     }, 800)
+  }
+
+  /** Release timers/listeners (registry eviction). */
+  dispose() {
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null }
+    this.listeners.clear()
   }
 }

@@ -2,16 +2,17 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import websocket from '@fastify/websocket'
 import { ZodError } from 'zod'
-import { env } from './env'
-import { FleetStore } from './fleet-store'
-import { createProvider } from './provider'
+import { env, assertAuthConfig } from './env'
+import { EngineRegistry } from './tenancy/engine-registry'
 import { registerRoutes } from './routes'
 import { registerWs } from './ws'
+import { HttpError } from './http-error'
 
 async function main() {
-  const store = new FleetStore()
-  await store.init()
-  const provider = createProvider(store)
+  assertAuthConfig() // fail fast on an insecure prod auth config
+
+  // One fleet engine (store + provider + sim loop) per tenant, created lazily.
+  const registry = new EngineRegistry()
 
   const app = Fastify({ logger: false })
 
@@ -21,24 +22,29 @@ async function main() {
   })
   await app.register(websocket)
 
-  app.setErrorHandler((err, _req, reply) => {
+  app.setErrorHandler((err: unknown, _req, reply) => {
     if (err instanceof ZodError) {
       return reply.code(400).send({ error: 'invalid request', issues: err.issues })
     }
-    const msg = err instanceof Error ? err.message : 'error'
+    if (err instanceof HttpError) {
+      return reply.code(err.statusCode).send({ error: err.message })
+    }
+    const e = err as { statusCode?: number; message?: string }
+    const msg = typeof e.message === 'string' ? e.message : 'error'
+    if (typeof e.statusCode === 'number' && e.statusCode >= 400) {
+      return reply.code(e.statusCode).send({ error: msg })
+    }
     const code = /unknown/i.test(msg) ? 404 : 400
     return reply.code(code).send({ error: msg })
   })
 
-  registerWs(app, store, env.allowedOrigin)
-  registerRoutes(app, store, provider)
-
-  provider.startLoop?.()
-  // Simulated uplink handshake → ready (mirrors the mock's boot state).
-  setTimeout(() => store.setReady(true), 700)
+  registerWs(app, registry, env.allowedOrigin)
+  registerRoutes(app, registry)
 
   await app.listen({ port: env.port, host: '0.0.0.0' })
-  console.log(`[server] listening on http://localhost:${env.port}  ·  provider=${env.provider}`)
+  console.log(
+    `[server] listening on http://localhost:${env.port}  ·  provider=${env.provider}  ·  auth=${env.authProvider}  ·  multi-tenant`,
+  )
 }
 
 main().catch((e) => {

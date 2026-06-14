@@ -127,7 +127,10 @@ export function canManageMember(actor: Member, target: Member): boolean {
   if (actor.id === target.id) return false // no self-edit of access (prevents self-escalation)
   if (target.role === 'owner' && actor.role !== 'owner') return false
   if (!can(actor, 'team.edit')) return false
-  return roleRank(actor.role) >= roleRank(target.role) || actor.role === 'owner'
+  // Must strictly OUTRANK the target (peers can't manage peers — e.g. one admin
+  // can't strip a co-admin); owners may still manage other owners (last-owner
+  // protection guards demotion/removal).
+  return roleRank(actor.role) > roleRank(target.role) || actor.role === 'owner'
 }
 
 /** Last-Owner protection: an owner cannot be demoted/removed/suspended if they

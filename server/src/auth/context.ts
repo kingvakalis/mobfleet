@@ -1,0 +1,59 @@
+import type { FastifyReply, FastifyRequest } from 'fastify'
+import { can, type Member } from '../../../src/lib/authorization/effective-access'
+import type { PermissionKey } from '../../../src/lib/authorization/permissions'
+import { forbidden, unauthorized } from '../http-error'
+import { verifyToken } from './identity'
+import { resolveAuthContext, toMember, type AuthContext } from './db'
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    auth?: AuthContext
+  }
+}
+
+/** Extract a bearer token from the Authorization header (preferred) or the
+ *  `?token=` query param (used by the WebSocket upgrade, which can't set
+ *  headers in the browser). */
+export function tokenFromRequest(req: FastifyRequest): string | null {
+  const h = req.headers.authorization
+  if (h && h.startsWith('Bearer ')) return h.slice(7).trim()
+  const q = (req.query as { token?: string } | undefined)?.token
+  return q ? q.trim() : null
+}
+
+/** Resolve auth from a raw token + optional requested team. Shared by the HTTP
+ *  preHandler and the WebSocket upgrade so both enforce identical tenancy. */
+export async function authFromToken(token: string | null, requestedTeamId?: string): Promise<AuthContext> {
+  if (!token) throw unauthorized('missing bearer token')
+  let identity
+  try {
+    identity = await verifyToken(token)
+  } catch (e) {
+    throw unauthorized(e instanceof Error ? e.message : 'invalid token')
+  }
+  return resolveAuthContext(identity, requestedTeamId)
+}
+
+/** Fastify preHandler: authenticate the request and attach req.auth. */
+export async function authenticate(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  const token = tokenFromRequest(req)
+  const requestedTeamId = (req.headers['x-team-id'] as string | undefined)?.trim() || undefined
+  req.auth = await authFromToken(token, requestedTeamId)
+}
+
+/** The acting user as an authorization-engine Member. */
+export function actor(req: FastifyRequest): Member {
+  if (!req.auth) throw unauthorized()
+  return toMember({ userId: req.auth.userId, role: req.auth.role })
+}
+
+/** Throw 403 unless the acting user holds the permission. */
+export function requirePermission(req: FastifyRequest, key: PermissionKey): void {
+  if (!can(actor(req), key)) throw forbidden(`missing permission: ${key}`)
+}
+
+/** The authenticated tenant context (throws if the preHandler didn't run). */
+export function ctx(req: FastifyRequest): AuthContext {
+  if (!req.auth) throw unauthorized()
+  return req.auth
+}

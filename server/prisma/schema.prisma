@@ -1,7 +1,13 @@
 // v1 dev persistence: SQLite (zero external infra, restart-persistent).
-// PROD: swap `provider`/`url` to postgresql via DATABASE_URL (Postgres schema
-// is migration-compatible; see server/.env.example). Timestamps are stored as
-// Float (epoch ms fits exactly in a double) to keep JSON serialization clean.
+// PROD: schema.postgres.prisma is the migration-compatible Postgres mirror
+// (see server/.env.example). Timestamps are stored as Float (epoch ms fits
+// exactly in a double) to keep JSON serialization clean.
+//
+// MULTI-TENANCY: every tenant is a Team. Users authenticate via an external
+// identity provider (Clerk / Supabase — see src/auth) and join teams through
+// Membership (which carries the role). EVERY fleet row carries teamId and is
+// keyed compositely by [teamId, …] so two teams can never collide and so a
+// query that forgets the teamId filter cannot silently read another tenant.
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,8 +17,67 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Tenancy & identity ──────────────────────────────────────────────────────
+
+model Team {
+  id          String       @id
+  name        String
+  createdAt   Float
+  memberships Membership[]
+  invites     Invite[]
+  devices     Device[]
+  jobs        Job[]
+  proxies     Proxy[]
+  automations Automation[]
+}
+
+model User {
+  id             String       @id
+  // Stable subject from the auth provider's JWT (Clerk/Supabase user id).
+  authProviderId String       @unique
+  email          String       @unique
+  name           String?
+  createdAt      Float
+  memberships    Membership[]
+  sentInvites    Invite[]     @relation("InviteInvitedBy")
+}
+
+model Membership {
+  id        String @id
+  userId    String
+  teamId    String
+  role      String // owner | admin | manager | operator | viewer
+  createdAt Float
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+  @@index([teamId])
+}
+
+model Invite {
+  id              String  @id
+  teamId          String
+  email           String
+  role            String
+  token           String  @unique
+  status          String // pending | accepted | revoked | expired
+  invitedByUserId String
+  createdAt       Float
+  expiresAt       Float
+  acceptedAt      Float?
+  team            Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy       User    @relation("InviteInvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([teamId])
+  @@index([email])
+}
+
+// ─── Fleet (all tenant-scoped) ───────────────────────────────────────────────
+
 model Device {
-  id           String  @id
+  id           String  @default("")
+  teamId       String
   name         String
   status       String
   region       String
@@ -24,10 +89,15 @@ model Device {
   assignedUser String?
   jobId        String?
   createdAt    Float
+  team         Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
 }
 
 model Job {
-  id         String  @id
+  id         String  @default("")
+  teamId     String
   deviceId   String?
   type       String
   status     String
@@ -36,24 +106,38 @@ model Job {
   startedAt  Float?
   finishedAt Float?
   error      String?
+  team       Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
 }
 
 model Proxy {
-  ip         String  @id
+  ip         String
+  teamId     String
   region     String
   provider   String
   assignedTo String?
   status     String
   latency    Int
   lastCheck  Float
+  team       Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, ip])
+  @@index([teamId])
 }
 
 model Automation {
-  id          String @id
+  id          String @default("")
+  teamId      String
   name        String
   description String
   taskType    String
   successRate Float
   runs        Int
   lastRun     String
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId])
 }
