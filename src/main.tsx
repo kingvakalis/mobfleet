@@ -1,7 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/system/error-boundary'
 import { RootShell } from '@/components/system/root-shell'
+import { AuthProvider } from '@/auth/auth-context'
+import { ProtectedRoute } from '@/auth/protected-route'
+import { LoginPage } from '@/pages/login'
+import { SignupPage } from '@/pages/signup'
+import { InvitePage } from '@/pages/invite'
 import { applyAppearance } from '@/lib/themes'
 import { useSettings } from '@/state/settings-store'
 
@@ -22,7 +28,20 @@ useSettings.subscribe((s) => applyAppearance(s))
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <RootShell />
+      <BrowserRouter>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/invite" element={<ProtectedRoute><InvitePage /></ProtectedRoute>} />
+            {/* The whole app lives behind the auth gate. With Supabase
+                unconfigured the gate is a passthrough, so the standalone
+                mock/demo build is unaffected. */}
+            <Route path="/" element={<ProtectedRoute><RootShell /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
     </ErrorBoundary>
   </StrictMode>,
 )

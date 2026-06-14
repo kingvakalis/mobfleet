@@ -48,20 +48,23 @@ Two schemas, identical models: `prisma/schema.prisma` (SQLite, dev) and
    shared authorization engine (`src/lib/authorization/*`, reused verbatim
    server-side) against the actor's role.
 
-## Auth providers (pluggable)
+## Auth (Supabase)
 
-`AUTH_PROVIDER` selects how the JWT the browser sends is verified — tenancy lives
-in **our** DB, so the provider only supplies identity (a stable `sub` + email):
+Auth is **Supabase Auth**. `AUTH_PROVIDER` selects how the JWT the browser sends
+is verified — tenancy lives in **our** DB, so the token only supplies identity (a
+stable `sub` + email):
 
 | `AUTH_PROVIDER` | Verification | Notes |
 |---|---|---|
-| `supabase` | HS256 with `AUTH_JWT_SECRET` | Supabase access token; secret = Project Settings → API → JWT Secret |
-| `clerk` | RS256 against `AUTH_JWKS_URL` | Clerk session token; JWKS fetched + cached |
+| `supabase` | HS256 with `SUPABASE_JWT_SECRET` | Supabase access token; secret = Project Settings → API → JWT Secret |
 | `dev` | **insecure decode-only** | local only — requires an explicit `ALLOW_INSECURE_DEV_AUTH=1` opt-in and is **forbidden in production** |
 
+The browser obtains the JWT from `@supabase/supabase-js` (see the client's
+`src/lib/supabase.ts` + `src/auth/`) and sends it as `Authorization: Bearer …`.
+
 `assertAuthConfig()` runs **unconditionally at startup** and fails closed: an
-unknown/typo'd `AUTH_PROVIDER`, a missing secret/JWKS, or `dev` without the
-explicit opt-in all refuse to boot — so there is no code path by which a
+unknown/typo'd `AUTH_PROVIDER`, a missing `SUPABASE_JWT_SECRET`, or `dev` without
+the explicit opt-in all refuse to boot — so there is no code path by which a
 misconfiguration silently reaches the signature-less verifier. Optional
 `AUTH_AUDIENCE` / `AUTH_ISSUER` claim checks are recommended in prod; a present,
 valid `exp` is **required** and `nbf` is enforced. No JWT library dependencies —
@@ -114,8 +117,8 @@ The team's simulation loop runs only while it has ≥1 live subscriber.
 
 ## Environment
 
-See `.env.example`. Key vars: `AUTH_PROVIDER`, `AUTH_JWT_SECRET` /
-`AUTH_JWKS_URL`, `AUTH_AUDIENCE`, `AUTH_ISSUER`, `APP_URL` (invite links),
+See `.env.example`. Key vars: `AUTH_PROVIDER`, `SUPABASE_JWT_SECRET`,
+`AUTH_AUDIENCE`, `AUTH_ISSUER`, `APP_URL` (invite links),
 `INVITE_TTL_MS`, `AUTO_PROVISION_TEAM`, `MAIL_TRANSPORT` / `RESEND_API_KEY`.
 
 ## Migration
@@ -140,16 +143,27 @@ pure logic: JWT verification (tamper/expiry/alg-confusion), the `teamId`-scoped
 persist plan (no global wipe; every op carries `teamId`), and RBAC
 anti-escalation / last-owner invariants.
 
-## Remaining client phase (SPA → this server)
+## Client auth (built — Supabase)
 
-The provider seam exists (`src/lib/provider/auth-token.ts` +
-`http-provider.ts` send the bearer token + `x-team-id`, and the socket
-reconnects on auth change). To go live the SPA needs:
+The SPA auth layer is implemented:
 
-1. A Clerk/Supabase login screen; on auth, call `setAuthToken(jwt)`.
-2. Call `GET /v1/me` to learn `{ teamId, role }`; drive the existing client-side
-   permission UI from the **server** role instead of the local seed.
-3. A team switcher (multi-membership) that calls `setActiveTeam(teamId)`.
-4. An `/invite?token=…` route that calls `POST /v1/invites/accept`.
-5. Build with `VITE_USE_BACKEND=1` and `VITE_API_URL` / `VITE_WS_URL` pointing
-   at this server.
+- `src/lib/supabase.ts` — Supabase browser client from `VITE_SUPABASE_URL` +
+  `VITE_SUPABASE_ANON_KEY` (auth is enabled iff both are set; otherwise the app
+  runs in standalone mock/demo mode with no login).
+- `src/auth/auth-context.tsx` — stores the session, pushes the Supabase JWT to
+  the backend via `setAuthToken` (→ `Authorization: Bearer`), resolves
+  `GET /v1/me` for `{ teamId, role }`, exposes `signIn/signUp/signOut`.
+- `src/auth/protected-route.tsx` — redirects to `/login?redirect=…` when there's
+  no session (passthrough when auth is unconfigured).
+- `src/pages/{login,signup,invite}.tsx` + `main.tsx` routes: `/login`, `/signup`
+  (creates the workspace with the user as **OWNER** via the `x-onboard-team-name`
+  header on first `/v1/me`), and `/invite?token=…` (`POST /v1/invites/accept`).
+
+To run against this server: set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+`VITE_USE_BACKEND=1`, and `VITE_API_URL` / `VITE_WS_URL` (see root `.env.example`).
+
+### Still optional (polish, not required to go live)
+
+- Drive the in-app permission UI from the **server** role (`me.role`) instead of
+  the local employee seed (the role is already on the auth context).
+- A team switcher for multi-membership users (the seam is `setActiveTeam`).

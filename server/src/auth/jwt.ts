@@ -1,13 +1,12 @@
 /**
  * Minimal, dependency-free JWT verification (Node crypto only).
- *  - HS256 (shared secret)  → Supabase access tokens (project JWT secret)
- *  - RS256 (JWKS public key) → Clerk session tokens
+ * HS256 (shared secret) → Supabase access tokens (project JWT secret).
  *
- * Pure and synchronous except RS256 key lookup; unit-tested in jwt.test.ts.
- * We deliberately avoid a JWT library so the trust surface is small and
- * auditable — the only crypto is Node's vetted `crypto` module.
+ * Pure + synchronous; unit-tested in jwt.test.ts. We deliberately avoid a JWT
+ * library so the trust surface is small and auditable — the only crypto is
+ * Node's vetted `crypto` module.
  */
-import { createHmac, timingSafeEqual, createVerify, createPublicKey, type JsonWebKey } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 
 export interface JwtHeader {
   alg: string
@@ -87,25 +86,6 @@ export function verifyHs256(token: string, secret: string, checks?: ClaimChecks)
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
     throw new JwtError('bad signature')
   }
-  checkClaims(payload, checks)
-  return payload
-}
-
-/** Verify an RS256 token against a set of JWK public keys (by `kid`). */
-export function verifyRs256(token: string, jwks: JsonWebKey[], checks?: ClaimChecks): JwtPayload {
-  const { header, payload, signingInput, signature } = decodeJwt(token)
-  if (header.alg !== 'RS256') throw new JwtError(`unexpected alg ${header.alg}`)
-  const candidates = header.kid ? jwks.filter((k) => (k as { kid?: string }).kid === header.kid) : jwks
-  if (candidates.length === 0) throw new JwtError('no matching JWK for kid')
-  const ok = candidates.some((jwk) => {
-    try {
-      const key = createPublicKey({ key: jwk, format: 'jwk' })
-      return createVerify('RSA-SHA256').update(signingInput).verify(key, b64urlToBuf(signature))
-    } catch {
-      return false
-    }
-  })
-  if (!ok) throw new JwtError('bad signature')
   checkClaims(payload, checks)
   return payload
 }

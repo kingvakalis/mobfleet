@@ -6,7 +6,7 @@ import { env } from '../env'
 import { actor, ctx, requirePermission } from '../auth/context'
 import {
   createInvite, getValidInviteByToken, isRoleId, listPendingInvites,
-  listTeamMembers, teamMembersAsMembers, toMember,
+  listTeamMembers, teamMembersAsMembers,
 } from '../auth/db'
 import { sendInviteEmail } from '../mailer'
 import { badRequest, forbidden, notFound } from '../http-error'

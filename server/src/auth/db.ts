@@ -48,11 +48,13 @@ export async function ensureUser(identity: Identity) {
   })
 }
 
-/** Create a personal workspace owned by the user (first-login onboarding). */
-export async function createPersonalTeam(userId: string, displayName: string) {
+/** Create a workspace owned by the user (first-login onboarding). Uses the
+ *  signup-supplied name when present, else a personal default. */
+export async function createPersonalTeam(userId: string, displayName: string, preferredName?: string) {
   const teamId = id('team')
   const now = Date.now()
-  const team = await prisma.team.create({ data: { id: teamId, name: `${displayName}'s Workspace`, createdAt: now } })
+  const name = preferredName?.trim() || `${displayName}'s Workspace`
+  const team = await prisma.team.create({ data: { id: teamId, name, createdAt: now } })
   const membership = await prisma.membership.create({
     data: { id: id('mem'), userId, teamId, role: 'owner', createdAt: now },
   })
@@ -65,7 +67,7 @@ export async function createPersonalTeam(userId: string, displayName: string) {
  * else the user's first membership. With no membership, optionally onboards a
  * personal team.
  */
-export async function resolveAuthContext(identity: Identity, requestedTeamId?: string): Promise<AuthContext> {
+export async function resolveAuthContext(identity: Identity, requestedTeamId?: string, preferredTeamName?: string): Promise<AuthContext> {
   const user = await ensureUser(identity)
   let memberships = await prisma.membership.findMany({
     where: { userId: user.id },
@@ -75,7 +77,7 @@ export async function resolveAuthContext(identity: Identity, requestedTeamId?: s
 
   if (memberships.length === 0) {
     if (!env.autoProvisionTeam) throw new Error('no team membership — you must be invited to a workspace')
-    const created = await createPersonalTeam(user.id, user.name ?? user.email.split('@')[0])
+    const created = await createPersonalTeam(user.id, user.name ?? user.email.split('@')[0], preferredTeamName)
     memberships = await prisma.membership.findMany({
       where: { id: created.membership.id },
       include: { team: true },

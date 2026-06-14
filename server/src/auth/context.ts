@@ -22,8 +22,10 @@ export function tokenFromRequest(req: FastifyRequest): string | null {
 }
 
 /** Resolve auth from a raw token + optional requested team. Shared by the HTTP
- *  preHandler and the WebSocket upgrade so both enforce identical tenancy. */
-export async function authFromToken(token: string | null, requestedTeamId?: string): Promise<AuthContext> {
+ *  preHandler and the WebSocket upgrade so both enforce identical tenancy.
+ *  `preferredTeamName` names the workspace when a first-login user is
+ *  auto-provisioned (set at signup). */
+export async function authFromToken(token: string | null, requestedTeamId?: string, preferredTeamName?: string): Promise<AuthContext> {
   if (!token) throw unauthorized('missing bearer token')
   let identity
   try {
@@ -31,14 +33,15 @@ export async function authFromToken(token: string | null, requestedTeamId?: stri
   } catch (e) {
     throw unauthorized(e instanceof Error ? e.message : 'invalid token')
   }
-  return resolveAuthContext(identity, requestedTeamId)
+  return resolveAuthContext(identity, requestedTeamId, preferredTeamName)
 }
 
 /** Fastify preHandler: authenticate the request and attach req.auth. */
 export async function authenticate(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const token = tokenFromRequest(req)
   const requestedTeamId = (req.headers['x-team-id'] as string | undefined)?.trim() || undefined
-  req.auth = await authFromToken(token, requestedTeamId)
+  const onboardTeamName = (req.headers['x-onboard-team-name'] as string | undefined)?.trim() || undefined
+  req.auth = await authFromToken(token, requestedTeamId, onboardTeamName)
 }
 
 /** The acting user as an authorization-engine Member. */

@@ -1,10 +1,9 @@
 import { env } from '../env'
-import { checkClaims, decodeJwt, verifyHs256, verifyRs256, JwtError, type JwtPayload } from './jwt'
-import { getJwks } from './jwks'
+import { checkClaims, decodeJwt, verifyHs256, JwtError, type JwtPayload } from './jwt'
 
-/** A verified external identity — the provider-agnostic result of auth. */
+/** A verified external identity — the result of auth. */
 export interface Identity {
-  /** Stable provider subject (Clerk/Supabase user id). */
+  /** Stable provider subject (the Supabase user id). */
   providerUserId: string
   email: string
   name?: string
@@ -49,8 +48,7 @@ const claimChecks = () => ({
 
 /**
  * Verify a bearer token and resolve it to an Identity, per AUTH_PROVIDER:
- *   supabase → HS256 with AUTH_JWT_SECRET
- *   clerk    → RS256 against AUTH_JWKS_URL
+ *   supabase → HS256 with SUPABASE_JWT_SECRET
  *   dev      → INSECURE decode-only (signature NOT checked) — local dev only.
  */
 export async function verifyToken(token: string): Promise<Identity> {
@@ -59,15 +57,6 @@ export async function verifyToken(token: string): Promise<Identity> {
     switch (env.authProvider) {
       case 'supabase':
         return extract(verifyHs256(token, env.authJwtSecret, claimChecks()))
-      case 'clerk': {
-        const { header } = decodeJwt(token)
-        // Refresh once if the kid isn't in the cached set (key rotation).
-        let keys = await getJwks(env.authJwksUrl)
-        if (header.kid && !keys.some((k) => (k as { kid?: string }).kid === header.kid)) {
-          keys = await getJwks(env.authJwksUrl, { forceRefresh: true })
-        }
-        return extract(verifyRs256(token, keys, claimChecks()))
-      }
       case 'dev': {
         // INSECURE: decode only, still enforce expiry so stale tokens fail.
         // Local-only (assertAuthConfig forbids reaching here in prod); a dev

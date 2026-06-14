@@ -22,18 +22,19 @@ export const env = {
   provider: str('PROVIDER', 'simulated') as 'simulated' | 'corellium' | 'geelark',
 
   // ── Auth / multi-tenancy ──────────────────────────────────────────────────
-  // Which identity provider issues the JWTs the client sends.
-  //   supabase → HS256 JWT verified with AUTH_JWT_SECRET (the project's JWT secret)
-  //   clerk    → RS256 JWT verified against AUTH_JWKS_URL (Clerk JWKS endpoint)
-  //   dev      → INSECURE decode-only (no signature check) — local dev ONLY.
-  authProvider: str('AUTH_PROVIDER', isProd ? 'supabase' : 'dev').trim().toLowerCase() as 'supabase' | 'clerk' | 'dev',
+  // How the JWT the client sends is verified.
+  //   supabase → HS256 JWT verified with SUPABASE_JWT_SECRET (Supabase: Project
+  //              Settings → API → JWT Secret)
+  //   dev      → INSECURE decode-only (no signature check) — local dev ONLY,
+  //              requires ALLOW_INSECURE_DEV_AUTH=1.
+  authProvider: str('AUTH_PROVIDER', isProd ? 'supabase' : 'dev').trim().toLowerCase() as 'supabase' | 'dev',
   /** Explicit opt-in required to run the signature-less 'dev' verifier. */
   allowInsecureDevAuth: bool('ALLOW_INSECURE_DEV_AUTH', false),
-  /** Shared secret for HS256 (Supabase project JWT secret). Required in prod for supabase. */
-  authJwtSecret: str('AUTH_JWT_SECRET', ''),
-  /** JWKS endpoint for RS256 (Clerk). Required in prod for clerk. */
-  authJwksUrl: str('AUTH_JWKS_URL', ''),
-  /** Optional expected audience / issuer checks (recommended in prod). */
+  /** Supabase project JWT secret (HS256). Required in prod for supabase.
+   *  Falls back to the legacy AUTH_JWT_SECRET name. */
+  authJwtSecret: str('SUPABASE_JWT_SECRET', '') || str('AUTH_JWT_SECRET', ''),
+  /** Expected audience / issuer (Supabase: aud="authenticated",
+   *  iss="https://<ref>.supabase.co/auth/v1"). Optional but recommended. */
   authAudience: str('AUTH_AUDIENCE', ''),
   authIssuer: str('AUTH_ISSUER', ''),
 
@@ -54,20 +55,17 @@ export const env = {
  * insecure 'dev' verifier is an explicit, local-only opt-in.
  */
 export function assertAuthConfig() {
-  const valid = ['supabase', 'clerk', 'dev']
+  const valid = ['supabase', 'dev']
   if (!valid.includes(env.authProvider)) {
     throw new Error(`[env] AUTH_PROVIDER must be one of ${valid.join('|')}, got ${JSON.stringify(env.authProvider)}`)
   }
   if (env.authProvider === 'dev') {
-    if (env.isProd) throw new Error('[env] AUTH_PROVIDER=dev is forbidden in production. Set supabase or clerk.')
+    if (env.isProd) throw new Error('[env] AUTH_PROVIDER=dev is forbidden in production. Set supabase.')
     if (!env.allowInsecureDevAuth) {
       throw new Error('[env] AUTH_PROVIDER=dev verifies NO signature. Set ALLOW_INSECURE_DEV_AUTH=1 to opt in (local dev only).')
     }
   }
   if (env.authProvider === 'supabase' && !env.authJwtSecret) {
-    throw new Error('[env] AUTH_PROVIDER=supabase requires AUTH_JWT_SECRET.')
-  }
-  if (env.authProvider === 'clerk' && !env.authJwksUrl) {
-    throw new Error('[env] AUTH_PROVIDER=clerk requires AUTH_JWKS_URL.')
+    throw new Error('[env] AUTH_PROVIDER=supabase requires SUPABASE_JWT_SECRET.')
   }
 }
