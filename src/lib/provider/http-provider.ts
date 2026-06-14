@@ -5,6 +5,7 @@ import type {
   DeviceStatus,
   FleetSnapshot,
   Job,
+  PairingToken,
   ProviderClient,
   Proxy,
   TaskSpec,
@@ -144,6 +145,7 @@ export function createHttpProvider(): ProviderClient {
     },
     createDevices: (count, opts?: CreateDevicesOptions) =>
       api<Device[]>('/v1/devices', { method: 'POST', body: JSON.stringify({ count, region: opts?.region }) }),
+    createPairingToken: () => api<PairingToken>('/v1/devices/pair', { method: 'POST' }),
     start: (id) => api<Device>(`/v1/devices/${id}/start`, { method: 'POST' }),
     stop: (id) => api<Device>(`/v1/devices/${id}/stop`, { method: 'POST' }),
     async delete(id) {

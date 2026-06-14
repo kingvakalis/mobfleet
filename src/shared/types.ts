@@ -116,6 +116,16 @@ export interface Automation {
   lastRun: string
 }
 
+/** A freshly minted device-pairing token (shown to the user as a QR). */
+export interface PairingToken {
+  /** UUID the device presents to POST /v1/devices/claim. */
+  pairingToken: string
+  /** Base URL of the server that hosts the claim endpoint (goes in the QR). */
+  serverUrl: string
+  /** Epoch ms when the token expires (default: minted + 10 min). */
+  expiresAt: number
+}
+
 /**
  * The single seam between the UI and the backend. Implemented by the in-memory
  * mock (createMockProvider) and the HTTP+WS client (createHttpProvider).
@@ -125,6 +135,8 @@ export interface ProviderClient {
   getDevice(id: string): Promise<Device | undefined>
   getStatus(id: string): Promise<DeviceStatus>
   createDevices(count: number, opts?: CreateDevicesOptions): Promise<Device[]>
+  /** Mint a device-pairing token for the active team (QR provisioning flow). */
+  createPairingToken(): Promise<PairingToken>
   start(id: string): Promise<Device>
   stop(id: string): Promise<Device>
   delete(id: string): Promise<void>

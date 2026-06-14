@@ -2,14 +2,16 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import websocket from '@fastify/websocket'
 import { ZodError } from 'zod'
-import { env, assertAuthConfig } from './env'
+import { env, assertAuthConfig, assertProvisioningConfig } from './env'
 import { EngineRegistry } from './tenancy/engine-registry'
 import { registerRoutes } from './routes'
 import { registerWs } from './ws'
 import { HttpError } from './http-error'
+import { startPairingTokenCleanup } from './provisioning'
 
 async function main() {
   assertAuthConfig() // fail fast on an insecure prod auth config
+  assertProvisioningConfig() // fail fast if the QR server URL isn't pinned in prod
 
   // One fleet engine (store + provider + sim loop) per tenant, created lazily.
   const registry = new EngineRegistry()
@@ -40,6 +42,8 @@ async function main() {
 
   registerWs(app, registry, env.allowedOrigin)
   registerRoutes(app, registry)
+
+  startPairingTokenCleanup() // periodically prune expired/unclaimed pairing tokens
 
   await app.listen({ port: env.port, host: '0.0.0.0' })
   console.log(

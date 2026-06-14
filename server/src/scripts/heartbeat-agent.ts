@@ -1,55 +1,71 @@
 /**
- * Standalone device-agent simulator — exercises the real inbound heartbeat path
- * end-to-end. Connects to the live WS feed as an authenticated client and emits
- * {type:'heartbeat', deviceId, status, battery, cpuUsage, memoryUsage} every
- * HEARTBEAT_INTERVAL_MS, exactly as a real on-device agent would.
+ * Standalone device-agent simulator — exercises the real provisioning +
+ * heartbeat paths end-to-end, exactly as an on-device agent would.
  *
- * Usage (local dev, with AUTH_PROVIDER=dev + ALLOW_INSECURE_DEV_AUTH=1):
- *   npm run agent                       # auto-targets the first device it sees
- *   DEVICE_ID=ios-xxxx npm run agent    # target a specific device
- *   STOP_AFTER=3 npm run agent          # send 3 beats then go quiet (watch the
- *                                       # server's >30s staleness sweep flip it
- *                                       # offline and broadcast)
+ * Three modes, in priority order:
+ *   1. PAIRING_TOKEN — claim it (POST /v1/devices/claim) to obtain a deviceId +
+ *      device API key, then heartbeat over /ws?deviceKey=… (the full flow).
+ *   2. DEVICE_KEY (+ DEVICE_ID) — connect directly with an existing device key.
+ *   3. TOKEN / dev fallback — connect with a user JWT, auto-target the first
+ *      device in the snapshot (handy for quick local testing).
  *
- * In a Supabase-auth deployment, pass a real access token:
- *   TOKEN=<supabase-jwt> WS_URL=wss://api.example.com/ws npm run agent
+ * Examples (local dev, AUTH_PROVIDER=dev + ALLOW_INSECURE_DEV_AUTH=1):
+ *   PAIRING_TOKEN=<uuid> npm run agent        # pair, then heartbeat as the device
+ *   PAIRING_TOKEN=<uuid> STOP_AFTER=1 npm run agent   # 1 beat → watch it go offline
+ *   npm run agent                              # dev-JWT fallback, auto-target
+ *
+ * Production: PAIRING_TOKEN=<uuid> SERVER_URL=https://api… WS_URL=wss://api…/ws
  */
 import WebSocket from 'ws'
+import { randomBytes } from 'node:crypto'
 import { HEARTBEAT_INTERVAL_MS } from '../../../src/shared/heartbeat'
 import type { Device, DeviceStatus } from '../../../src/shared/types'
 
 const WS_URL = process.env.WS_URL ?? 'ws://localhost:8787/ws'
+const SERVER_URL = process.env.SERVER_URL ?? WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '')
 const TEAM_ID = process.env.TEAM_ID ?? ''
-const DEVICE_ID = process.env.DEVICE_ID ?? ''
 const INTERVAL_MS = Number(process.env.INTERVAL_MS ?? HEARTBEAT_INTERVAL_MS)
 const STOP_AFTER = Number(process.env.STOP_AFTER ?? 0) // 0 = never stop
+const PAIRING_TOKEN = process.env.PAIRING_TOKEN ?? ''
+const UDID = process.env.UDID ?? `udid-${randomBytes(8).toString('hex')}`
+const NAME = process.env.NAME ?? 'Agent Device'
+
+let deviceKey = process.env.DEVICE_KEY ?? ''
+let targetId = process.env.DEVICE_ID ?? ''
+let token = process.env.TOKEN ?? ''
 
 const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
 
-/** Mint a signature-less dev JWT — accepted ONLY when the server runs
- *  AUTH_PROVIDER=dev (decode-only). For prod, pass a real TOKEN instead. */
+/** Signature-less dev JWT — accepted ONLY when the server runs AUTH_PROVIDER=dev. */
 function devToken(): string {
-  const header = { alg: 'HS256', typ: 'JWT' }
-  const payload = {
-    sub: 'heartbeat-agent',
-    email: 'agent@local.test',
-    email_verified: true,
-    exp: Math.floor(Date.now() / 1000) + 3600,
-  }
-  return `${b64url(header)}.${b64url(payload)}.` // empty signature segment
+  const payload = { sub: 'heartbeat-agent', email: 'agent@local.test', email_verified: true, exp: Math.floor(Date.now() / 1000) + 3600 }
+  return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url(payload)}.`
 }
 
-const token = process.env.TOKEN ?? devToken()
+/** Exchange a pairing token for a real device + API key. */
+async function claimDevice(pairingToken: string): Promise<{ deviceId: string; apiKey: string }> {
+  const res = await fetch(`${SERVER_URL}/v1/devices/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pairingToken, udid: UDID, name: NAME, platform: 'ios', osVersion: 'iOS 18.2' }),
+  })
+  const body = (await res.json().catch(() => ({}))) as { deviceId?: string; apiKey?: string; error?: string }
+  if (!res.ok || !body.deviceId || !body.apiKey) throw new Error(body.error ?? `claim failed (HTTP ${res.status})`)
+  return { deviceId: body.deviceId, apiKey: body.apiKey }
+}
 
 function url(): string {
-  const params = new URLSearchParams({ token })
-  if (TEAM_ID) params.set('teamId', TEAM_ID)
-  return `${WS_URL}?${params.toString()}`
+  const p = new URLSearchParams()
+  if (deviceKey) p.set('deviceKey', deviceKey)
+  else {
+    p.set('token', token)
+    if (TEAM_ID) p.set('teamId', TEAM_ID)
+  }
+  return `${WS_URL}?${p.toString()}`
 }
 
 const STATUS_CYCLE: DeviceStatus[] = ['online', 'online', 'busy', 'online', 'warming']
 let beat = 0
-let targetId = DEVICE_ID
 let battery = 92
 let timer: ReturnType<typeof setInterval> | null = null
 let lastSeenStatus: string | null = null
@@ -68,11 +84,43 @@ function nextHeartbeat() {
   }
 }
 
+function startBeating(ws: WebSocket) {
+  if (timer) return
+  const sendOne = () => {
+    if (ws.readyState !== ws.OPEN) return
+    if (STOP_AFTER && beat >= STOP_AFTER) {
+      if (timer) { clearInterval(timer); timer = null }
+      console.log(`[agent] sent ${beat} heartbeats; going silent (watch it go offline in ~30s).`)
+      return
+    }
+    const hb = nextHeartbeat()
+    ws.send(JSON.stringify(hb))
+    beat++
+    console.log(`[agent] → heartbeat #${beat} ${hb.deviceId} status=${hb.status} batt=${hb.battery}% cpu=${hb.cpuUsage}% mem=${hb.memoryUsage}%`)
+  }
+  sendOne()
+  timer = setInterval(sendOne, INTERVAL_MS)
+}
+
 function connect() {
-  console.log(`[agent] connecting → ${WS_URL}${TEAM_ID ? ` (team ${TEAM_ID})` : ''}`)
+  const mode = deviceKey ? 'device-key' : 'user-token'
+  console.log(`[agent] connecting (${mode}) → ${WS_URL}${TEAM_ID ? ` (team ${TEAM_ID})` : ''}`)
   const ws = new WebSocket(url())
 
-  ws.on('open', () => console.log('[agent] connected; waiting for the fleet snapshot…'))
+  ws.on('open', () => {
+    console.log('[agent] connected')
+    if (deviceKey) {
+      // Device-key connections receive no snapshot → start heartbeating now.
+      if (!targetId) {
+        console.log('[agent] no DEVICE_ID / claimed device to target — exiting.')
+        ws.close()
+        return
+      }
+      startBeating(ws)
+    } else {
+      console.log('[agent] waiting for the fleet snapshot…')
+    }
+  })
 
   ws.on('message', (raw) => {
     let msg: { type?: string; payload?: { devices?: Device[] }; deviceId?: string; error?: string }
@@ -82,7 +130,6 @@ function connect() {
       return
     }
     if (msg.type === 'snapshot') {
-      // Auto-pick a device to impersonate on the first snapshot.
       if (!targetId) {
         const first = msg.payload?.devices?.[0]
         if (!first) {
@@ -93,14 +140,12 @@ function connect() {
         targetId = first.id
         console.log(`[agent] targeting device ${targetId}`)
       }
-      // Observe the target's broadcast status — proves the server applied our
-      // heartbeat and, after we go silent, that the >30s sweep flips it offline.
       const target = msg.payload?.devices?.find((d) => d.id === targetId)
       if (target && target.status !== lastSeenStatus) {
         console.log(`[agent] ← broadcast: ${targetId} status=${target.status} (was ${lastSeenStatus ?? 'unknown'})`)
         lastSeenStatus = target.status
       }
-      if (!timer) startBeating(ws)
+      startBeating(ws)
     } else if (msg.type === 'ack') {
       console.log(`[agent] ✓ ack ${msg.deviceId}`)
     } else if (msg.type === 'error') {
@@ -116,21 +161,19 @@ function connect() {
   ws.on('error', (e) => console.log(`[agent] socket error: ${e.message}`))
 }
 
-function startBeating(ws: WebSocket) {
-  const sendOne = () => {
-    if (ws.readyState !== ws.OPEN) return
-    if (STOP_AFTER && beat >= STOP_AFTER) {
-      if (timer) { clearInterval(timer); timer = null }
-      console.log(`[agent] sent ${beat} heartbeats; going silent (watch it go offline in ~30s).`)
-      return
-    }
-    const hb = nextHeartbeat()
-    ws.send(JSON.stringify(hb))
-    beat++
-    console.log(`[agent] → heartbeat #${beat} ${hb.deviceId} status=${hb.status} batt=${hb.battery}% cpu=${hb.cpuUsage}% mem=${hb.memoryUsage}%`)
+async function main() {
+  if (PAIRING_TOKEN) {
+    console.log(`[agent] claiming pairing token → ${SERVER_URL}/v1/devices/claim`)
+    const claimed = await claimDevice(PAIRING_TOKEN)
+    deviceKey = claimed.apiKey
+    targetId = claimed.deviceId
+    console.log(`[agent] ✓ claimed device ${targetId}; received API key (${deviceKey.slice(0, 8)}…)`)
   }
-  sendOne() // fire immediately, then on the interval
-  timer = setInterval(sendOne, INTERVAL_MS)
+  if (!deviceKey && !token) token = devToken()
+  connect()
 }
 
-connect()
+void main().catch((e) => {
+  console.error(`[agent] fatal: ${e instanceof Error ? e.message : e}`)
+  process.exit(1)
+})

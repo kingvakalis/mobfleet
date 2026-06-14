@@ -42,6 +42,11 @@ interface UIState {
   openScale: () => void
   closeScale: () => void
 
+  /** Device-pairing (QR provisioning) modal. */
+  pairOpen: boolean
+  openPair: () => void
+  closePair: () => void
+
   submitOpen: boolean
   /** Preselected automation when the dispatch dialog opens. */
   submitAutomationId: string | null
@@ -75,6 +80,10 @@ export const useUIStore = create<UIState>((set) => ({
   scaleOpen: false,
   openScale: () => set({ scaleOpen: true }),
   closeScale: () => set({ scaleOpen: false }),
+
+  pairOpen: false,
+  openPair: () => set({ pairOpen: true }),
+  closePair: () => set({ pairOpen: false }),
 
   submitOpen: false,
   submitAutomationId: null,

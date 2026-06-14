@@ -68,6 +68,16 @@ export const createDevicesBody = z.object({
   count: z.number().int().min(1).max(100),
   region: z.string().optional(),
 })
+// Device provisioning: a device exchanges its pairing token for a real device
+// record + an API key. Public endpoint — the pairingToken is the credential.
+export const claimDeviceBody = z.object({
+  pairingToken: z.string().uuid(),
+  udid: z.string().min(1).max(256),
+  name: z.string().min(1).max(120).optional(),
+  platform: z.enum(['ios', 'android']).optional(),
+  osVersion: z.string().min(1).max(40).optional(),
+})
+export type ClaimDeviceBody = z.infer<typeof claimDeviceBody>
 export const assignGroupBody = z.object({
   ids: z.array(z.string()).min(1),
   group: z.string().min(1),

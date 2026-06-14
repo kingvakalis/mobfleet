@@ -1,7 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { assignGroupBody, createDevicesBody, taskSpecSchema } from '../../src/shared/schemas'
+import { assignGroupBody, claimDeviceBody, createDevicesBody, taskSpecSchema } from '../../src/shared/schemas'
 import type { EngineRegistry, TeamEngine } from './tenancy/engine-registry'
 import { authenticate, ctx, requirePermission } from './auth/context'
+import { claimDevice, createPairingToken, publicServerUrl } from './provisioning'
+import { rateLimit } from './rate-limit'
+import { HttpError } from './http-error'
 import { registerTeamRoutes } from './routes/team'
 
 /**
@@ -19,7 +22,9 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     // Match the exact parsed pathname (not a raw-URL prefix) so a future route
     // under a /ws* path can never be silently left unauthenticated.
     const path = req.url.split('?')[0]
-    if (path === '/v1/health' || path === '/ws') return
+    // Public: health, the WS upgrade (self-auths), and device claim (the pairing
+    // token in the body IS the credential — a device has no user session yet).
+    if (path === '/v1/health' || path === '/ws' || path === '/v1/devices/claim') return
     await authenticate(req, reply)
   })
 
@@ -86,6 +91,24 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     const { provider } = await engineOf(req)
     await provider.rotateProxy((req.params as { id: string }).id)
     return { ok: true }
+  })
+
+  // device provisioning — mint a pairing token (QR) for the active team
+  app.post('/v1/devices/pair', async (req) => {
+    requirePermission(req, 'phones.provision')
+    const teamId = ctx(req).teamId
+    if (!rateLimit(`pair:${teamId}`, 30, 60_000)) throw new HttpError(429, 'too many pairing requests, slow down')
+    const row = await createPairingToken(teamId, Date.now())
+    return { pairingToken: row.token, serverUrl: publicServerUrl(req), expiresAt: row.expiresAt }
+  })
+  // device provisioning — a device claims its pairing token (PUBLIC; the token
+  // is the credential). Creates the device in its team + returns an API key.
+  // Rate-limited per source IP as a coarse DoS backstop (front with an edge
+  // limiter in production; req.ip is the proxy peer behind a reverse proxy).
+  app.post('/v1/devices/claim', async (req) => {
+    if (!rateLimit(`claim:${req.ip}`, 60, 60_000)) throw new HttpError(429, 'too many claim attempts, slow down')
+    const body = claimDeviceBody.parse(req.body)
+    return claimDevice(registry, body, Date.now())
   })
 
   // jobs

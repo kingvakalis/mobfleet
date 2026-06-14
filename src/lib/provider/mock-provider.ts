@@ -271,6 +271,42 @@ export function createMockProvider(): ProviderClient {
       return made
     },
 
+    async createPairingToken() {
+      await delay(120)
+      const pairingToken = crypto.randomUUID()
+      // Mirror the HTTP provider's base (VITE_API_URL) so the QR points where a
+      // real backend would live; fall back to this origin in pure-demo mode.
+      const serverUrl = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin
+      const expiresAt = Date.now() + 10 * 60 * 1000
+      // Demo: simulate a device scanning the QR and claiming ~4s later, so the
+      // new device streams into the dashboard in real-time exactly as a real
+      // claim does over the WebSocket. (No backend in mock mode.)
+      setTimeout(() => {
+        const now = Date.now()
+        const id = `dev-${hex(12)}`
+        const device: Device = {
+          id,
+          name: `PAIRED ${hex(4).toUpperCase()}`,
+          status: 'warming',
+          region: rand(REGIONS).id,
+          osVersion: 'iOS 18.2',
+          model: 'iPhone 15',
+          proxy: '',
+          battery: 100,
+          group: 'Unassigned',
+          assignedUser: null,
+          jobId: null,
+          createdAt: now,
+          udid: hex(40),
+          platform: 'ios',
+          lastHeartbeat: now,
+        }
+        devices = [...devices, device]
+        commit()
+      }, 4200)
+      return { pairingToken, serverUrl, expiresAt }
+    },
+
     start,
     stop,
 

@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/app-shell'
 import { ErrorBoundary } from '@/components/system/error-boundary'
 import { DeviceDrawer } from '@/components/drawer/device-drawer'
 import { ScalePanel } from '@/components/scale/scale-panel'
+import { DevicePairingModal } from '@/components/phones/device-pairing-modal'
 import { CommandPalette } from '@/components/palette/command-palette'
 import { SubmitJobDialog } from '@/components/jobs/submit-job-dialog'
 import { StyleGuide } from '@/components/style/style-guide'
@@ -97,6 +98,7 @@ export default function App() {
       </AnimatePresence>
       <DeviceDrawer />
       <ScalePanel />
+      <DevicePairingModal />
       <SubmitJobDialog />
       <CommandPalette />
     </AppShell>

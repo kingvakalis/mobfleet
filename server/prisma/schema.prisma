@@ -20,15 +20,17 @@ datasource db {
 // ─── Tenancy & identity ──────────────────────────────────────────────────────
 
 model Team {
-  id          String       @id
-  name        String
-  createdAt   Float
-  memberships Membership[]
-  invites     Invite[]
-  devices     Device[]
-  jobs        Job[]
-  proxies     Proxy[]
-  automations Automation[]
+  id            String               @id
+  name          String
+  createdAt     Float
+  memberships   Membership[]
+  invites       Invite[]
+  devices       Device[]
+  jobs          Job[]
+  proxies       Proxy[]
+  automations   Automation[]
+  pairingTokens DevicePairingToken[]
+  apiKeys       DeviceApiKey[]
 }
 
 model User {
@@ -152,4 +154,37 @@ model Automation {
 
   @@id([teamId, id])
   @@index([teamId])
+}
+
+// ─── Device provisioning (pairing tokens + per-device API keys) ───────────────
+
+// A short-lived, single-use token minted when a user clicks "Add Device". The
+// device scans the QR (containing this token), then POSTs /v1/devices/claim to
+// exchange it for a real device + an API key. Tenant-scoped via teamId.
+model DevicePairingToken {
+  token             String  @id // UUID, embedded in the QR
+  teamId            String
+  createdAt         Float
+  expiresAt         Float
+  claimedByDeviceId String? // set once claimed → token can't be reused
+  team              Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+}
+
+// A long-lived credential returned (once, in plaintext) on claim; only the
+// SHA-256 hash is stored. The device authenticates its heartbeat WebSocket with
+// it (/ws?deviceKey=…). deviceId is a plain string (no FK) so it can be created
+// alongside a device that is still being written through the in-memory store.
+model DeviceApiKey {
+  id         String @id
+  teamId     String
+  deviceId   String
+  keyHash    String @unique
+  createdAt  Float
+  lastUsedAt Float?
+  team       Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([deviceId])
 }

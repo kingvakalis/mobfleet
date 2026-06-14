@@ -43,6 +43,15 @@ export const env = {
   /** How long an invite stays valid (ms). Default 7 days. */
   inviteTtlMs: Number(str('INVITE_TTL_MS', String(7 * 24 * 60 * 60 * 1000))),
 
+  /** Public base URL of THIS server, embedded in device-pairing QR codes so a
+   *  device knows where to POST /v1/devices/claim. Empty → derive from the
+   *  request (honouring x-forwarded-proto/host behind a proxy). */
+  publicServerUrl: str('PUBLIC_SERVER_URL', ''),
+  /** How long a device-pairing token stays valid (ms). Default 10 minutes. */
+  pairingTtlMs: Number(str('PAIRING_TTL_MS', String(10 * 60 * 1000))),
+  /** Soft cap on devices per team, enforced at claim time (abuse backstop). */
+  maxDevicesPerTeam: Number(str('MAX_DEVICES_PER_TEAM', '500')),
+
   /** First login with no membership auto-creates a personal team (owner). */
   autoProvisionTeam: bool('AUTO_PROVISION_TEAM', true),
 }
@@ -67,5 +76,17 @@ export function assertAuthConfig() {
   }
   if (env.authProvider === 'supabase' && !env.authJwtSecret) {
     throw new Error('[env] AUTH_PROVIDER=supabase requires SUPABASE_JWT_SECRET.')
+  }
+}
+
+/**
+ * Fail CLOSED on a provisioning misconfig. In production the device-pairing QR
+ * MUST embed an explicit server URL — deriving it from request headers behind a
+ * proxy is forgeable (an attacker could poison the QR so devices claim against
+ * their server and leak the pairing token + API key). So require PUBLIC_SERVER_URL.
+ */
+export function assertProvisioningConfig() {
+  if (env.isProd && !env.publicServerUrl) {
+    throw new Error('[env] PUBLIC_SERVER_URL is required in production (the device-pairing QR target). Set it to this server\'s public base URL, e.g. https://api.example.com')
   }
 }

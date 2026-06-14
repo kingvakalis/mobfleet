@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Search, Upload, Plus, Check, Briefcase, RotateCcw, UserPlus, Download, X, ChevronDown } from 'lucide-react'
+import { Search, Upload, Plus, Check, Briefcase, RotateCcw, UserPlus, Download, X, ChevronDown, QrCode } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useFleet } from '@/hooks/use-fleet'
 import { useNow } from '@/hooks/use-now'
@@ -130,6 +130,7 @@ export function PhonesView() {
   const openPhoneControl      = useUIStore((s) => s.openPhoneControl)
   const openDrawer            = useUIStore((s) => s.openDrawer)
   const openScale             = useUIStore((s) => s.openScale)
+  const openPair              = useUIStore((s) => s.openPair)
 
   // Scope-filtered at the selector boundary — out-of-scope devices never reach
   // the table. The same predicate must run server-side (see lib/authorization).
@@ -140,6 +141,7 @@ export function PhonesView() {
   const canAssignGroup = can(member, 'phones.assign_group')
   const canRunJob      = can(member, 'automations.run')
   const canImport      = can(member, 'phones.import')
+  const canProvision   = can(member, 'phones.provision')
   const jobById = useMemo(() => new Map(snapshot.jobs.map(j => [j.id, j])), [snapshot.jobs])
 
   const groups = useMemo(() => [...new Set(devices.map(d => d.group))].sort(), [devices])
@@ -246,10 +248,18 @@ export function PhonesView() {
           <button
             onClick={openScale}
             disabled={!canImport}
-            title={canImport ? 'Add a device to the fleet' : 'Requires import permission'}
+            title={canImport ? 'Scale the fleet (provision/retire in bulk)' : 'Requires import permission'}
+            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/40 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            <Plus size={11} className="inline mr-1.5" />SCALE
+          </button>
+          <button
+            onClick={openPair}
+            disabled={!canProvision}
+            title={canProvision ? 'Pair a new device via QR code' : 'Requires provision permission'}
             className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 transition-colors enabled:hover:bg-white enabled:hover:text-black disabled:cursor-not-allowed disabled:opacity-30"
           >
-            <Plus size={11} className="inline mr-1.5" />ADD UNIT
+            <QrCode size={11} className="inline mr-1.5" />ADD DEVICE
           </button>
         </div>
       </div>
