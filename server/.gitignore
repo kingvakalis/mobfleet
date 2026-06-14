@@ -1,0 +1,10 @@
+# Compiled bundle (produced by `npm run build` / the Docker build)
+dist/
+
+# Local SQLite dev databases
+*.db
+*.db-journal
+prisma/*.db
+prisma/*.db-journal
+
+node_modules/

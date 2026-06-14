@@ -14,8 +14,8 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "build": "prisma generate --schema=prisma/schema.postgres.prisma",
-    "start:prod": "prisma db push --schema=prisma/schema.postgres.prisma --skip-generate --accept-data-loss && tsx src/index.ts"
+    "build": "prisma generate --schema=prisma/schema.postgres.prisma && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --sourcemap --outfile=dist/index.js",
+    "start:prod": "prisma db push --schema=prisma/schema.postgres.prisma --skip-generate --accept-data-loss && node dist/index.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
@@ -24,11 +24,13 @@
     "dotenv": "^17.0.0",
     "fastify": "^5.2.0",
     "phone-farm-app": "file:..",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/ws": "^8.5.0",
+    "esbuild": "^0.25.0",
     "prisma": "^6.7.0",
     "tsx": "^4.19.0",
     "typescript": "~5.7.0"

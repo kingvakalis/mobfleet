@@ -40,13 +40,17 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     // Match the exact parsed pathname (not a raw-URL prefix) so a future route
     // under a /ws* path can never be silently left unauthenticated.
     const path = req.url.split('?')[0]
-    // Public: health, the WS upgrade (self-auths), and device claim (the pairing
-    // token in the body IS the credential — a device has no user session yet).
-    if (path === '/v1/health' || path === '/ws' || path === '/v1/devices/claim') return
+    // Public: health checks, the WS upgrade (self-auths), and device claim (the
+    // pairing token in the body IS the credential — a device has no user session).
+    if (path === '/healthz' || path === '/v1/health' || path === '/ws' || path === '/v1/devices/claim') return
     await authenticate(req, reply)
   })
 
   const engineOf = (req: FastifyRequest): Promise<TeamEngine> => registry.get(ctx(req).teamId)
+
+  // Platform health check (Railway). Intentionally tiny: no auth, no DB, no
+  // tenant context — just proves the process is up and serving HTTP.
+  app.get('/healthz', async (_req, reply) => reply.code(200).send({ status: 'ok' }))
 
   app.get('/v1/health', async () => ({ ok: true, provider: process.env.PROVIDER ?? 'simulated' }))
 
