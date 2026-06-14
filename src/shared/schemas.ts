@@ -21,6 +21,10 @@ export const deviceSchema = z.object({
   assignedUser: z.string().nullable(),
   jobId: z.string().nullable(),
   createdAt: z.number(),
+  // Live telemetry (optional — present once a device has heartbeat).
+  lastHeartbeat: z.number().nullable().optional(),
+  cpuUsage: z.number().nullable().optional(),
+  memoryUsage: z.number().nullable().optional(),
 })
 
 export const jobSchema = z.object({
@@ -75,3 +79,16 @@ export const wsSnapshotFrame = z.object({
   seq: z.number(),
   payload: fleetSnapshotSchema,
 })
+
+// --- WS frames (device agent → server) ---
+// A device reports its live state. `type` discriminates it from any other
+// inbound frame; the server validates this before touching the fleet.
+export const heartbeatFrameSchema = z.object({
+  type: z.literal('heartbeat'),
+  deviceId: z.string().min(1),
+  status: deviceStatusSchema.optional(),
+  battery: z.number().min(0).max(100).optional(),
+  cpuUsage: z.number().min(0).max(100).optional(),
+  memoryUsage: z.number().min(0).max(100).optional(),
+})
+export type HeartbeatFrame = z.infer<typeof heartbeatFrameSchema>

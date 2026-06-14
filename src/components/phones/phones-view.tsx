@@ -2,8 +2,10 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { Search, Upload, Plus, Check, Briefcase, RotateCcw, UserPlus, Download, X, ChevronDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useFleet } from '@/hooks/use-fleet'
+import { useNow } from '@/hooks/use-now'
+import { isHeartbeatStale } from '@/shared/heartbeat'
 import { client, safe } from '@/lib/provider'
-import { STATUS, ALL_STATUSES, type DeviceStatus } from '@/lib/status'
+import { STATUS, ALL_STATUSES } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
 import { can } from '@/lib/authorization'
@@ -103,16 +105,21 @@ function FilterSelect({
   )
 }
 
-function lastActive(status: DeviceStatus, id: string): string {
-  if (status === 'busy') return 'now'
-  if (status === 'offline') return '—'
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return `${(h % 29) + 1}m ago`
+/** Relative age of the last heartbeat (epoch ms), against a live clock. */
+function hbAgo(lastHeartbeat: number | null | undefined, now: number): string {
+  if (lastHeartbeat == null) return 'never'
+  const s = Math.max(0, Math.round((now - lastHeartbeat) / 1000))
+  if (s < 60) return `${s}s ago`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
 }
 
 export function PhonesView() {
   const snapshot              = useFleet()
+  const now                   = useNow() // ticks so heartbeat freshness self-updates
   const [search, setSearch]   = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
@@ -311,7 +318,7 @@ export function PhonesView() {
                   {selected.size === visible.length && visible.length > 0 && <Check size={8} className="text-black" />}
                 </button>
               </th>
-              {['NAME', 'STATUS', 'GROUP', 'MODEL', 'JOB', 'LAST ACTIVE', ''].map(h => (
+              {['NAME', 'STATUS', 'GROUP', 'MODEL', 'JOB', 'HEARTBEAT', ''].map(h => (
                 <th key={h} className="px-3 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -322,6 +329,7 @@ export function PhonesView() {
               const isSel  = selected.has(d.id)
               const job    = d.jobId ? jobById.get(d.jobId) : null
               const dotColor = STATUS_COLORS[d.status] ?? meta?.color ?? 'rgba(255,255,255,0.3)'
+              const stale  = isHeartbeatStale(d.lastHeartbeat, now)
               return (
                 <motion.tr
                   key={d.id}
@@ -369,7 +377,20 @@ export function PhonesView() {
                       <span className="mono text-[10px] text-white/20">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-3 mono text-white/30 text-[10px]">{lastActive(d.status, d.id)}</td>
+                  <td className="px-3 py-3">
+                    <span className="flex items-center gap-1.5" title={stale ? 'No heartbeat in 30s+ — device offline' : 'Heartbeat fresh'}>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${stale ? '' : 'status-dot-pulse'}`}
+                        style={{
+                          background: stale ? 'var(--status-offline)' : 'var(--status-online)',
+                          boxShadow: stale ? 'none' : '0 0 5px var(--status-online)',
+                        }}
+                      />
+                      <span className="mono text-[10px]" style={{ color: stale ? 'var(--status-error)' : 'rgba(255,255,255,0.45)' }}>
+                        {hbAgo(d.lastHeartbeat, now)}
+                      </span>
+                    </span>
+                  </td>
                   <td className="px-3 py-3">
                     <button
                       onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}

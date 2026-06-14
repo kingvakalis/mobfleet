@@ -1,10 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Plus, Trash2, Wifi, RefreshCw, Cpu } from 'lucide-react'
+import { Plus, Trash2, Wifi, Cpu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { STATUS } from '@/lib/status'
 import { useDevices } from '@/hooks/useDevices'
+import { useNow } from '@/hooks/use-now'
+import { isHeartbeatStale } from '@/shared/heartbeat'
 import { useTeamContext } from '@/contexts/TeamContext'
 import type { DeviceRow, DeviceStatusEnum } from '@/lib/database.types'
 
@@ -33,13 +35,16 @@ function StatusPill({ status }: { status: DeviceStatusEnum }) {
   )
 }
 
-function DeviceCard({ device, canWrite, onStatus, onDelete }: {
+function DeviceCard({ device, canWrite, now, onStatus, onDelete }: {
   device: DeviceRow
   canWrite: boolean
+  now: number
   onStatus: (id: string, s: DeviceStatusEnum) => void
   onDelete: (id: string) => void
 }) {
   const color = STATUS[device.status].color
+  const lhMs = device.last_heartbeat ? Date.parse(device.last_heartbeat) : null
+  const stale = isHeartbeatStale(lhMs, now)
   return (
     <div className="card-surface relative flex flex-col gap-3 rounded-card border border-line p-4" style={{ borderTop: `2px solid ${color}` }}>
       <div className="flex items-start justify-between gap-2">
@@ -53,7 +58,17 @@ function DeviceCard({ device, canWrite, onStatus, onDelete }: {
       <div className="mono grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px] text-white/55">
         <span className="flex items-center gap-1.5"><Cpu size={11} className="text-white/30" /> {device.platform}{device.os_version ? ` · ${device.os_version}` : ''}</span>
         <span className="flex items-center gap-1.5"><Wifi size={11} className="text-white/30" /> {device.ip_address ?? '—'}{device.wda_port ? `:${device.wda_port}` : ''}</span>
-        <span className="flex items-center gap-1.5 col-span-2"><RefreshCw size={11} className="text-white/30" /> heartbeat {relTime(device.last_heartbeat)}</span>
+        <span className="flex items-center gap-1.5 col-span-2" title={stale ? 'No heartbeat in 30s+ — device offline' : 'Heartbeat fresh'}>
+          <span
+            className={`h-1.5 w-1.5 rounded-full shrink-0 ${stale ? '' : 'status-dot-pulse'}`}
+            style={{
+              background: stale ? 'var(--status-offline)' : 'var(--status-online)',
+              boxShadow: stale ? 'none' : '0 0 5px var(--status-online)',
+            }}
+          />
+          heartbeat {relTime(device.last_heartbeat)}
+          <span style={{ color: stale ? 'var(--status-error)' : 'var(--status-online)' }}>· {stale ? 'stale' : 'live'}</span>
+        </span>
       </div>
 
       {canWrite && (
@@ -86,6 +101,7 @@ export function SupabaseDevicesView() {
   const { team, role } = useTeamContext()
   const { devices, loading, error, addDevice, updateStatus, deleteDevice } = useDevices(team?.id ?? null)
   const canWrite = role === 'owner' || role === 'admin' || role === 'operator'
+  const now = useNow() // ticks so heartbeat freshness self-updates
 
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -152,7 +168,7 @@ export function SupabaseDevicesView() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {devices.map((d) => (
-              <DeviceCard key={d.id} device={d} canWrite={canWrite} onStatus={updateStatus} onDelete={deleteDevice} />
+              <DeviceCard key={d.id} device={d} canWrite={canWrite} now={now} onStatus={updateStatus} onDelete={deleteDevice} />
             ))}
           </div>
         )}

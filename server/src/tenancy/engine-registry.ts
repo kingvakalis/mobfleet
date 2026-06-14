@@ -1,5 +1,9 @@
 import { FleetStore } from '../fleet-store'
 import { createProvider, type DeviceProvider } from '../provider'
+import { HEARTBEAT_TIMEOUT_MS } from '../../../src/shared/heartbeat'
+
+/** How often each active team sweeps for devices that have gone silent. */
+const HEARTBEAT_SWEEP_MS = 5_000
 
 /**
  * Per-tenant fleet engines. Each team gets its OWN in-memory FleetStore +
@@ -14,6 +18,8 @@ export interface TeamEngine {
   store: FleetStore
   provider: DeviceProvider
   subscribers: number
+  /** Interval that flips silent devices offline; runs only while subscribed. */
+  heartbeatMonitor: ReturnType<typeof setInterval> | null
 }
 
 export class EngineRegistry {
@@ -31,7 +37,7 @@ export class EngineRegistry {
       const store = new FleetStore(teamId)
       await store.init() // loads (or seeds) ONLY this team's rows
       const provider = createProvider(store)
-      const engine: TeamEngine = { teamId, store, provider, subscribers: 0 }
+      const engine: TeamEngine = { teamId, store, provider, subscribers: 0, heartbeatMonitor: null }
       this.engines.set(teamId, engine)
       this.pending.delete(teamId)
       return engine
@@ -40,16 +46,29 @@ export class EngineRegistry {
     return promise
   }
 
-  /** Ref-count a live subscriber (WS). Starts the sim loop on the first one. */
+  /** Ref-count a live subscriber (WS). On the first one, start the sim loop AND
+   *  the heartbeat-staleness monitor; both cost nothing while idle. */
   addSubscriber(engine: TeamEngine): void {
     engine.subscribers++
-    if (engine.subscribers === 1) engine.provider.startLoop?.()
+    if (engine.subscribers === 1) {
+      engine.provider.startLoop?.()
+      engine.heartbeatMonitor ??= setInterval(() => {
+        engine.store.sweepStaleHeartbeats(Date.now(), HEARTBEAT_TIMEOUT_MS)
+      }, HEARTBEAT_SWEEP_MS)
+    }
   }
 
-  /** Drop a subscriber. Stops the sim loop when the last one leaves. */
+  /** Drop a subscriber. Stops the sim loop + staleness monitor when the last
+   *  one leaves. */
   removeSubscriber(engine: TeamEngine): void {
     engine.subscribers = Math.max(0, engine.subscribers - 1)
-    if (engine.subscribers === 0) engine.provider.stopLoop?.()
+    if (engine.subscribers === 0) {
+      engine.provider.stopLoop?.()
+      if (engine.heartbeatMonitor) {
+        clearInterval(engine.heartbeatMonitor)
+        engine.heartbeatMonitor = null
+      }
+    }
   }
 
   all(): TeamEngine[] {
@@ -59,6 +78,7 @@ export class EngineRegistry {
   dispose(): void {
     for (const e of this.engines.values()) {
       e.provider.stopLoop?.()
+      if (e.heartbeatMonitor) { clearInterval(e.heartbeatMonitor); e.heartbeatMonitor = null }
       e.store.dispose()
     }
     this.engines.clear()

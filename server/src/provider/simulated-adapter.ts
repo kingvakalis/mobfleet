@@ -9,8 +9,13 @@ import type {
 } from '../../../src/shared/types'
 import type { FleetStore } from '../fleet-store'
 import type { DeviceProvider } from './device-provider'
+import { HEARTBEAT_TIMEOUT_MS } from '../../../src/shared/heartbeat'
 
 const TICK_MS = 1800
+/** Devices touched by a real agent within this window are left alone by the sim
+ *  (2× the staleness timeout so the agent owns it cleanly, then the sweep takes
+ *  over once the agent truly stops). */
+const EXTERNAL_HEARTBEAT_TTL_MS = HEARTBEAT_TIMEOUT_MS * 2
 const TASK_TYPES: TaskType[] = ['upload', 'warmup', 'engage', 'post']
 const REGIONS = ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-south-1', 'sa-east-1']
 const MAX_HISTORY = 40
@@ -107,6 +112,23 @@ export class SimulatedDeviceAdapter implements DeviceProvider {
         const keep = new Set([...finished].sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0)).slice(0, MAX_HISTORY).map((j) => j.id))
         for (const j of finished) if (!keep.has(j.id)) s.removeJob(j.id)
       }
+      // 8 · stamp a heartbeat + live telemetry on every non-offline device, so
+      //     the freshness indicators stay green; offline devices keep their old
+      //     (now stale) heartbeat and read red. Devices a real agent is actively
+      //     heartbeating are skipped — the sim must not mask a real agent going
+      //     silent, or the >30s staleness sweep could never fire for it.
+      for (const d of s.listDevices()) {
+        if (d.status === 'offline') continue
+        if (s.hasRecentExternalHeartbeat(d.id, now, EXTERNAL_HEARTBEAT_TTL_MS)) continue
+        const cpu = d.status === 'busy' ? 55 + Math.random() * 40 : 8 + Math.random() * 32
+        s.putDevice({
+          ...d,
+          lastHeartbeat: now,
+          cpuUsage: +cpu.toFixed(1),
+          memoryUsage: +(30 + Math.random() * 45).toFixed(1),
+          battery: Math.max(5, d.battery - (Math.random() < 0.1 ? 1 : 0)),
+        })
+      }
     })
   }
 
@@ -121,7 +143,7 @@ export class SimulatedDeviceAdapter implements DeviceProvider {
         const region = opts.region ?? rand(REGIONS)
         const ip = `10.0.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`
         this.store.putProxy({ ip, region, provider: 'Bright Data', assignedTo: id, status: 'healthy', latency: 30 + Math.floor(Math.random() * 120), lastCheck: now })
-        const device: Device = { id, name: `NEW ${hex(4).toUpperCase()}`, status: 'warming', region, osVersion: 'iOS 18.1.1', model: 'iPhone 14', proxy: ip, battery: 100, group: 'New', assignedUser: null, jobId: null, createdAt: now }
+        const device: Device = { id, name: `NEW ${hex(4).toUpperCase()}`, status: 'warming', region, osVersion: 'iOS 18.1.1', model: 'iPhone 14', proxy: ip, battery: 100, group: 'New', assignedUser: null, jobId: null, createdAt: now, lastHeartbeat: now }
         this.store.putDevice(device)
         made.push(device)
       }

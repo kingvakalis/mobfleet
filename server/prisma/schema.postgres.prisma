@@ -76,20 +76,29 @@ model Invite {
 // ─── Fleet (all tenant-scoped) ───────────────────────────────────────────────
 
 model Device {
-  id           String  @default("")
-  teamId       String
-  name         String
-  status       String
-  region       String
-  osVersion    String
-  model        String
-  proxy        String
-  battery      Int
-  group        String
-  assignedUser String?
-  jobId        String?
-  createdAt    Float
-  team         Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id            String  @default("")
+  teamId        String
+  name          String
+  status        String
+  region        String
+  osVersion     String
+  model         String
+  proxy         String
+  battery       Int
+  group         String
+  assignedUser  String?
+  jobId         String?
+  createdAt     Float
+  // Infra identity + live heartbeat telemetry (mirror src/shared/types.ts).
+  // Nullable: populated by the seed / device-agent heartbeats over the WS feed.
+  udid          String?
+  platform      String?
+  ipAddress     String?
+  wdaPort       Int?
+  lastHeartbeat Float?
+  cpuUsage      Float?
+  memoryUsage   Float?
+  team          Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@id([teamId, id])
   @@index([teamId])
@@ -106,6 +115,9 @@ model Job {
   startedAt  Float?
   finishedAt Float?
   error      String?
+  // Run configuration (mirrors src/shared/types.ts Job.config / Supabase
+  // automation_jobs.config). Nullable: simulator-created jobs omit it.
+  config     Json?
   team       Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@id([teamId, id])

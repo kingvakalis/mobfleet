@@ -69,6 +69,28 @@ export interface Device {
   wdaPort?: number
   /** Last agent heartbeat (epoch ms), or null if never seen. */
   lastHeartbeat?: number | null
+  /** Last reported CPU utilisation, 0–100 (%), or null if unknown. */
+  cpuUsage?: number | null
+  /** Last reported memory utilisation, 0–100 (%), or null if unknown. */
+  memoryUsage?: number | null
+}
+
+/**
+ * A device → server heartbeat. A device agent emits one every
+ * HEARTBEAT_INTERVAL_MS over the live WebSocket; the server stamps
+ * `lastHeartbeat` with the receipt time and merges the reported telemetry into
+ * the device row (see shared/heartbeat.ts). Every field except `deviceId` is
+ * optional so an agent can report only what it knows.
+ */
+export interface Heartbeat {
+  deviceId: string
+  status?: DeviceStatus
+  /** Battery charge, 0–100 (%). */
+  battery?: number
+  /** CPU utilisation, 0–100 (%). */
+  cpuUsage?: number
+  /** Memory utilisation, 0–100 (%). */
+  memoryUsage?: number
 }
 
 export interface FleetSnapshot {

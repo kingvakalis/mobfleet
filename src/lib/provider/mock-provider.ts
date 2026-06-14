@@ -163,6 +163,21 @@ export function createMockProvider(): ProviderClient {
       js = [...active, ...keep]
     }
 
+    // 8 · stamp a heartbeat + live telemetry on every non-offline device so the
+    //     freshness indicators stay green; offline devices keep their old (now
+    //     stale) heartbeat and read red. Mirrors the server simulator.
+    devs = devs.map((d): Device =>
+      d.status === 'offline'
+        ? d
+        : {
+            ...d,
+            lastHeartbeat: now,
+            cpuUsage: +(d.status === 'busy' ? 55 + Math.random() * 40 : 8 + Math.random() * 32).toFixed(1),
+            memoryUsage: +(30 + Math.random() * 45).toFixed(1),
+            battery: Math.max(5, d.battery - (Math.random() < 0.1 ? 1 : 0)),
+          },
+    )
+
     devices = devs
     jobs = js
     commit()

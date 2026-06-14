@@ -1,4 +1,5 @@
-import type { Automation, Device, FleetSnapshot, Job, Proxy } from '../../src/shared/types'
+import type { Automation, Device, FleetSnapshot, Heartbeat, Job, Proxy } from '../../src/shared/types'
+import { mergeHeartbeat, staleHeartbeatDevices } from '../../src/shared/heartbeat'
 import { repo } from './repo'
 import { seedFleet } from './seed'
 
@@ -22,6 +23,9 @@ export class FleetStore {
   private listeners = new Set<() => void>()
   private batching = false
   private saveTimer: ReturnType<typeof setTimeout> | null = null
+  /** deviceId → time of the last EXTERNAL (real agent) heartbeat. Lets the
+   *  simulator defer to real agents instead of faking their telemetry. */
+  private externalHeartbeats = new Map<string, number>()
 
   constructor(public readonly teamId: string) {}
 
@@ -84,6 +88,44 @@ export class FleetStore {
     if (!a) return
     this.automations.set(a.id, { ...a, runs: a.runs + 1, lastRun: 'just now' })
     this.scheduleSave()
+  }
+
+  // --- heartbeats ---
+  /**
+   * Merge a device heartbeat (status + telemetry, stamped with the receipt
+   * time) and broadcast/persist via the normal putDevice path. Returns false
+   * when the device isn't in THIS team's store — the caller's WS connection is
+   * already team-scoped, so this is the tenant guard: a client can only ever
+   * heartbeat its own team's devices.
+   */
+  applyHeartbeat(hb: Heartbeat, now: number): boolean {
+    const dev = this.devices.get(hb.deviceId)
+    if (!dev) return false
+    this.externalHeartbeats.set(hb.deviceId, now)
+    this.putDevice(mergeHeartbeat(dev, hb, now))
+    return true
+  }
+
+  /** True when a real agent has heartbeat this device within `ttlMs` — the
+   *  simulator checks this and won't fake telemetry for an agent-owned device,
+   *  so when that agent goes silent the staleness sweep can take it offline. */
+  hasRecentExternalHeartbeat(id: string, now: number, ttlMs: number): boolean {
+    const t = this.externalHeartbeats.get(id)
+    return t != null && now - t <= ttlMs
+  }
+
+  /**
+   * Flip agent-managed devices that have gone silent past `timeoutMs` to
+   * offline, in a single batched broadcast. Returns the number flipped — 0
+   * means nothing was stale, so no broadcast/persist is triggered.
+   */
+  sweepStaleHeartbeats(now: number, timeoutMs: number): number {
+    const stale = staleHeartbeatDevices([...this.devices.values()], now, timeoutMs)
+    if (stale.length === 0) return 0
+    this.runBatch(() => {
+      for (const d of stale) this.putDevice({ ...d, status: 'offline', jobId: null })
+    })
+    return stale.length
   }
 
   /** Apply many mutations, emit a single change at the end. */
