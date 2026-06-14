@@ -27,6 +27,8 @@ export interface Job {
   startedAt: number | null
   finishedAt: number | null
   error: string | null
+  /** Run configuration — maps to the Supabase `automation_jobs.config` jsonb. */
+  config?: Record<string, unknown>
 }
 
 export type ProxyStatus = 'healthy' | 'failing' | 'unassigned'
@@ -54,6 +56,19 @@ export interface Device {
   assignedUser: string | null
   jobId: string | null
   createdAt: number
+  // ── Infra identity — maps to the Supabase `devices` schema. Optional in this
+  //    presentation-focused model (the demo UI uses region/model/battery/group;
+  //    the SQL table is the canonical persistence shape). ──
+  /** Hardware unique device id (e.g. iOS UDID). */
+  udid?: string
+  /** Device OS family — 'ios' | 'android'. */
+  platform?: string
+  /** The device's own IP on the control network. */
+  ipAddress?: string
+  /** WebDriverAgent port used to drive the device. */
+  wdaPort?: number
+  /** Last agent heartbeat (epoch ms), or null if never seen. */
+  lastHeartbeat?: number | null
 }
 
 export interface FleetSnapshot {

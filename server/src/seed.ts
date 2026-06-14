@@ -106,13 +106,19 @@ export function seedFleet(now: number = Date.now()): SeedData {
       assignedUser: pick(rng, USERS),
       jobId: null,
       createdAt: now - int(rng, 60, 86_400) * 1000,
+      // infra identity — mirrors the Supabase `devices` schema
+      udid: hexId(rng, 40),
+      platform: 'ios',
+      ipAddress: `10.0.${int(rng, 0, 255)}.${int(rng, 1, 254)}`,
+      wdaPort: 8100 + i,
+      lastHeartbeat: status === 'offline' ? now - int(rng, 1, 12) * 3_600_000 : now - int(rng, 2, 90) * 1000,
     }
     if (status === 'busy') {
       const startedAt = now - int(rng, 5, 600) * 1000
       const job: Job = {
         id: jid(), deviceId: id, type: pick(rng, TASK_TYPES), status: 'running',
         progress: +(0.1 + rng() * 0.8).toFixed(2), createdAt: startedAt - 2000,
-        startedAt, finishedAt: null, error: null,
+        startedAt, finishedAt: null, error: null, config: {},
       }
       device.jobId = job.id
       jobs.push(job)
@@ -121,12 +127,12 @@ export function seedFleet(now: number = Date.now()): SeedData {
   }
 
   for (let i = 0; i < int(rng, 3, 6); i++) {
-    jobs.push({ id: jid(), deviceId: null, type: pick(rng, TASK_TYPES), status: 'queued', progress: 0, createdAt: now - int(rng, 1, 120) * 1000, startedAt: null, finishedAt: null, error: null })
+    jobs.push({ id: jid(), deviceId: null, type: pick(rng, TASK_TYPES), status: 'queued', progress: 0, createdAt: now - int(rng, 1, 120) * 1000, startedAt: null, finishedAt: null, error: null, config: {} })
   }
   for (let i = 0; i < 12; i++) {
     const failed = rng() < 0.18
     const finishedAt = now - int(rng, 120, 7200) * 1000
-    jobs.push({ id: jid(), deviceId: pick(rng, devices).id, type: pick(rng, TASK_TYPES), status: failed ? 'failed' : 'succeeded', progress: failed ? +rng().toFixed(2) : 1, createdAt: finishedAt - int(rng, 30, 300) * 1000, startedAt: finishedAt - int(rng, 20, 280) * 1000, finishedAt, error: failed ? 'UPLOAD_TIMEOUT · proxy reset' : null })
+    jobs.push({ id: jid(), deviceId: pick(rng, devices).id, type: pick(rng, TASK_TYPES), status: failed ? 'failed' : 'succeeded', progress: failed ? +rng().toFixed(2) : 1, createdAt: finishedAt - int(rng, 30, 300) * 1000, startedAt: finishedAt - int(rng, 20, 280) * 1000, finishedAt, error: failed ? 'UPLOAD_TIMEOUT · proxy reset' : null, config: {} })
   }
 
   return { devices, jobs, proxies, automations: AUTOMATIONS_SEED.map((a) => ({ ...a })) }

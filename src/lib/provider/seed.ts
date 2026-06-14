@@ -100,6 +100,14 @@ export function seedFleet(now: number = Date.now()): SeedResult {
       assignedUser: pick(rng, USERS),
       jobId: null,
       createdAt: now - int(rng, 60, 86_400) * 1000,
+      // infra identity — mirrors the Supabase `devices` schema
+      udid: hexId(rng, 40),
+      platform: 'ios',
+      ipAddress: `10.0.${int(rng, 0, 255)}.${int(rng, 1, 254)}`,
+      wdaPort: 8100 + i,
+      lastHeartbeat: status === 'offline'
+        ? now - int(rng, 1, 12) * 3_600_000
+        : now - int(rng, 2, 90) * 1000,
     }
 
     if (status === 'busy') {
@@ -114,6 +122,7 @@ export function seedFleet(now: number = Date.now()): SeedResult {
         startedAt,
         finishedAt: null,
         error: null,
+        config: {},
       }
       device.jobId = job.id
       jobs.push(job)
@@ -133,6 +142,7 @@ export function seedFleet(now: number = Date.now()): SeedResult {
       startedAt: null,
       finishedAt: null,
       error: null,
+      config: {},
     })
   }
 
@@ -149,6 +159,7 @@ export function seedFleet(now: number = Date.now()): SeedResult {
       startedAt: finishedAt - int(rng, 20, 280) * 1000,
       finishedAt,
       error: failed ? 'UPLOAD_TIMEOUT · proxy reset' : null,
+      config: {},
     })
   }
 
