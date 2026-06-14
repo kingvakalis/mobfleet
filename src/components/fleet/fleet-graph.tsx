@@ -176,6 +176,23 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     startLoop()
   }, [sim, startLoop])
 
+  // Universal drag release. `onNodeDragStop` is React Flow's HAPPY path, but a
+  // pointerup can be lost (pointercancel, lostpointercapture, window blur, tab
+  // switch, Escape, unmount mid-drag). Any of those would otherwise leave the
+  // grabbed node with `dragX/dragY` still set in the sim (permanently
+  // `anchored` → frozen) AND still pointer-owned via `draggingIdRef` (skipped by
+  // the loop). This clears BOTH so a missed pointerup can never freeze a phone.
+  // Idempotent: a no-op when nothing is in flight, safe to call after the happy
+  // path too.
+  const releaseActiveDrag = useCallback(() => {
+    const id = draggingIdRef.current
+    if (id === null) return
+    draggingIdRef.current = null
+    sim.endDrag(id)
+    dirtyRef.current = true
+    reheat()
+  }, [sim, reheat])
+
   // Keep the sim's population in step with the fleet (new phones spawn at their
   // phyllotaxis/saved seed). A membership change re-energises the field so the
   // constellation reflows; filters never touch the sim (hidden phones stay in
@@ -187,6 +204,44 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     const changed = sim.sync(scopedDevices.map((d) => ({ id: d.id, ...positionFor(d.id), pinned: pins.has(d.id) })))
     if (changed) reheat()
   }, [scopedDevices, sim, reheat])
+
+  // ── DEV invariants (never run in production) ───────────────────────────────
+  // Prove the two properties the spec demands but that are easy to regress:
+  //   §2  ONE authoritative sim holds EVERY active phone (no phone excluded),
+  //       and no node carries a stale/leaked drag anchor without reason.
+  //   §3  Selection is UI-only: a selected phone that isn't pinned and isn't
+  //       actively being dragged must NOT carry a drag anchor (dragX/dragY).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const activeIds = scopedDevices.map((d) => d.id)
+    const simIds = new Set(sim.ids())
+    // §2 — every active phone is in the single simulation.
+    const missing = activeIds.filter((id) => !simIds.has(id))
+    if (sim.count() !== activeIds.length || missing.length > 0) {
+      console.warn(
+        `[fleet-physics] §2 single-sim invariant: sim has ${sim.count()} phones, ` +
+          `${activeIds.length} active. Missing from sim: [${missing.join(', ')}]`,
+      )
+    }
+    // Report any leaked anchors and why (helps catch a missed-pointerup regress).
+    for (const id of activeIds) {
+      const n = sim.get(id)
+      if (!n) continue
+      const anchored = n.dragX !== null
+      const reason = n.pinned ? 'pinned' : id === draggingIdRef.current ? 'dragging' : 'LEAKED'
+      if (anchored && reason === 'LEAKED') {
+        console.warn(`[fleet-physics] node ${id} has a drag anchor with no active drag/pin (leaked).`)
+      }
+      // §3 — a selected (not pinned, not actively dragged) phone is unanchored.
+      if (selectedIds.includes(id) && !n.pinned && id !== draggingIdRef.current) {
+        console.assert(
+          n.dragX === null && n.dragY === null,
+          `[fleet-physics] §3 selection-independence: selected node ${id} is anchored ` +
+            `(dragX=${n.dragX}, dragY=${n.dragY}) — selection must never touch physics.`,
+        )
+      }
+    }
+  }, [scopedDevices, selectedIds, sim, pinEpoch])
 
   // Pin controls for the info card + filter bar.
   useEffect(() => {
@@ -221,6 +276,9 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     startLoop()
     const onVis = () => {
       if (document.hidden) {
+        // Tab hidden mid-drag: the pointerup will fire off-screen and React Flow
+        // won't deliver onNodeDragStop — release now so nothing stays frozen.
+        releaseActiveDrag()
         runningRef.current = false
         cancelAnimationFrame(rafRef.current)
       } else {
@@ -229,11 +287,28 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     }
     document.addEventListener('visibilitychange', onVis)
     return () => {
+      // Unmount mid-drag must not leave a leaked anchor on the (persistent) sim.
+      releaseActiveDrag()
       runningRef.current = false
       cancelAnimationFrame(rafRef.current)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [startLoop, reheat])
+  }, [startLoop, reheat, releaseActiveDrag])
+
+  // Lost-pointer release paths that React Flow's onNodeDragStop does not cover:
+  // touch/stylus cancellation, the OS reclaiming pointer capture, and the window
+  // losing focus (alt-tab, OS dialog). Each leaves the drag "open" otherwise.
+  useEffect(() => {
+    const onLost = () => releaseActiveDrag()
+    window.addEventListener('pointercancel', onLost)
+    window.addEventListener('lostpointercapture', onLost)
+    window.addEventListener('blur', onLost)
+    return () => {
+      window.removeEventListener('pointercancel', onLost)
+      window.removeEventListener('lostpointercapture', onLost)
+      window.removeEventListener('blur', onLost)
+    }
+  }, [releaseActiveDrag])
 
   // Dev-only: toggle the physics debug overlay.
   useEffect(() => {
@@ -376,13 +451,18 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   // Escape when focused; this covers graph-focused Escape).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') clearSelection()
+      if (e.key === 'Escape') {
+        // Escape during a drag cancels it: release the temporary anchor so the
+        // phone rejoins the field instead of staying frozen at the cursor.
+        releaseActiveDrag()
+        clearSelection()
+      }
       // Keyboard access: Enter opens the sidebar for a single selected phone.
       if (e.key === 'Enter' && selectedIds.length === 1) openDrawer(selectedIds[0])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [clearSelection, selectedIds, openDrawer])
+  }, [clearSelection, selectedIds, openDrawer, releaseActiveDrag])
 
   // ── Drag = a TEMPORARY pointer anchor (never a pin) ────────────────────────
   // The pointer holds only the grabbed node each frame; everything else reacts
@@ -414,12 +494,11 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
   // Release: clear the temporary anchor. The core records its drop spot as its
   // new home (it stays there); a phone returns to the field and settles back
   // into its orbit. No fx/fy is left set, so nothing is silently pinned.
-  const onNodeDragStop = useCallback((_: unknown, node: Node) => {
-    draggingIdRef.current = null
-    sim.endDrag(node.id)
-    dirtyRef.current = true
-    reheat()
-  }, [sim, reheat])
+  const onNodeDragStop = useCallback(() => {
+    // Route the happy path through the same single release used by every
+    // lost-pointer path, so behaviour is identical and can't drift.
+    releaseActiveDrag()
+  }, [releaseActiveDrag])
 
   const onMoveEnd = useCallback((_: unknown, viewport: Viewport) => {
     saveViewport(viewport)
@@ -475,7 +554,14 @@ function Graph({ filters, locked }: { filters: FleetFilters; locked: boolean }) 
     >
       <Background variant={BackgroundVariant.Dots} gap={30} size={1} color="#1b2230" />
       <GraphControls />
-      {import.meta.env.DEV && debug && <PhysicsDebugLayer sim={sim} />}
+      {import.meta.env.DEV && debug && (
+        <PhysicsDebugLayer
+          sim={sim}
+          selectedIds={selectedIds}
+          draggingIdRef={draggingIdRef}
+          activeIds={scopedDevices.map((d) => d.id)}
+        />
+      )}
       <AnimatePresence>
         {selectedIds.length > 1 && (
           <BulkActionBar

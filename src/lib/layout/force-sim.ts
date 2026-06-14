@@ -158,6 +158,9 @@ export class FleetForceSim {
   private alpha = 1
   /** Last integration's fastest node speed (px/s) — exposed for debug/settle. */
   lastMaxSpeed = 0
+  /** Count of invalid (NaN/Infinity) physics values repaired on the last tick —
+   *  surfaced to the DEV inspector so a silently-corrupted node is visible. */
+  lastRepaired = 0
 
   constructor(corePos: { x: number; y: number }, cfg: FleetPhysicsConfig = FLEET_PHYSICS) {
     this.cfg = cfg
@@ -234,6 +237,38 @@ export class FleetForceSim {
 
   private anchored(n: SimNode): boolean {
     return n.dragX !== null || n.pinned
+  }
+
+  /** Guarantee a node carries only finite physics. A single NaN/Infinity (bad
+   *  seed, divide-by-zero, external write) must never silently exclude a phone
+   *  from the field, so we repair in place toward a sane fallback rather than
+   *  letting the corruption propagate. Returns the number of fields repaired. */
+  private sanitize(n: SimNode): number {
+    let fixes = 0
+    const ok = (v: number) => Number.isFinite(v)
+    if (!ok(n.targetR)) { n.targetR = this.cfg.baseRadius; fixes++ }
+    if (!ok(n.targetA)) { n.targetA = 0; fixes++ }
+    // Position falls back to the preferred orbital slot relative to the core (or
+    // the home anchor for the core itself), so a repaired node lands somewhere
+    // meaningful instead of (0,0).
+    if (!ok(n.x) || !ok(n.y)) {
+      if (n === this.core) { n.x = this.home.x; n.y = this.home.y }
+      else {
+        const bx = ok(this.core.x) ? this.core.x : this.home.x
+        const by = ok(this.core.y) ? this.core.y : this.home.y
+        n.x = bx + Math.cos(n.targetA) * n.targetR
+        n.y = by + Math.sin(n.targetA) * n.targetR
+      }
+      fixes++
+    }
+    if (!ok(n.vx)) { n.vx = 0; fixes++ }
+    if (!ok(n.vy)) { n.vy = 0; fixes++ }
+    if (!ok(n.ax)) { n.ax = 0; fixes++ }
+    if (!ok(n.ay)) { n.ay = 0; fixes++ }
+    // A non-finite drag anchor would freeze the node at NaN — drop it instead.
+    if (n.dragX !== null && !ok(n.dragX)) { n.dragX = null; fixes++ }
+    if (n.dragY !== null && !ok(n.dragY)) { n.dragY = null; fixes++ }
+    return fixes
   }
 
   // ── Drag: a TEMPORARY pointer anchor, separate from pinning ────────────────
@@ -343,6 +378,13 @@ export class FleetForceSim {
     const dt = Math.min(Math.max(dtRaw, 0), 1 / 30)
     if (dt === 0) return this.lastMaxSpeed
     const list = this.all()
+
+    // Repair any invalid physics BEFORE integrating so a single bad value can't
+    // poison neighbours (repulsion/collision read every node) or freeze a phone.
+    let repaired = this.sanitize(this.core)
+    for (const n of list) repaired += this.sanitize(n)
+    this.lastRepaired = repaired
+
     const damp = Math.exp(-c.damping * dt)
     const coreFree = this.core.dragX === null
     const alpha = this.alpha // forces fade with cooling energy → guaranteed settle
@@ -496,20 +538,49 @@ export class FleetForceSim {
     return maxSpeed
   }
 
-  /** Dev diagnostics snapshot — never used in production UI. */
+  /** Number of phones currently in the simulation (excludes the core). Used by
+   *  the DEV single-simulation invariant: this must equal the active phone count. */
+  count(): number {
+    return this.nodes.size
+  }
+
+  /** IDs of every phone in the simulation (excludes the core). */
+  ids(): string[] {
+    return [...this.nodes.keys()]
+  }
+
+  /** Dev diagnostics snapshot — never used in production UI. Carries the full
+   *  per-phone + core physics state the §16 inspector reports on. */
   debugSnapshot() {
+    const c = this.cfg
     return {
       home: { ...this.home },
-      core: { x: this.core.x, y: this.core.y, vx: this.core.vx, vy: this.core.vy, dragging: this.core.dragX !== null },
+      core: {
+        x: this.core.x, y: this.core.y, vx: this.core.vx, vy: this.core.vy,
+        ax: this.core.ax, ay: this.core.ay,
+        forceMag: Math.hypot(this.core.ax, this.core.ay) * c.coreMass,
+        dragging: this.core.dragX !== null,
+        mass: c.coreMass, backReaction: c.coreBackReaction,
+      },
       maxSpeed: this.lastMaxSpeed,
       energy: this.alpha,
       settled: this.isSettled(),
       dragging: this.isDragging(),
-      nodes: this.all().map((n) => ({
-        id: n.id, x: n.x, y: n.y, vx: n.vx, vy: n.vy,
-        targetR: n.targetR, targetA: n.targetA,
-        pinned: n.pinned, dragging: n.dragX !== null,
-      })),
+      repaired: this.lastRepaired,
+      nodes: this.all().map((n) => {
+        const dx = n.x - this.core.x
+        const dy = n.y - this.core.y
+        const distCore = Math.hypot(dx, dy)
+        return {
+          id: n.id, x: n.x, y: n.y, vx: n.vx, vy: n.vy, ax: n.ax, ay: n.ay,
+          targetR: n.targetR, targetA: n.targetA,
+          pinned: n.pinned, dragging: n.dragX !== null,
+          dragX: n.dragX, dragY: n.dragY,
+          forceMag: Math.hypot(n.ax, n.ay) * c.phoneMass,
+          distCore, radialErr: distCore - n.targetR,
+          finite: Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.vx) && Number.isFinite(n.vy),
+        }
+      }),
     }
   }
 }

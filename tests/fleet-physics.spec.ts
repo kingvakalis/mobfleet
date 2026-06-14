@@ -209,3 +209,133 @@ test('isSettled is false while a drag is active', () => {
   run(sim, 5)
   expect(sim.isSettled()).toBe(false)
 })
+
+// ─── §17/§21 movement evidence: core move ⇒ EVERY unpinned phone reacts ───────
+
+test('a meaningful core move makes every one of 14 phones react with distinct, distributed deltas', () => {
+  const N = 14
+  const sim = makeSim(N, (i) => ({ x: 240 * Math.cos((i / N) * 2 * Math.PI), y: 240 * Math.sin((i / N) * 2 * Math.PI) }))
+  settle(sim)
+  const start = sim.all().map((n) => ({ id: n.id, x: n.x, y: n.y }))
+  const CORE = { x: 520, y: 200 }
+  // Measure the transient reaction (90 steps): each phone responds through its
+  // own re-aimed spring/angular/repulsion terms, so the deltas differ — a single
+  // shared rigid offset would mean React is translating, not physics reacting.
+  sim.beginDrag('orchestrator', CORE.x, CORE.y)
+  for (let i = 0; i < 90; i++) { sim.drag('orchestrator', CORE.x, CORE.y); sim.tick(DT) }
+
+  const deltas = sim.all().map((n, i) => ({ id: n.id, d: dist(n, start[i]) }))
+  const moved = deltas.map((x) => x.d)
+  const minMoved = Math.min(...moved)
+  const reacted = moved.filter((d) => d > 1).length
+  // EVERY unpinned phone moved more than a small epsilon (none stuck/frozen).
+  const EPS = 1
+  for (const x of deltas) expect(x.d).toBeGreaterThan(EPS)
+  // Deltas are NOT one shared rigid offset — count distinct movement vectors.
+  const vecs = sim.all().map((n, i) => ({ dx: n.x - start[i].x, dy: n.y - start[i].y }))
+  const v0 = vecs[0]
+  const uniques = 1 + vecs.filter((v) => Math.hypot(v.dx - v0.dx, v.dy - v0.dy) > 5).length
+  expect(uniques).toBeGreaterThan(1)
+  // Phones stay distributed around the (moved) core: at least 3 of 4 quadrants.
+  settle(sim)
+  const quads = new Set(sim.all().map((n) => `${n.x - sim.core.x >= 0 ? 'E' : 'W'}${n.y - sim.core.y >= 0 ? 'S' : 'N'}`))
+  expect(quads.size).toBeGreaterThanOrEqual(3)
+
+  console.log(
+    `CORE-MOVE n=${N} reacted=${reacted}/${N} minDelta=${minMoved.toFixed(1)} ` +
+      `maxDelta=${Math.max(...moved).toFixed(1)} uniqueVectors=${uniques} quadrants=${quads.size} ` +
+      `perPhone=[${moved.map((d) => d.toFixed(0)).join(',')}]`,
+  )
+})
+
+// ─── §17/§21 movement evidence: phone drag ⇒ core + neighbours react ──────────
+
+test('dragging one phone far moves the core slightly and ripples to several others, then settles back', () => {
+  const N = 14
+  const sim = makeSim(N, (i) => ({ x: 240 * Math.cos((i / N) * 2 * Math.PI), y: 240 * Math.sin((i / N) * 2 * Math.PI) }))
+  settle(sim)
+  const coreStart = { x: sim.core.x, y: sim.core.y }
+  const others = sim.all().filter((n) => n.id !== 'p0').map((n) => ({ id: n.id, x: n.x, y: n.y }))
+  const draggedStart = { ...sim.get('p0')! }
+
+  sim.beginDrag('p0', 1100, 200)
+  for (let i = 0; i < 200; i++) { sim.drag('p0', 1100, 200); sim.tick(DT) }
+
+  const coreMove = dist(sim.core, coreStart)
+  const otherMoves = sim.all().filter((n) => n.id !== 'p0').map((n, i) => dist(n, others[i]))
+  const othersReacted = otherMoves.filter((d) => d > 1).length
+  const avgOther = otherMoves.reduce((a, b) => a + b, 0) / otherMoves.length
+
+  // Back-reaction: the (heavy, free) core was pulled toward the dragged phone…
+  expect(coreMove).toBeGreaterThan(3)
+  // …but only slightly relative to the ~860px the phone was dragged.
+  expect(coreMove).toBeLessThan(dist(draggedStart, { x: 1100, y: 200 }) * 0.6)
+  // Several other phones reacted (through the moving core), by a smaller amount.
+  expect(othersReacted).toBeGreaterThanOrEqual(3)
+
+  // Release → it returns toward orbit; the whole system settles.
+  sim.endDrag('p0')
+  settle(sim)
+  const p0 = sim.get('p0')!
+  expect(p0.dragX).toBeNull()
+  const settledDist = dist(p0, sim.core)
+  expect(settledDist).toBeLessThan(p0.targetR * 1.6)
+  expect(sim.isSettled()).toBe(true)
+
+  console.log(
+    `PHONE-DRAG coreMove=${coreMove.toFixed(1)} othersReacted=${othersReacted}/${otherMoves.length} ` +
+      `avgOtherMove=${avgOther.toFixed(1)} returnedDist=${settledDist.toFixed(1)} targetR=${p0.targetR.toFixed(0)}`,
+  )
+})
+
+// ─── §3 selection is UI-only: a "selected" phone still reacts, never anchored ─
+
+test('a selected phone (simulated as un-anchored) still reacts to a core move and is never anchored', () => {
+  const N = 12
+  const sim = makeSim(N, (i) => ({ x: 240 * Math.cos((i / N) * 2 * Math.PI), y: 240 * Math.sin((i / N) * 2 * Math.PI) }))
+  settle(sim)
+  // Selection is UI-only, so a "selected" phone is just a normal, un-anchored
+  // node — assert it carries no drag anchor and is not pinned.
+  const sel = sim.get('p4')!
+  expect(sel.dragX).toBeNull()
+  expect(sel.dragY).toBeNull()
+  expect(sel.pinned).toBe(false)
+  const before = { x: sel.x, y: sel.y }
+  sim.beginDrag('orchestrator', 420, -160)
+  for (let i = 0; i < 150; i++) { sim.drag('orchestrator', 420, -160); sim.tick(DT) }
+  const moved = dist(sim.get('p4')!, before)
+  expect(moved).toBeGreaterThan(5)
+  // Still never anchored by anything selection-related.
+  expect(sim.get('p4')!.dragX).toBeNull()
+  expect(sim.get('p4')!.dragY).toBeNull()
+  console.log(`SELECTION selectedMoved=${moved.toFixed(1)} anchored=${sim.get('p4')!.dragX !== null}`)
+})
+
+// ─── Missed-pointerup regression guard: release path must clear fx/fy ─────────
+
+test('a drag interrupted WITHOUT endDrag leaves the node frozen; the release path clears fx/fy and it reacts again', () => {
+  const N = 12
+  const sim = makeSim(N, (i) => ({ x: 240 * Math.cos((i / N) * 2 * Math.PI), y: 240 * Math.sin((i / N) * 2 * Math.PI) }))
+  settle(sim)
+  // Simulate a drag whose pointerup is lost (pointercancel / blur / unmount):
+  // beginDrag + moves, but NO endDrag. The node stays anchored = frozen.
+  sim.beginDrag('p0', 900, 300)
+  for (let i = 0; i < 30; i++) { sim.drag('p0', 900, 300); sim.tick(DT) }
+  const frozenAt = { x: sim.get('p0')!.x, y: sim.get('p0')!.y }
+  expect(sim.get('p0')!.dragX).not.toBeNull() // would stay frozen forever
+  // Prove the freeze: with the anchor retained, more ticks don't move it.
+  run(sim, 60)
+  expect(dist(sim.get('p0')!, frozenAt)).toBeLessThan(1)
+
+  // The new universal release path (releaseActiveDrag → sim.endDrag) clears the
+  // temporary anchor on EVERY lost-pointer case.
+  sim.endDrag('p0')
+  expect(sim.get('p0')!.dragX).toBeNull()
+  expect(sim.get('p0')!.dragY).toBeNull()
+  expect(sim.isPinned('p0')).toBe(false)
+  // It rejoins the field and flows back toward its orbit.
+  settle(sim)
+  const settledDist = dist(sim.get('p0')!, sim.core)
+  expect(settledDist).toBeLessThan(sim.get('p0')!.targetR * 1.6)
+  console.log(`MISSED-POINTERUP frozenDelta<1 confirmed; afterRelease dragX=${sim.get('p0')!.dragX} settledDist=${settledDist.toFixed(1)}`)
+})
