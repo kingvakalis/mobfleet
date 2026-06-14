@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
-import { AuthError, AuthField, AuthShell } from './auth-shell'
+import { AuthError, AuthField, AuthShell, AuthSubmit, PasswordField } from './auth-shell'
 
 export function SignupPage() {
   const { enabled, session, signup } = useAuth()
@@ -75,21 +75,19 @@ export function SignupPage() {
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <AuthField
-          label="Workspace name" id="workspace" type="text" required
+          label="Workspace name" id="workspace" type="text" required error={!!error}
           value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="Acme Operations"
         />
         <AuthField
-          label="Email" id="email" type="email" autoComplete="email" required
-          value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com"
+          label="Email" id="email" type="email" autoComplete="email" required error={!!error}
+          value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" icon="email"
         />
-        <AuthField
-          label="Password" id="password" type="password" autoComplete="new-password" required minLength={8}
+        <PasswordField
+          label="Password" id="password" autoComplete="new-password" required minLength={8} error={!!error}
           value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters"
         />
         <AuthError message={error} />
-        <Button type="submit" variant="primary" className="h-10 w-full" disabled={busy}>
-          {busy ? 'Creating…' : 'Create workspace'}
-        </Button>
+        <AuthSubmit busy={busy} busyLabel="Creating…">Create workspace</AuthSubmit>
       </form>
     </AuthShell>
   )

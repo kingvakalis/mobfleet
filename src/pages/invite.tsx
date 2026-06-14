@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
-import { AuthShell } from './auth-shell'
+import { AuthError, AuthShell } from './auth-shell'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
 
@@ -56,8 +56,8 @@ export function InvitePage() {
   if (!token) {
     return (
       <AuthShell title="Invitation problem">
-        <div role="alert" className="mb-4 rounded-control border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-          This invitation link is missing its token.
+        <div className="mb-4">
+          <AuthError message="This invitation link is missing its token." />
         </div>
         <Button variant="outline" className="h-10 w-full" onClick={() => navigate('/')}>
           Go to dashboard
@@ -79,8 +79,8 @@ export function InvitePage() {
   if (state.kind === 'error') {
     return (
       <AuthShell title="Invitation problem">
-        <div role="alert" className="mb-4 rounded-control border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
-          {state.message}
+        <div className="mb-4">
+          <AuthError message={state.message} />
         </div>
         <Button variant="outline" className="h-10 w-full" onClick={() => navigate('/')}>
           Go to dashboard

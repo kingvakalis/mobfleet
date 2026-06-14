@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
-import { AuthError, AuthField, AuthShell } from './auth-shell'
+import { AuthError, AuthField, AuthShell, AuthSubmit, PasswordField } from './auth-shell'
 
 export function LoginPage() {
   const { enabled, session, login } = useAuth()
@@ -50,17 +49,15 @@ export function LoginPage() {
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <AuthField
-          label="Email" id="email" type="email" autoComplete="email" required
-          value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com"
+          label="Email" id="email" type="email" autoComplete="email" required error={!!error}
+          value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" icon="email"
         />
-        <AuthField
-          label="Password" id="password" type="password" autoComplete="current-password" required
+        <PasswordField
+          label="Password" id="password" autoComplete="current-password" required error={!!error}
           value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
         />
         <AuthError message={error} />
-        <Button type="submit" variant="primary" className="h-10 w-full" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </Button>
+        <AuthSubmit busy={busy} busyLabel="Signing in…">Sign in</AuthSubmit>
       </form>
     </AuthShell>
   )
