@@ -1,11 +1,29 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { assignGroupBody, claimDeviceBody, createDevicesBody, taskSpecSchema } from '../../src/shared/schemas'
 import type { EngineRegistry, TeamEngine } from './tenancy/engine-registry'
-import { authenticate, ctx, requirePermission } from './auth/context'
+import { actor, authenticate, ctx, requirePermission } from './auth/context'
 import { claimDevice, createPairingToken, publicServerUrl } from './provisioning'
 import { rateLimit } from './rate-limit'
-import { HttpError } from './http-error'
+import { HttpError, forbidden, notFound } from './http-error'
 import { registerTeamRoutes } from './routes/team'
+import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
+import type { PermissionKey } from '../../src/lib/authorization/permissions'
+import type { FleetStore } from './fleet-store'
+
+/**
+ * Resolve a device for an action, enforcing BOTH tenant isolation AND the
+ * actor's per-member scope. 404 when the id isn't in the actor's team (conceals
+ * cross-tenant existence); 403 when it's in the team but outside the actor's
+ * assigned scope. requirePermission(key) must already have run, so canActOnPhone
+ * here reduces to the scope check for scoped members (workspace-scoped members
+ * are unaffected).
+ */
+function deviceForAction(req: FastifyRequest, store: FleetStore, id: string, key: PermissionKey) {
+  const d = store.getDevice(id)
+  if (!d) throw notFound('device not found')
+  if (!canActOnPhone(actor(req), key, d)) throw forbidden('device is outside your assigned scope')
+  return d
+}
 
 /**
  * REST surface under /v1, mirroring the ProviderClient interface — now
@@ -38,24 +56,21 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     return store.snapshot()
   })
 
-  // devices
+  // devices — list is filtered to the actor's scope (not just the team)
   app.get('/v1/devices', async (req) => {
     requirePermission(req, 'phones.view')
     const { store } = await engineOf(req)
-    return store.listDevices()
+    return scopePhones(actor(req), store.listDevices())
   })
-  app.get('/v1/devices/:id', async (req, reply) => {
+  app.get('/v1/devices/:id', async (req) => {
     requirePermission(req, 'phones.view')
     const { store } = await engineOf(req)
-    const d = store.getDevice((req.params as { id: string }).id)
-    if (!d) return reply.code(404).send({ error: 'device not found' })
-    return d
+    return deviceForAction(req, store, (req.params as { id: string }).id, 'phones.view')
   })
-  app.get('/v1/devices/:id/status', async (req, reply) => {
+  app.get('/v1/devices/:id/status', async (req) => {
     requirePermission(req, 'phones.view')
     const { store } = await engineOf(req)
-    const d = store.getDevice((req.params as { id: string }).id)
-    if (!d) return reply.code(404).send({ error: 'device not found' })
+    const d = deviceForAction(req, store, (req.params as { id: string }).id, 'phones.view')
     return { status: d.status }
   })
   app.post('/v1/devices', async (req) => {
@@ -66,29 +81,34 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   })
   app.post('/v1/devices/:id/start', async (req) => {
     requirePermission(req, 'phones.control')
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    deviceForAction(req, store, (req.params as { id: string }).id, 'phones.control')
     return provider.start((req.params as { id: string }).id)
   })
   app.post('/v1/devices/:id/stop', async (req) => {
     requirePermission(req, 'phones.control')
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    deviceForAction(req, store, (req.params as { id: string }).id, 'phones.control')
     return provider.stop((req.params as { id: string }).id)
   })
   app.delete('/v1/devices/:id', async (req) => {
     requirePermission(req, 'phones.retire')
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    deviceForAction(req, store, (req.params as { id: string }).id, 'phones.retire')
     await provider.delete((req.params as { id: string }).id)
     return { ok: true }
   })
   app.post('/v1/devices/:id/task', async (req) => {
     requirePermission(req, 'automations.run')
     const task = taskSpecSchema.parse(req.body)
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    deviceForAction(req, store, (req.params as { id: string }).id, 'automations.run')
     return provider.runTask((req.params as { id: string }).id, task)
   })
   app.post('/v1/devices/:id/proxy/rotate', async (req) => {
     requirePermission(req, 'phones.control')
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    deviceForAction(req, store, (req.params as { id: string }).id, 'phones.control')
     await provider.rotateProxy((req.params as { id: string }).id)
     return { ok: true }
   })
@@ -111,11 +131,14 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     return claimDevice(registry, body, Date.now())
   })
 
-  // jobs
+  // jobs — list is filtered to jobs whose device is in the actor's scope
   app.get('/v1/jobs', async (req) => {
     requirePermission(req, 'jobs.view')
     const { store } = await engineOf(req)
-    return store.listJobs()
+    const a = actor(req)
+    if (a.scope.type === 'workspace' || can(a, 'jobs.view_all')) return store.listJobs()
+    const inScope = new Set(scopePhones(a, store.listDevices()).map((d) => d.id))
+    return store.listJobs().filter((j) => !j.deviceId || inScope.has(j.deviceId))
   })
   app.post('/v1/tasks', async (req) => {
     requirePermission(req, 'automations.run')
@@ -124,7 +147,10 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   })
   app.post('/v1/jobs/:id/retry', async (req) => {
     requirePermission(req, 'jobs.retry')
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    const job = store.getJob((req.params as { id: string }).id)
+    if (!job) throw notFound('job not found')
+    if (job.deviceId) deviceForAction(req, store, job.deviceId, 'jobs.retry')
     return provider.retryJob((req.params as { id: string }).id)
   })
 
@@ -147,11 +173,12 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     return provider.testProxy((req.params as { ip: string }).ip)
   })
 
-  // groups
+  // groups — every targeted device must be in the actor's scope
   app.post('/v1/groups/assign', async (req) => {
     requirePermission(req, 'phones.assign_group')
     const { ids, group } = assignGroupBody.parse(req.body)
-    const { provider } = await engineOf(req)
+    const { store, provider } = await engineOf(req)
+    for (const deviceId of ids) deviceForAction(req, store, deviceId, 'phones.assign_group')
     await provider.assignGroup(ids, group)
     return { ok: true }
   })
@@ -159,9 +186,11 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // team / members / invites
   registerTeamRoutes(app)
 
-  // whoami — the client uses this to learn its team + role after login.
+  // whoami — the client uses this to learn its team + role + scope (the server
+  // is the source of truth; the UI must derive permissions from this, not from
+  // local state). A suspended member never reaches here (resolveAuthContext 403s).
   app.get('/v1/me', async (req) => {
     const c = ctx(req)
-    return { userId: c.userId, email: c.email, name: c.name, teamId: c.teamId, teamName: c.teamName, role: c.role }
+    return { userId: c.userId, email: c.email, name: c.name, teamId: c.teamId, teamName: c.teamName, role: c.role, scope: c.scope }
   })
 }

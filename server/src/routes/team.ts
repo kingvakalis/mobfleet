@@ -6,17 +6,29 @@ import { env } from '../env'
 import { actor, ctx, requirePermission } from '../auth/context'
 import {
   createInvite, getValidInviteByToken, isRoleId, listPendingInvites,
-  listTeamMembers, teamMembersAsMembers,
+  listTeamMembers, logAudit, teamMembersAsMembers,
 } from '../auth/db'
 import { sendInviteEmail } from '../mailer'
 import { badRequest, forbidden, notFound } from '../http-error'
-import { canAssignRole, canChangeRole, canRemoveMember } from '../../../src/lib/authorization/effective-access'
+import {
+  can, canAssignRole, canChangeRole, canManageMember, canRemoveMember, isLastOwner,
+} from '../../../src/lib/authorization/effective-access'
 import { ROLE_TEMPLATES, type RoleId } from '../../../src/lib/authorization/roles'
 
 const roleSchema = z.enum(['owner', 'admin', 'manager', 'operator', 'viewer'])
 const inviteBody = z.object({ email: z.string().email(), role: roleSchema })
 const acceptBody = z.object({ token: z.string().min(1) })
-const rolePatch = z.object({ role: roleSchema })
+const memberPatch = z
+  .object({
+    role: roleSchema.optional(),
+    status: z.enum(['active', 'suspended']).optional(),
+    scopeType: z.enum(['workspace', 'assigned_groups', 'assigned_phones', 'self']).optional(),
+    scopeGroups: z.array(z.string()).optional(),
+    scopePhones: z.array(z.string()).optional(),
+  })
+  .refine((b) => b.role || b.status || b.scopeType || b.scopeGroups || b.scopePhones, {
+    message: 'no changes provided',
+  })
 
 const publicInvite = (i: { id: string; email: string; role: string; status: string; createdAt: number; expiresAt: number }) => ({
   id: i.id, email: i.email, role: i.role, status: i.status, createdAt: i.createdAt, expiresAt: i.expiresAt,
@@ -36,16 +48,55 @@ export function registerTeamRoutes(app: FastifyInstance) {
     }))
   })
 
+  // Change a member's role / suspension / scope. Each kind of change is gated
+  // by its own permission AND the role hierarchy (canManageMember/canChangeRole),
+  // and every decision is audit-logged. Default-deny throughout.
   app.patch('/v1/team/members/:userId', async (req) => {
     const c = ctx(req)
     const targetUserId = (req.params as { userId: string }).userId
-    const { role } = rolePatch.parse(req.body)
+    const body = memberPatch.parse(req.body)
+    const a = actor(req)
     const all = await teamMembersAsMembers(c.teamId)
     const target = all.find((m) => m.id === targetUserId)
     if (!target) throw notFound('member not found in this team')
-    const verdict = canChangeRole(actor(req), target, role, all)
-    if (!verdict.ok) throw forbidden(verdict.reason ?? 'cannot change role')
-    await prisma.membership.update({ where: { userId_teamId: { userId: targetUserId, teamId: c.teamId } }, data: { role } })
+
+    const deny = async (action: string, reason: string): Promise<never> => {
+      await logAudit({ teamId: c.teamId, actorId: c.userId, action, target: targetUserId, result: 'denied', detail: reason })
+      throw forbidden(reason)
+    }
+
+    const data: { role?: string; status?: string; scopeType?: string; scopeGroups?: string[]; scopePhones?: string[] } = {}
+
+    // role change — anti-escalation + hierarchy + last-owner protection
+    if (body.role && body.role !== target.role) {
+      const verdict = canChangeRole(a, target, body.role, all)
+      if (!verdict.ok) await deny('role.change', verdict.reason ?? 'cannot change role')
+      data.role = body.role
+    }
+
+    // suspend / reinstate
+    if (body.status && (body.status === 'suspended') !== (target.suspended ?? false)) {
+      requirePermission(req, 'team.suspend')
+      if (!canManageMember(a, target)) await deny('member.suspend', 'you cannot manage this member')
+      if (body.status === 'suspended' && isLastOwner(target, all)) await deny('member.suspend', 'the last owner cannot be suspended')
+      data.status = body.status
+    }
+
+    // resource scope — needs the matching assign permission + hierarchy
+    if (body.scopeType || body.scopeGroups || body.scopePhones) {
+      if (!canManageMember(a, target)) await deny('member.scope', 'you cannot manage this member')
+      const touchesGroups = body.scopeType === 'assigned_groups' || body.scopeGroups !== undefined
+      const touchesPhones = body.scopeType === 'assigned_phones' || body.scopePhones !== undefined
+      if (touchesGroups && !can(a, 'team.assign_groups')) await deny('member.scope', 'missing permission: team.assign_groups')
+      if (touchesPhones && !can(a, 'team.assign_phones')) await deny('member.scope', 'missing permission: team.assign_phones')
+      if (body.scopeType) data.scopeType = body.scopeType
+      if (body.scopeGroups) data.scopeGroups = body.scopeGroups
+      if (body.scopePhones) data.scopePhones = body.scopePhones
+    }
+
+    if (Object.keys(data).length === 0) return { ok: true }
+    await prisma.membership.update({ where: { userId_teamId: { userId: targetUserId, teamId: c.teamId } }, data })
+    await logAudit({ teamId: c.teamId, actorId: c.userId, action: 'member.update', target: targetUserId, result: 'allowed', detail: Object.keys(data).join(',') })
     return { ok: true }
   })
 
@@ -56,8 +107,12 @@ export function registerTeamRoutes(app: FastifyInstance) {
     const target = all.find((m) => m.id === targetUserId)
     if (!target) throw notFound('member not found in this team')
     const verdict = canRemoveMember(actor(req), target, all)
-    if (!verdict.ok) throw forbidden(verdict.reason ?? 'cannot remove member')
+    if (!verdict.ok) {
+      await logAudit({ teamId: c.teamId, actorId: c.userId, action: 'member.remove', target: targetUserId, result: 'denied', detail: verdict.reason })
+      throw forbidden(verdict.reason ?? 'cannot remove member')
+    }
     await prisma.membership.delete({ where: { userId_teamId: { userId: targetUserId, teamId: c.teamId } } })
+    await logAudit({ teamId: c.teamId, actorId: c.userId, action: 'member.remove', target: targetUserId, result: 'allowed' })
     return { ok: true }
   })
 

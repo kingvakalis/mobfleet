@@ -3,7 +3,7 @@ import { can, type Member } from '../../../src/lib/authorization/effective-acces
 import type { PermissionKey } from '../../../src/lib/authorization/permissions'
 import { forbidden, unauthorized } from '../http-error'
 import { verifyToken } from './identity'
-import { resolveAuthContext, toMember, type AuthContext } from './db'
+import { resolveAuthContext, type AuthContext } from './db'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -44,10 +44,13 @@ export async function authenticate(req: FastifyRequest, _reply: FastifyReply): P
   req.auth = await authFromToken(token, requestedTeamId, onboardTeamName)
 }
 
-/** The acting user as an authorization-engine Member. */
+/** The acting user as an authorization-engine Member — carries the resolved
+ *  per-member scope so scope-aware checks (canActOnPhone/scopePhones) work
+ *  server-side, not just in the UI. (Suspended members never reach here:
+ *  resolveAuthContext refuses to build a context for them.) */
 export function actor(req: FastifyRequest): Member {
   if (!req.auth) throw unauthorized()
-  return toMember({ userId: req.auth.userId, role: req.auth.role })
+  return { id: req.auth.userId, role: req.auth.role, overrides: {}, scope: req.auth.scope }
 }
 
 /** Throw 403 unless the acting user holds the permission. */

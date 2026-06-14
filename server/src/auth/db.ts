@@ -1,8 +1,10 @@
 import { randomUUID, randomBytes } from 'node:crypto'
 import { prisma } from '../db'
 import { env } from '../env'
+import { forbidden } from '../http-error'
 import { ROLE_TEMPLATES, type RoleId } from '../../../src/lib/authorization/roles'
 import type { Member } from '../../../src/lib/authorization/effective-access'
+import type { AccessScope, ScopeType } from '../../../src/lib/authorization/scopes'
 import type { Identity } from './identity'
 
 export const isRoleId = (r: string): r is RoleId => r in ROLE_TEMPLATES
@@ -17,19 +19,41 @@ export interface AuthContext {
   teamName: string
   role: RoleId
   membershipId: string
+  /** The acting member's resolved resource scope (from their membership row). */
+  scope: AccessScope
 }
 
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
 
-/** Map a Membership row to the authorization engine's Member shape. Server-side
- *  scope is workspace-wide (the teamId boundary is the hard tenant isolation);
- *  per-member group/phone scoping is a future enhancement layered on top. */
-export function toMember(m: { userId: string; role: string }): Member {
+const asStringArray = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+
+/** Build a resource scope from membership columns (default: whole workspace). */
+export function buildScope(scopeType?: string | null, scopeGroups?: unknown, scopePhones?: unknown): AccessScope {
+  const type: ScopeType =
+    scopeType === 'assigned_groups' || scopeType === 'assigned_phones' || scopeType === 'self'
+      ? scopeType
+      : 'workspace'
+  return { type, groups: asStringArray(scopeGroups), phones: asStringArray(scopePhones) }
+}
+
+/** Map a Membership row to the authorization engine's Member shape, including
+ *  suspension status and the member's real resource scope. The teamId boundary
+ *  is still the hard tenant isolation; scope narrows access WITHIN the team. */
+export function toMember(m: {
+  userId: string
+  role: string
+  status?: string | null
+  scopeType?: string | null
+  scopeGroups?: unknown
+  scopePhones?: unknown
+}): Member {
   return {
     id: m.userId,
-    role: (isRoleId(m.role) ? m.role : 'viewer'),
+    role: isRoleId(m.role) ? m.role : 'viewer',
+    suspended: m.status === 'suspended',
     overrides: {},
-    scope: { type: 'workspace', groups: [], phones: [] },
+    scope: buildScope(m.scopeType, m.scopeGroups, m.scopePhones),
   }
 }
 
@@ -89,6 +113,15 @@ export async function resolveAuthContext(identity: Identity, requestedTeamId?: s
   // never grant access to a team the user isn't a member of.
   const chosen = (requestedTeamId && memberships.find((m) => m.teamId === requestedTeamId)) || memberships[0]
 
+  // SECURITY: a SUSPENDED member gets NO authorization context, so every
+  // authenticated route (and the WS upgrade) rejects them — even with a still
+  // -valid JWT. This is read fresh from the DB on every request, so suspension
+  // (like any role change) takes effect immediately, never waiting for the JWT
+  // to expire. 403, not 401: they are authenticated but not permitted.
+  if (chosen.status === 'suspended') {
+    throw forbidden('your workspace membership is suspended')
+  }
+
   return {
     userId: user.id,
     email: user.email,
@@ -98,6 +131,35 @@ export async function resolveAuthContext(identity: Identity, requestedTeamId?: s
     teamName: chosen.team.name,
     role: isRoleId(chosen.role) ? chosen.role : 'viewer',
     membershipId: chosen.id,
+    scope: buildScope(chosen.scopeType, chosen.scopeGroups, chosen.scopePhones),
+  }
+}
+
+/** Append an authorization/audit event (best-effort; never blocks the action,
+ *  never stores secrets). */
+export async function logAudit(entry: {
+  teamId: string
+  actorId: string
+  action: string
+  target?: string
+  result: 'allowed' | 'denied'
+  detail?: string
+}): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        id: id('aud'),
+        teamId: entry.teamId,
+        actorId: entry.actorId,
+        action: entry.action,
+        target: entry.target ?? null,
+        result: entry.result,
+        detail: entry.detail ?? null,
+        createdAt: Date.now(),
+      },
+    })
+  } catch (e) {
+    console.error('[audit]', e instanceof Error ? e.message : e)
   }
 }
 

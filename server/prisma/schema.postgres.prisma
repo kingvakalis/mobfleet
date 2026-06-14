@@ -31,6 +31,7 @@ model Team {
   automations   Automation[]
   pairingTokens DevicePairingToken[]
   apiKeys       DeviceApiKey[]
+  auditLogs     AuditLog[]
 }
 
 model User {
@@ -45,16 +46,41 @@ model User {
 }
 
 model Membership {
-  id        String @id
-  userId    String
-  teamId    String
-  role      String // owner | admin | manager | operator | viewer
-  createdAt Float
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  id          String @id
+  userId      String
+  teamId      String
+  role        String // owner | admin | manager | operator | viewer
+  // Suspension: a suspended member keeps the row (history) but loses ALL access
+  // server-side (resolveAuthContext refuses to build a context for them).
+  status      String @default("active") // active | suspended
+  // Per-member resource scope (defaults to whole workspace). Enforced server-side
+  // for device reads + commands via the shared effective-access engine.
+  scopeType   String @default("workspace") // workspace | assigned_groups | assigned_phones | self
+  scopeGroups Json? // string[] of group names (for assigned_groups)
+  scopePhones Json? // string[] of phone ids/names (for assigned_phones)
+  createdAt   Float
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([userId, teamId])
   @@index([teamId])
+}
+
+// Append-only authorization/audit trail (role changes, suspensions, removals,
+// sensitive reveals, denied attempts). Never store secrets here.
+model AuditLog {
+  id        String  @id
+  teamId    String
+  actorId   String
+  action    String
+  target    String?
+  result    String
+  detail    String?
+  createdAt Float
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([teamId, createdAt])
 }
 
 model Invite {
