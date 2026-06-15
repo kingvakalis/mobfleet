@@ -2,6 +2,7 @@ import { REGIONS } from '@/data/regions'
 import { AUTOMATIONS } from '@/data/automations'
 import { seedFleet } from './seed'
 import type {
+  AgentCommandAction,
   CreateDevicesOptions,
   Device,
   FleetSnapshot,
@@ -11,6 +12,8 @@ import type {
   TaskSpec,
   TaskType,
 } from './types'
+import { controlCommandToWire, formatCommandLog, commandTypeForAction } from '@/shared/control-command'
+import { createDeviceLogHub } from './device-log-hub'
 import type { DeviceStatus } from '@/lib/status'
 
 const TICK_MS = 1800
@@ -47,6 +50,13 @@ export function createMockProvider(): ProviderClient {
 
   const nextJobId = () => `job-${String(++jobSeq).padStart(4, '0')}`
   const findDevice = (id: string) => devices.find((d) => d.id === id)
+
+  // No agent in mock mode, so the provider itself echoes the command to the
+  // device-log subscribers (the same role the server's command_log broadcast
+  // plays in HTTP mode), keeping the Phone Control log alive standalone.
+  const logHub = createDeviceLogHub()
+  const logCommand = (deviceId: string, action: AgentCommandAction, payload?: Record<string, unknown>) =>
+    logHub.emit(deviceId, { ts: Date.now(), text: formatCommandLog(action, payload), commandType: commandTypeForAction(action) })
 
   function makeJob(type: TaskType, now: number, deviceId: string | null): Job {
     const running = deviceId !== null
@@ -352,6 +362,34 @@ export function createMockProvider(): ProviderClient {
       })
       devices = devices.map((d): Device => (d.id === deviceId ? { ...d, proxy: spare.ip } : d))
       commit()
+    },
+
+    async sendCommand(deviceId, command) {
+      // No agent in mock mode — acknowledge as queued so the UI flow is unchanged,
+      // and echo a command-log entry to any device-log subscribers.
+      await delay(120)
+      if (!findDevice(deviceId)) throw new Error(`Unknown device: ${deviceId}`)
+      logCommand(deviceId, command.action, command.payload)
+      return { commandId: `mock-${hex(12)}`, status: 'pending' as const }
+    },
+
+    async sendControlCommand(command) {
+      // Map the typed command to the wire shape (same path as HTTP), then echo a
+      // log entry. Resolves on acceptance — never claims device execution.
+      await delay(80)
+      const wire = controlCommandToWire(command)
+      if (!findDevice(wire.deviceId)) throw new Error(`Unknown device: ${wire.deviceId}`)
+      logCommand(wire.deviceId, wire.action, wire.payload)
+    },
+
+    subscribeDeviceLogs(deviceId, callback) {
+      return logHub.subscribe(deviceId, callback)
+    },
+
+    async listDeviceSessions() {
+      // No session persistence in mock mode — matches the simulated provider's [].
+      await delay(40)
+      return []
     },
 
     async testProxy(ip) {

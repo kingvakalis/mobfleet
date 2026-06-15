@@ -13,7 +13,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -31,7 +31,10 @@ model Team {
   automations   Automation[]
   pairingTokens DevicePairingToken[]
   apiKeys       DeviceApiKey[]
-  auditLogs     AuditLog[]
+  auditLogs      AuditLog[]
+  agentCommands  AgentCommand[]
+  emailSettings  TeamEmailSettings?
+  deviceSessions DeviceSession[]
 }
 
 model User {
@@ -58,6 +61,9 @@ model Membership {
   scopeType   String @default("workspace") // workspace | assigned_groups | assigned_phones | self
   scopeGroups Json? // string[] of group names (for assigned_groups)
   scopePhones Json? // string[] of phone ids/names (for assigned_phones)
+  // Per-permission overrides layered on the role: { [permissionKey]: 'allow' | 'deny' }
+  // (a key absent = inherit from the role). Same shape the authorization engine reads.
+  overrides   Json?
   createdAt   Float
   user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -213,4 +219,67 @@ model DeviceApiKey {
 
   @@index([teamId])
   @@index([deviceId])
+}
+
+// ─── Agent command channel ───────────────────────────────────────────────────
+// A command queued for a device's agent (the "agent" IS the device — one daemon
+// manages many devices, each with its own DeviceApiKey). A dashboard user with
+// the right permission queues a command (POST /v1/agent/command); the agent
+// receives it either by an instant push over its live heartbeat WS or by polling
+// GET /v1/agent/command/queue/:deviceId, then ACKs the result. deviceId is a
+// plain string (matches DeviceApiKey.deviceId; no FK to Device for the same
+// in-memory-store reason). `command` (action + payload) is stored as JSON.
+model AgentCommand {
+  id          String  @default("")
+  teamId      String
+  deviceId    String
+  action      String // screenshot | tap | swipe | type | home | lock | unlock | launch | install | reboot
+  payload     Json?
+  status      String  @default("pending") // pending | delivered | acked | failed
+  error       String? // failure detail reported by the agent (no secrets)
+  result      Json? // validated CommandResultBody from the agent's ack (no secrets/keys)
+  issuedBy    String? // user id that queued it (audit)
+  createdAt   Float
+  deliveredAt Float?
+  ackedAt     Float?
+  expiresAt   Float?
+  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, id])
+  @@index([teamId, deviceId, status])
+}
+
+// ─── Per-team transactional email sender config (Resend) ─────────────────────
+// One row per team (teamId unique). SECURITY: resendApiKey is stored as a PLAIN
+// string — this codebase has no reversible-encryption helper yet (only one-way
+// SHA-256 hashing for device API keys). The key is NEVER returned to the client
+// (GET exposes only the last 4 chars), never logged, never put in errors. When
+// absent, the mailer falls back to the MAIL_* / RESEND_API_KEY environment vars.
+model TeamEmailSettings {
+  id           String @id
+  teamId       String @unique
+  senderEmail  String
+  senderName   String
+  resendApiKey String
+  updatedAt    Float
+  team         Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// ─── Device-agent connection sessions ────────────────────────────────────────
+// One row per authenticated device-agent WebSocket connection: opened on the
+// /ws?deviceKey=… auth path, closed (endedAt set) when that exact socket
+// disconnects. `deviceId` is a plain string with NO FK to Device — matching
+// DeviceApiKey/AgentCommand (Device's PK is composite [teamId, id] and its rows
+// live in the in-memory store). Team-scoped (cascade) for tenant isolation.
+model DeviceSession {
+  id           String  @id
+  teamId       String
+  deviceId     String
+  startedAt    Float
+  endedAt      Float?
+  agentVersion String?
+  team         Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, startedAt])
+  @@index([teamId, startedAt])
 }

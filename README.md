@@ -6,6 +6,11 @@ and provision/retire capacity — all visually.
 
 **Live:** https://phone-farm-app.vercel.app
 
+> **Source of truth.** The root application directories — [`src/`](src/),
+> [`server/`](server/), and [`supabase/`](supabase/) — are the active MobFleet
+> codebase. [`phone-farm-app/`](phone-farm-app/) is retained only as a
+> legacy/reference copy; do not develop against it.
+
 ## Design
 
 "Mission control meets Vercel" — pure-black cinematic canvas, hairline HUD framing,

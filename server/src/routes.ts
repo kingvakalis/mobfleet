@@ -1,14 +1,54 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { assignGroupBody, claimDeviceBody, createDevicesBody, taskSpecSchema } from '../../src/shared/schemas'
+import {
+  agentCommandAckBody, agentCommandBody, assignGroupBody, claimDeviceBody, createDevicesBody, taskSpecSchema,
+  type AgentCommandAction, type CommandResultBody,
+} from '../../src/shared/schemas'
 import type { EngineRegistry, TeamEngine } from './tenancy/engine-registry'
-import { actor, authenticate, ctx, requirePermission } from './auth/context'
-import { claimDevice, createPairingToken, publicServerUrl } from './provisioning'
+import { actor, authenticate, ctx, requirePermission, tokenFromRequest } from './auth/context'
+import { claimDevice, createPairingToken, publicServerUrl, resolveDeviceKey } from './provisioning'
+import { markDelivered, queueCommand, takePendingForDevice, toFrame } from './agent-commands'
+import { pushToDevice } from './device-hub'
+import { broadcastCommandLog } from './command-log-hub'
+import { acknowledgeCommandResult } from './command-completion'
+import { formatCommandLog, commandTypeForAction } from '../../src/shared/control-command'
+import { listDeviceSessions, toDeviceSessionRecord } from './device-sessions'
+import { prisma } from './db'
+import { logAudit } from './auth/db'
 import { rateLimit } from './rate-limit'
-import { HttpError, forbidden, notFound } from './http-error'
+import { HttpError, forbidden, notFound, unauthorized } from './http-error'
 import { registerTeamRoutes } from './routes/team'
+import { registerEmailSettingsRoutes } from './routes/email-settings'
 import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../src/lib/authorization/permissions'
 import type { FleetStore } from './fleet-store'
+
+/** Permission required to queue each agent action. Most device-driving actions
+ *  are phones.control; screenshot + reboot have their own (higher-)risk keys. */
+const PERMISSION_FOR_ACTION: Record<AgentCommandAction, PermissionKey> = {
+  screenshot: 'phones.screenshot',
+  reboot: 'phones.reboot',
+  tap: 'phones.control',
+  swipe: 'phones.control',
+  type: 'phones.control',
+  home: 'phones.control',
+  back: 'phones.control',
+  lock: 'phones.control',
+  unlock: 'phones.control',
+  switcher: 'phones.control',
+  launch: 'phones.control',
+  install: 'phones.control',
+}
+
+/** Authenticate an AGENT request by its per-device API key (Bearer). Unlike user
+ *  requests (Supabase JWT) the agent has no user session — its device key both
+ *  identifies and authorizes it. Returns the resolved team + device. */
+async function authDeviceKey(req: FastifyRequest): Promise<{ teamId: string; deviceId: string }> {
+  const key = tokenFromRequest(req)
+  if (!key) throw unauthorized('missing device API key')
+  const dev = await resolveDeviceKey(key)
+  if (!dev) throw unauthorized('invalid device API key')
+  return dev
+}
 
 /**
  * Resolve a device for an action, enforcing BOTH tenant isolation AND the
@@ -43,6 +83,12 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     // Public: health checks, the WS upgrade (self-auths), and device claim (the
     // pairing token in the body IS the credential — a device has no user session).
     if (path === '/healthz' || path === '/v1/health' || path === '/ws' || path === '/v1/devices/claim') return
+    // Agent command poll/ack self-authenticate via the per-device API key (Bearer)
+    // inside the handler (authDeviceKey), NOT a user JWT — skip the user gate for
+    // them. NOTE: POST /v1/agent/command (no /queue/ segment, no /ack suffix) is
+    // NOT matched here, so it still requires a user session + permission.
+    if (path.startsWith('/v1/agent/command/queue/')) return
+    if (path.startsWith('/v1/agent/command/') && path.endsWith('/ack')) return
     await authenticate(req, reply)
   })
 
@@ -77,6 +123,18 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     const d = deviceForAction(req, store, (req.params as { id: string }).id, 'phones.view')
     return { status: d.status }
   })
+  // Recent device-agent connection sessions for a device (newest first, max 20).
+  // Requires phones.view + tenant/scope ownership (deviceForAction throws 404
+  // cross-tenant, 403 out-of-scope). The query is ALSO scoped by teamId as
+  // defense in depth, so one team can never read another's session history.
+  app.get('/v1/devices/:id/sessions', async (req) => {
+    requirePermission(req, 'phones.view')
+    const { store } = await engineOf(req)
+    const deviceId = (req.params as { id: string }).id
+    deviceForAction(req, store, deviceId, 'phones.view')
+    const rows = await listDeviceSessions(ctx(req).teamId, deviceId)
+    return { sessions: rows.map(toDeviceSessionRecord) }
+  })
   app.post('/v1/devices', async (req) => {
     requirePermission(req, 'phones.provision') // provisioning is manager+ (billable), not operator
     const { count, region } = createDevicesBody.parse(req.body)
@@ -98,8 +156,12 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   app.delete('/v1/devices/:id', async (req) => {
     requirePermission(req, 'phones.retire')
     const { store, provider } = await engineOf(req)
-    deviceForAction(req, store, (req.params as { id: string }).id, 'phones.retire')
-    await provider.delete((req.params as { id: string }).id)
+    const deviceId = (req.params as { id: string }).id
+    deviceForAction(req, store, deviceId, 'phones.retire')
+    await provider.delete(deviceId)
+    // Revoke the device's long-lived API key(s) so a retired/compromised device's
+    // credential can't keep authenticating the heartbeat WS or command endpoints.
+    await prisma.deviceApiKey.deleteMany({ where: { teamId: ctx(req).teamId, deviceId } })
     return { ok: true }
   })
   app.post('/v1/devices/:id/task', async (req) => {
@@ -187,8 +249,93 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
     return { ok: true }
   })
 
+  // ── Agent command channel ──────────────────────────────────────────────────
+  // A dashboard user queues a command for a device's agent. Permission depends on
+  // the action (screenshot/reboot have their own keys; the rest are phones.control),
+  // and deviceForAction enforces tenant + per-member scope. The command is durably
+  // queued; if the agent's heartbeat socket is live it's pushed instantly, else the
+  // agent drains it on its next poll.
+  app.post('/v1/agent/command', async (req) => {
+    const body = agentCommandBody.parse(req.body)
+    const permission = PERMISSION_FOR_ACTION[body.action]
+    requirePermission(req, permission)
+    const { store } = await engineOf(req)
+    deviceForAction(req, store, body.deviceId, permission)
+    const teamId = ctx(req).teamId
+    const userId = ctx(req).userId
+    // Throttle per (user, device) so one seat can't flood the durable queue / WS push.
+    if (!rateLimit(`cmdqueue:${userId}:${body.deviceId}`, 60, 60_000)) {
+      throw new HttpError(429, 'queuing commands too fast')
+    }
+    const now = Date.now()
+    const cmd = await queueCommand({
+      teamId,
+      deviceId: body.deviceId,
+      action: body.action,
+      payload: body.payload,
+      issuedBy: userId,
+      now,
+    })
+    const pushed = pushToDevice(teamId, body.deviceId, toFrame(cmd))
+    if (pushed) await markDelivered(teamId, body.deviceId, cmd.id, now)
+    // Accountability for physical-effect/privacy actions (reboot, screenshot, …).
+    await logAudit({ teamId, actorId: userId, action: `agent.command.${body.action}`, target: body.deviceId, result: 'allowed', detail: pushed ? 'delivered' : 'pending' })
+    // Echo a team-scoped command-log entry to every operator browsing this team,
+    // live over their existing /ws socket. This means "command accepted/queued" —
+    // NOT device execution; typed text is never logged (only a character count).
+    broadcastCommandLog(teamId, {
+      type: 'command_log',
+      deviceId: body.deviceId,
+      entry: { ts: now, text: formatCommandLog(body.action, body.payload), commandType: commandTypeForAction(body.action) },
+    })
+    return { commandId: cmd.id, status: pushed ? 'delivered' : 'pending' }
+  })
+
+  // The agent polls its own queue (device-key auth). Returns undelivered commands
+  // and atomically marks them delivered. own-rows-only: the key must resolve to
+  // the :agentId being polled (mirrors the WS heartbeat's own-device check).
+  app.get('/v1/agent/command/queue/:agentId', async (req) => {
+    const { teamId, deviceId } = await authDeviceKey(req)
+    const agentId = (req.params as { agentId: string }).agentId
+    if (agentId !== deviceId) throw forbidden('device key does not match the requested queue')
+    if (!rateLimit(`cmdpoll:${deviceId}`, 120, 60_000)) throw new HttpError(429, 'polling too fast')
+    const commands = await takePendingForDevice(teamId, deviceId, Date.now())
+    return { commands }
+  })
+
+  // The agent reports a command's result (device-key auth; own-rows-only).
+  app.post('/v1/agent/command/:commandId/ack', async (req) => {
+    const { teamId, deviceId } = await authDeviceKey(req)
+    const commandId = (req.params as { commandId: string }).commandId
+    const body = agentCommandAckBody.parse(req.body)
+    if (!rateLimit(`cmdack:${deviceId}`, 240, 60_000)) throw new HttpError(429, 'too many acks')
+    // Normalize the {status,error} HTTP ack into the canonical CommandResultBody
+    // (the WS path carries the full body; HTTP carries only status + error), then
+    // persist + broadcast a team-scoped completion log — only on a NEW terminal
+    // transition. Authoritative team/device come from the command row, not the request.
+    const result: CommandResultBody = {
+      success: body.status === 'acked',
+      error: body.error ? { message: body.error } : undefined,
+    }
+    let outcome: 'updated' | 'noop' | 'missing'
+    try {
+      ({ outcome } = await acknowledgeCommandResult({ teamId, deviceId, commandId, result, now: Date.now() }))
+    } catch {
+      // Persistence failed → no completion broadcast happened; return a generic
+      // 500 without leaking the raw Prisma error.
+      throw new HttpError(500, 'could not record command result')
+    }
+    // 'noop' = already terminal (the other half of the dual WS+HTTP ack got there
+    // first) → idempotent success; only a genuinely unknown command is a 404.
+    if (outcome === 'missing') throw notFound('command not found for this device')
+    return { ok: true }
+  })
+
   // team / members / invites
   registerTeamRoutes(app)
+
+  // per-team transactional email sender settings (GET/POST /v1/settings/email)
+  registerEmailSettingsRoutes(app)
 
   // whoami — the client uses this to learn its team + role + scope (the server
   // is the source of truth; the UI must derive permissions from this, not from

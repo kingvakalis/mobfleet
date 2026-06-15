@@ -1,15 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, X, Users, Smartphone, Coffee, LogOut, LogIn, Calendar,
-  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown, Eye,
+  ShieldCheck, Trash2, Ban, CheckCircle2, ChevronRight, ChevronDown, Eye, Copy, Mail, Clock,
 } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { useDialog } from '@/hooks/use-dialog'
 import {
   useTeam, toMember, shiftDurationMs, activeMs, currentSessionMs, fmtDur,
-  type Employee, type RoleId, type ShiftStatus,
+  fetchTeamMembers, inviteTeamMember, removeTeamMember, patchTeamMember,
+  type RoleId, type ShiftStatus, type TeamMemberDTO, type MemberPatch,
 } from '@/services/team'
+import type { RosterApi } from '@/hooks/useTeamRoster'
+import { inviteUrl, type RosterMember, type RosterStatus } from '@/services/team-members'
+import { useAuth } from '@/contexts/AuthContext'
+import { useShiftOverlay } from '@/state/shift-overlay'
+import { Spinner } from '@/components/ui/spinner'
 import {
   RANGE_OPTIONS, rangeFor, previousRange, periodStats, sumStats, deltaPct, tzName,
   type RangeKey, type DateRange,
@@ -19,6 +25,7 @@ import {
 } from '@/lib/authorization'
 import { useActingEmployee } from '@/lib/authorization/use-access'
 import { useSession } from '@/state/session-store'
+import { useToastStore } from '@/state/toast-store'
 import { logAudit } from '@/services/audit'
 import { EmployeeAccessTab } from './access/EmployeeAccessTab'
 import { PermissionMatrix } from './access/PermissionMatrix'
@@ -32,6 +39,26 @@ const SHIFT_META: Record<ShiftStatus, { label: string; color: string }> = {
 
 const t = (ms: number | null) =>
   ms ? new Date(ms).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '—'
+
+// Membership status badge — invited (amber), active (emerald), suspended (red).
+const STATUS_META: Record<RosterStatus, { label: string; color: string }> = {
+  invited:   { label: 'Invited',   color: 'var(--status-warming)' },
+  active:    { label: 'Active',    color: 'var(--status-online)' },
+  suspended: { label: 'Suspended', color: 'var(--status-error)' },
+}
+
+function StatusBadge({ status }: { status: RosterStatus }) {
+  const m = STATUS_META[status]
+  return (
+    <span
+      className="mono inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] uppercase tracking-wider"
+      style={{ color: m.color, borderColor: m.color }}
+    >
+      <span className="h-1 w-1 rounded-full" style={{ background: m.color }} />
+      {m.label}
+    </span>
+  )
+}
 
 function Avatar({ name, size = 28 }: { name: string; size?: number }) {
   return (
@@ -150,7 +177,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
 
 // ─── KPI sections ────────────────────────────────────────────────────────────
 
-function LiveKpis({ employees }: { employees: Employee[] }) {
+function LiveKpis({ employees }: { employees: RosterMember[] }) {
   const onShift = employees.filter(e => e.shiftStatus === 'on-shift' || e.shiftStatus === 'on-break').length
   const active = employees.filter(e => e.shiftStatus === 'on-shift').length
   const controlling = employees.filter(e => e.currentPhone).length
@@ -181,7 +208,7 @@ function LiveKpis({ employees }: { employees: Employee[] }) {
   )
 }
 
-function PeriodKpis({ employees, range, now }: { employees: Employee[]; range: DateRange; now: number }) {
+function PeriodKpis({ employees, range, now }: { employees: RosterMember[]; range: DateRange; now: number }) {
   const totals = useMemo(() => sumStats(employees.map(e => periodStats(e, range, now))), [employees, range, now])
   const prevTotals = useMemo(() => {
     const prev = previousRange(range)
@@ -227,8 +254,9 @@ function PeriodKpis({ employees, range, now }: { employees: Employee[]; range: D
 
 // ─── Employee detail drawer (inherits the selected range) ────────────────────
 
-function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose }: {
-  emp: Employee
+function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers, onClose }: {
+  emp: RosterMember
+  roster: Roster
   range: DateRange
   now: number
   actor: Member
@@ -236,7 +264,7 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
   allMembers: Member[]
   onClose: () => void
 }) {
-  const { startShift, endShift, toggleBreak, setSuspended, removeEmployee } = useTeam()
+  const { startShift, endShift, toggleBreak, setSuspended, removeEmployee } = roster
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [tab, setTab] = useState<'overview' | 'access' | 'sessions' | 'history'>('overview')
   const target = toMember(emp)
@@ -441,10 +469,11 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
                 <div className="flex gap-2 border-t border-line pt-4">
                   <button
                     onClick={() => {
-                      setSuspended(emp.id, !emp.suspended)
+                      setSuspended(emp, !emp.suspended)
                       logAudit({ actor: actorName, action: emp.suspended ? 'employee.reinstated' : 'employee.suspended', target: emp.name, result: 'success' })
                     }}
-                    className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
+                    disabled={roster.mutating}
+                    className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {emp.suspended ? <CheckCircle2 size={11} /> : <Ban size={11} />}
                     {emp.suspended ? 'Reinstate' : 'Suspend Access'}
@@ -452,7 +481,7 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
                   {!confirmRemove ? (
                     <button
                       onClick={() => setConfirmRemove(true)}
-                      disabled={!removeCheck.ok}
+                      disabled={!removeCheck.ok || roster.mutating}
                       title={removeCheck.reason}
                       className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
                     >
@@ -460,8 +489,9 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
                     </button>
                   ) : (
                     <button
-                      onClick={() => { removeEmployee(emp.id); logAudit({ actor: actorName, action: 'employee.removed', target: emp.name, result: 'success' }); onClose() }}
-                      className="mono flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error"
+                      onClick={() => { removeEmployee(emp); logAudit({ actor: actorName, action: 'employee.removed', target: emp.name, result: 'success' }); onClose() }}
+                      disabled={roster.mutating}
+                      className="mono flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Trash2 size={11} /> Confirm Remove
                     </button>
@@ -472,7 +502,7 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
           )}
 
           {tab === 'access' && (
-            <EmployeeAccessTab employee={emp} actor={actor} actorName={actorName} />
+            <EmployeeAccessTab employee={emp} roster={roster} allMembers={allMembers} actor={actor} actorName={actorName} />
           )}
 
           {tab === 'sessions' && (
@@ -530,14 +560,46 @@ function EmployeeDrawer({ emp, range, now, actor, actorName, allMembers, onClose
 
 // ─── Add employee modal ──────────────────────────────────────────────────────
 
-function AddEmployeeModal({ onClose }: { onClose: () => void }) {
-  const addEmployee = useTeam(s => s.addEmployee)
+function AddEmployeeModal({ roster, onClose }: { roster: RosterApi; onClose: () => void }) {
   const roles = useTeam(s => s.roles)
+  const addToast = useToastStore(s => s.addToast)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<RoleId>('operator')
-  const valid = name.trim().length > 1 && /\S+@\S+\.\S+/.test(email)
+  const [busy, setBusy] = useState(false)
+  const [invite, setInvite] = useState<{ url: string; emailed: boolean } | null>(null)
+  // Name is captured for the local demo profile; invited members set their own
+  // name at signup, so in Supabase mode only email + role are required.
+  const valid = /\S+@\S+\.\S+/.test(email) && (roster.enabled || name.trim().length > 1)
   const dialogRef = useDialog<HTMLDivElement>(onClose)
+
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const res = await roster.addEmployee({ name: name.trim() || email.trim(), email: email.trim(), role })
+      if (res.invited && res.url) {
+        setInvite({ url: res.url, emailed: !!res.emailed })
+        addToast(res.emailed ? 'Invitation email sent' : 'Invite created — share the link', res.emailed ? 'success' : 'info')
+      } else {
+        addToast('Employee added', 'success')
+        onClose()
+      }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Could not create the invitation', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyLink = async () => {
+    if (!invite) return
+    try {
+      await navigator.clipboard.writeText(invite.url)
+      addToast('Copied to clipboard', 'success', 2500)
+    } catch {
+      addToast('Could not copy — select and copy the link manually', 'error')
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -547,38 +609,76 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
         role="dialog" aria-modal="true" aria-label="Add employee"
         initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.2, ease: EXPO_OUT }}
-        className="relative w-[400px] border border-line bg-panel p-5 focus:outline-none"
+        className="relative w-[420px] border border-line bg-panel p-5 focus:outline-none"
       >
         <div className="mb-4 flex items-center justify-between">
-          <span className="label text-fg">Add Employee</span>
+          <span className="label text-fg">{roster.enabled ? 'Invite Employee' : 'Add Employee'}</span>
           <button onClick={onClose} aria-label="Close" className="text-fg-muted hover:text-fg"><X size={15} /></button>
         </div>
-        <div className="space-y-3">
-          <div>
-            <div className="label text-fg-muted mb-1.5">Name</div>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name"
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+
+        {invite ? (
+          // Invite created — surface the shareable link (always works, even if the
+          // email send is not yet configured).
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 rounded-control border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-2">
+              <CheckCircle2 size={15} className="text-[var(--accent-text)]" />
+              <span className="text-[12px] text-white/80">
+                Invitation created for <span className="text-white">{email}</span>
+                {invite.emailed ? ' — email sent.' : '.'}
+              </span>
+            </div>
+            <div>
+              <div className="label text-fg-muted mb-1.5">Invite link</div>
+              <div className="flex gap-2">
+                <input
+                  readOnly value={invite.url} onFocus={(e) => e.currentTarget.select()}
+                  className="mono h-9 min-w-0 flex-1 rounded-control border border-line bg-elevated px-3 text-[11px] text-fg/80 outline-none"
+                />
+                <button onClick={copyLink} className="btn-accent mono flex h-9 shrink-0 items-center gap-1.5 px-3 text-[10px] uppercase tracking-wider">
+                  <Copy size={12} /> Copy
+                </button>
+              </div>
+              {!invite.emailed && (
+                <p className="mt-2 text-[10px] leading-relaxed text-white/35">
+                  Email delivery isn’t configured yet — share this link directly. It expires in 7 days.
+                </p>
+              )}
+            </div>
+            <button onClick={onClose} className="btn-ghost mono w-full py-2 text-[10px] uppercase tracking-widest">Done</button>
           </div>
-          <div>
-            <div className="label text-fg-muted mb-1.5">Email</div>
-            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com"
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
-          </div>
-          <div>
-            <div className="label text-fg-muted mb-1.5">Role</div>
-            <select value={role} onChange={e => setRole(e.target.value as RoleId)}
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]">
-              {roles.filter(r => r.id !== 'owner').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-        </div>
-        <button
-          disabled={!valid}
-          onClick={() => { addEmployee({ name: name.trim(), email: email.trim(), role, groups: [] }); onClose() }}
-          className="btn-accent mono mt-5 w-full py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40"
-        >
-          Create Employee
-        </button>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {!roster.enabled && (
+                <div>
+                  <div className="label text-fg-muted mb-1.5">Name</div>
+                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name"
+                    className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+                </div>
+              )}
+              <div>
+                <div className="label text-fg-muted mb-1.5">Email</div>
+                <input value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" type="email"
+                  className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+              </div>
+              <div>
+                <div className="label text-fg-muted mb-1.5">Role</div>
+                <select value={role} onChange={e => setRole(e.target.value as RoleId)}
+                  className="mono h-9 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]">
+                  {roles.filter(r => r.id !== 'owner').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <button
+              disabled={!valid || busy}
+              onClick={submit}
+              className="btn-accent mono mt-5 flex w-full items-center justify-center gap-1.5 py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40"
+            >
+              {roster.enabled ? <Mail size={12} /> : <Plus size={12} />}
+              {busy ? 'Working…' : roster.enabled ? 'Send Invitation' : 'Create Employee'}
+            </button>
+          </>
+        )}
       </motion.div>
     </div>
   )
@@ -612,17 +712,212 @@ function ActingSwitcher() {
   )
 }
 
+// ─── Railway-backed roster ───────────────────────────────────────────────────
+// Wires the People list to the live Railway/Fastify API (GET/POST/DELETE/PATCH
+// /v1/team/*), preserving the RosterApi shape the drawer + Access tab already
+// consume. Shift actions stay Zustand-local (overlay). Falls back to the mock
+// store when auth is unconfigured so the standalone demo build still works.
+type Roster = RosterApi & { mutating: boolean }
+
+const blankActivity = () => ({
+  shiftStatus: 'offline' as const,
+  shiftStart: null,
+  breakStart: null,
+  breakMinutesToday: 0,
+  currentPhone: null,
+  currentSessionStart: null,
+  lastActivity: 0,
+  history: [],
+})
+
+/** GET /v1/team/members row → the Employee/RosterMember shape. The endpoint
+ *  returns identity + role only (no shift activity, no scope, no suspension), so
+ *  activity is zeroed and suspension comes from the optimistic map. */
+function memberToRoster(dto: TeamMemberDTO, isSuspended: boolean): RosterMember {
+  return {
+    id: dto.userId,
+    userId: dto.userId,
+    name: dto.name ?? dto.email,
+    email: dto.email,
+    role: dto.role,
+    groups: [],
+    phones: [],
+    scopeType: 'workspace',
+    overrides: dto.overrides ?? {},
+    createdAt: dto.createdAt,
+    suspended: isSuspended,
+    status: isSuspended ? 'suspended' : 'active',
+    ...blankActivity(),
+  }
+}
+
+function useRailwayRoster(): Roster {
+  const { enabled } = useAuth()
+  const addToast = useToastStore((s) => s.addToast)
+
+  // Mock store — unchanged behavior for the standalone (no-auth) demo build.
+  const mockEmployees = useTeam((s) => s.employees)
+  const mockAdd = useTeam((s) => s.addEmployee)
+  const mockUpdate = useTeam((s) => s.updateEmployee)
+  const mockSetOverride = useTeam((s) => s.setOverride)
+  const mockSetSuspended = useTeam((s) => s.setSuspended)
+  const mockRemove = useTeam((s) => s.removeEmployee)
+  const mockStart = useTeam((s) => s.startShift)
+  const mockEnd = useTeam((s) => s.endShift)
+  const mockBreak = useTeam((s) => s.toggleBreak)
+
+  // Ephemeral, in-session shift overlay (Zustand-local) for the live path.
+  const overlay = useShiftOverlay((s) => s.overlay)
+  const ovStart = useShiftOverlay((s) => s.startShift)
+  const ovEnd = useShiftOverlay((s) => s.endShift)
+  const ovBreak = useShiftOverlay((s) => s.toggleBreak)
+
+  const [members, setMembers] = useState<TeamMemberDTO[]>([])
+  // GET /v1/team/members omits suspension status, so reflect it optimistically.
+  const [suspended, setSuspendedMap] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(enabled)
+  const [error, setError] = useState<string | null>(null)
+  const [mutating, setMutating] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!enabled) { setLoading(false); return }
+    setLoading(true)
+    setError(null)
+    try {
+      setMembers(await fetchTeamMembers())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load team members')
+    } finally {
+      setLoading(false)
+    }
+  }, [enabled])
+
+  useEffect(() => {
+    // Async data-load effect — the loading flag it sets is the intended pattern
+    // (mirrors hooks/useTeam.ts).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load()
+  }, [load])
+
+  const employees = useMemo<RosterMember[]>(() => {
+    if (!enabled) {
+      return mockEmployees.map((e) => ({ ...e, status: e.suspended ? 'suspended' : 'active', userId: e.id }))
+    }
+    return members.map((dto) => {
+      const base = memberToRoster(dto, !!suspended[dto.userId])
+      const ov = overlay[base.id]
+      return ov ? { ...base, ...ov } : base
+    })
+  }, [enabled, mockEmployees, members, suspended, overlay])
+
+  // Run a mutation, refetch on success, toast + (optional) revert on failure.
+  const runMutation = (p: Promise<unknown>, errMsg: string, onError?: () => void) => {
+    setMutating(true)
+    p.then(() => load())
+      .catch((e) => { onError?.(); addToast(`${errMsg}: ${e instanceof Error ? e.message : 'failed'}`, 'error') })
+      .finally(() => setMutating(false))
+  }
+
+  return {
+    enabled,
+    loading: enabled ? loading : false,
+    error: enabled ? error : null,
+    employees,
+    mutating,
+    refresh: load,
+
+    // Add = invite (the backend has no create-member endpoint). Returns the
+    // shareable accept link (dev) so the modal can surface it.
+    addEmployee: async (input) => {
+      if (!enabled) { mockAdd({ name: input.name, email: input.email, role: input.role, groups: [] }); return { invited: false } }
+      setMutating(true)
+      try {
+        const inv = await inviteTeamMember(input.email, input.role)
+        await load()
+        return { invited: true, url: inv.acceptUrl, emailed: true }
+      } finally {
+        setMutating(false)
+      }
+    },
+
+    removeEmployee: (m) => {
+      if (!enabled) { mockRemove(m.id); return }
+      if (m.status === 'invited' || !m.userId) return
+      runMutation(removeTeamMember(m.userId), 'Could not remove member')
+    },
+
+    setSuspended: (m, isSusp) => {
+      if (!enabled) { mockSetSuspended(m.id, isSusp); return }
+      if (!m.userId) return
+      const uid = m.userId
+      setSuspendedMap((prev) => ({ ...prev, [uid]: isSusp })) // optimistic — GET omits status
+      runMutation(
+        patchTeamMember(uid, { status: isSusp ? 'suspended' : 'active' }),
+        'Could not update member',
+        () => setSuspendedMap((prev) => ({ ...prev, [uid]: !isSusp })), // revert on failure
+      )
+    },
+
+    // Role + scope persist via the same PATCH /v1/team/members/:userId endpoint.
+    updateEmployee: (m, patch) => {
+      if (!enabled) { mockUpdate(m.id, patch); return }
+      if (!m.userId) return
+      const body: MemberPatch = {}
+      if (patch.role) body.role = patch.role
+      if (patch.scopeType !== undefined) body.scopeType = patch.scopeType
+      if (patch.groups !== undefined) body.scopeGroups = patch.groups
+      if (patch.phones !== undefined) body.scopePhones = patch.phones
+      if (Object.keys(body).length > 0) runMutation(patchTeamMember(m.userId, body), 'Could not update member')
+    },
+
+    setOverride: (m, key, effect) => {
+      if (!enabled) { mockSetOverride(m.id, key, effect); return }
+      if (!m.userId) return
+      // Compute the full next override map (effect === null clears the key →
+      // inherit) and PATCH it wholesale, matching the backend's contract.
+      const next = { ...m.overrides }
+      if (effect === null) delete next[key]
+      else next[key] = effect
+      runMutation(patchTeamMember(m.userId, { overrides: next }), 'Could not update permission')
+    },
+
+    // Shift actions stay Zustand-local (ephemeral overlay live / store in mock).
+    // TODO: wire to /v1/agent/command
+    startShift: (id) => (enabled ? ovStart(id) : mockStart(id)),
+    endShift: (id) => (enabled ? ovEnd(id) : mockEnd(id)),
+    toggleBreak: (id) => (enabled ? ovBreak(id) : mockBreak(id)),
+  }
+}
+
 // ─── Main view ───────────────────────────────────────────────────────────────
 
 export function TeamView() {
-  const employees = useTeam(s => s.employees)
+  const roster = useRailwayRoster()
+  const employees = roster.employees
   const { member: actor, employee: actorEmployee } = useActingEmployee()
-  const allMembers = useMemo(() => employees.map(toMember), [employees])
+  // Anti-escalation / last-owner checks consider real members only (not pending invites).
+  const allMembers = useMemo(() => employees.filter(e => e.status !== 'invited').map(toMember), [employees])
   const [tab, setTab] = useState<'people' | 'roles'>('people')
   const [openId, setOpenId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const canInvite = can(actor, 'team.invite')
   const canSeeRoles = can(actor, 'roles.view')
+  const addToast = useToastStore(s => s.addToast)
+
+  const copyInvite = async (m: RosterMember) => {
+    if (!m.inviteToken) return
+    try {
+      await navigator.clipboard.writeText(inviteUrl(m.inviteToken))
+      addToast('Copied to clipboard', 'success', 2500)
+    } catch {
+      addToast('Could not copy the link', 'error')
+    }
+  }
+  const revoke = (m: RosterMember) => {
+    roster.removeEmployee(m)
+    logAudit({ actor: actorEmployee.name, action: 'invite.revoked', target: m.email, result: 'success' })
+    addToast('Invitation revoked', 'info')
+  }
 
   // Shared date-range state — every historical widget reads this one range.
   const [rangeKey, setRangeKey] = useState<RangeKey>('today')
@@ -642,7 +937,7 @@ export function TeamView() {
     [employees, range, now],
   )
 
-  const openEmp = employees.find(e => e.id === openId) ?? null
+  const openEmp = employees.find(e => e.id === openId && e.status !== 'invited') ?? null
 
   return (
     <div className="flex h-full flex-col">
@@ -653,7 +948,9 @@ export function TeamView() {
           <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Team</h1>
         </div>
         <div className="flex items-center gap-2">
-          <ActingSwitcher />
+          {/* Acting-as is a dev tool for the standalone (no-auth) build only; with
+              real auth the signed-in user's role governs access. */}
+          {!roster.enabled && <ActingSwitcher />}
           {tab === 'people' && (
             <RangeControl rangeKey={rangeKey} setRangeKey={setRangeKey} custom={custom} setCustom={setCustom} />
           )}
@@ -683,6 +980,21 @@ export function TeamView() {
 
       {tab === 'people' ? (
         <>
+          {roster.error && (
+            <div role="alert" className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-control border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300">
+              <span>Couldn't load the team: {roster.error}</span>
+              <button
+                onClick={() => void roster.refresh()}
+                className="mono shrink-0 rounded-control border border-red-500/40 px-2 py-1 text-[10px] uppercase tracking-widest transition-colors hover:bg-red-500/20"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {roster.loading && employees.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center py-20"><Spinner size={24} /></div>
+          ) : (
+          <>
           {/* LIVE row + PERIOD row, clearly separated */}
           <div className="grid grid-cols-3 gap-3 border-b border-line px-6 pb-2 pt-4">
             <LiveKpis employees={employees} />
@@ -711,37 +1023,49 @@ export function TeamView() {
               <tbody>
                 {rows.map(({ e, stats }, i) => {
                   const meta = SHIFT_META[e.shiftStatus]
+                  const invited = e.status === 'invited'
                   return (
                     <motion.tr
                       key={e.id}
                       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                       transition={{ duration: 0.25, delay: Math.min(i * 0.04, 0.4) }}
-                      onClick={() => setOpenId(e.id)}
-                      className="cursor-pointer border-b border-white/[0.04] transition-colors hover:bg-hover"
+                      onClick={() => { if (!invited) setOpenId(e.id) }}
+                      className={`border-b border-white/[0.04] transition-colors ${invited ? '' : 'cursor-pointer hover:bg-hover'}`}
                       style={{ opacity: e.suspended ? 0.45 : 1 }}
                     >
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-2.5">
                           <Avatar name={e.name} size={26} />
-                          <span className="flex flex-col">
-                            <span className="text-[12px] text-white/80">{e.name}{e.suspended && <span className="ml-1.5 text-[9px] uppercase text-status-error">suspended</span>}</span>
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-[12px] text-white/80">{e.name}</span>
+                              {e.status !== 'active' && <StatusBadge status={e.status} />}
+                            </span>
                             <span className="mono text-[9px] text-white/25">{e.email}</span>
                           </span>
                         </span>
                       </td>
                       <td className="mono px-4 py-3 text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
                       <td className="px-4 py-3">
-                        {e.suspended ? (
+                        {invited ? (
+                          <span className="mono text-[9px] uppercase tracking-wider text-white/30">Pending</span>
+                        ) : e.suspended ? (
                           <span className="mono text-[9px] uppercase tracking-wider text-status-error">Suspended</span>
                         ) : (
                           <span className="mono text-[9px] uppercase tracking-wider text-white/40">{SCOPE_LABELS[e.scopeType]}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="flex items-center gap-1.5">
-                          <span className={`h-1.5 w-1.5 rounded-full ${e.shiftStatus === 'on-shift' ? 'status-dot-pulse' : ''}`} style={{ background: meta.color }} />
-                          <span className="mono text-[10px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
-                        </span>
+                        {invited ? (
+                          <span className="mono flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-white/30">
+                            <Clock size={11} /> Awaiting
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${e.shiftStatus === 'on-shift' ? 'status-dot-pulse' : ''}`} style={{ background: meta.color }} />
+                            <span className="mono text-[10px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {e.currentPhone ? (
@@ -752,14 +1076,35 @@ export function TeamView() {
                           <span className="mono text-[10px] text-white/20">—</span>
                         )}
                       </td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/65">{fmtDur(stats.hoursMs)}</td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/50">{fmtDur(stats.activeMs)}</td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/35">{stats.breakMs > 0 ? fmtDur(stats.breakMs) : '—'}</td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.shifts}</td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.phonesUsed}</td>
-                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{stats.jobs}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/65">{invited ? '—' : fmtDur(stats.hoursMs)}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/50">{invited ? '—' : fmtDur(stats.activeMs)}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/35">{invited || stats.breakMs <= 0 ? '—' : fmtDur(stats.breakMs)}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{invited ? '—' : stats.shifts}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{invited ? '—' : stats.phonesUsed}</td>
+                      <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/45">{invited ? '—' : stats.jobs}</td>
                       <td className="px-4 py-3 text-right">
-                        <ChevronRight size={13} className="ml-auto text-white/20" />
+                        {invited && canInvite ? (
+                          <span className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); void copyInvite(e) }}
+                              title="Copy invite link"
+                              className="flex h-7 w-7 items-center justify-center rounded-control text-white/40 transition-colors hover:bg-hover hover:text-white/80"
+                            >
+                              <Copy size={12} />
+                            </button>
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); revoke(e) }}
+                              title="Revoke invitation"
+                              className="flex h-7 w-7 items-center justify-center rounded-control text-status-error/70 transition-colors hover:bg-status-error/10 hover:text-status-error"
+                            >
+                              <X size={13} />
+                            </button>
+                          </span>
+                        ) : invited ? (
+                          <span className="mono text-[9px] text-white/20">—</span>
+                        ) : (
+                          <ChevronRight size={13} className="ml-auto text-white/20" />
+                        )}
                       </td>
                     </motion.tr>
                   )
@@ -774,6 +1119,8 @@ export function TeamView() {
               </span>
             </div>
           </div>
+          </>
+          )}
         </>
       ) : (
         <PermissionMatrix actor={actor} actorName={actorEmployee.name} />
@@ -784,6 +1131,7 @@ export function TeamView() {
           <EmployeeDrawer
             key={openEmp.id}
             emp={openEmp}
+            roster={roster}
             range={range}
             now={now}
             actor={actor}
@@ -792,7 +1140,7 @@ export function TeamView() {
             onClose={() => setOpenId(null)}
           />
         )}
-        {adding && <AddEmployeeModal key="add" onClose={() => setAdding(false)} />}
+        {adding && <AddEmployeeModal key="add" roster={roster} onClose={() => setAdding(false)} />}
       </AnimatePresence>
     </div>
   )

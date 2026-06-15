@@ -14,10 +14,14 @@ import {
   can, canAssignRole, canChangeRole, canManageMember, canRemoveMember, isLastOwner,
 } from '../../../src/lib/authorization/effective-access'
 import { ROLE_TEMPLATES, type RoleId } from '../../../src/lib/authorization/roles'
+import { ALL_PERMISSION_KEYS, type PermissionKey } from '../../../src/lib/authorization/permissions'
 
 const roleSchema = z.enum(['owner', 'admin', 'manager', 'operator', 'viewer'])
 const inviteBody = z.object({ email: z.string().email(), role: roleSchema })
 const acceptBody = z.object({ token: z.string().min(1) })
+// Per-permission overrides: { [permissionKey]: 'allow' | 'deny' } (key absent =
+// inherit). The frontend sends the complete merged map; we persist it wholesale.
+const overridesSchema = z.record(z.string(), z.enum(['allow', 'deny']))
 const memberPatch = z
   .object({
     role: roleSchema.optional(),
@@ -25,14 +29,29 @@ const memberPatch = z
     scopeType: z.enum(['workspace', 'assigned_groups', 'assigned_phones', 'self']).optional(),
     scopeGroups: z.array(z.string()).optional(),
     scopePhones: z.array(z.string()).optional(),
+    overrides: overridesSchema.optional(),
   })
-  .refine((b) => b.role || b.status || b.scopeType || b.scopeGroups || b.scopePhones, {
+  .refine((b) => b.role || b.status || b.scopeType || b.scopeGroups || b.scopePhones || b.overrides, {
     message: 'no changes provided',
   })
 
 const publicInvite = (i: { id: string; email: string; role: string; status: string; createdAt: number; expiresAt: number }) => ({
   id: i.id, email: i.email, role: i.role, status: i.status, createdAt: i.createdAt, expiresAt: i.expiresAt,
 })
+
+/** Shape of each row returned by GET /v1/team/members. `status` mirrors the
+ *  Membership.status column (active | suspended); `overrides` mirrors the
+ *  Membership.overrides JSON ({ [permissionKey]: 'allow' | 'deny' }). */
+export interface TeamMemberResponse {
+  userId: string
+  role: string
+  status: 'active' | 'suspended'
+  overrides: Record<string, 'allow' | 'deny'>
+  createdAt: number
+  email: string
+  name: string | null
+  isSelf: boolean
+}
 
 /** Team membership + invitation management. All tenant-scoped + anti-escalation
  *  enforced via the shared authorization engine. */
@@ -41,9 +60,14 @@ export function registerTeamRoutes(app: FastifyInstance) {
   app.get('/v1/team/members', async (req) => {
     requirePermission(req, 'team.view')
     const rows = await listTeamMembers(ctx(req).teamId)
-    return rows.map((m) => ({
+    return rows.map((m): TeamMemberResponse => ({
       userId: m.userId, role: m.role, createdAt: m.createdAt,
       email: m.user.email, name: m.user.name,
+      // Membership.status (default 'active'); normalise any non-'suspended'
+      // value to 'active' so the response type is exact.
+      status: m.status === 'suspended' ? 'suspended' : 'active',
+      // Membership.overrides JSON → { [permissionKey]: 'allow' | 'deny' }; null → {}.
+      overrides: (m.overrides as Record<string, 'allow' | 'deny'> | null) ?? {},
       isSelf: m.userId === ctx(req).userId,
     }))
   })
@@ -65,7 +89,7 @@ export function registerTeamRoutes(app: FastifyInstance) {
       throw forbidden(reason)
     }
 
-    const data: { role?: string; status?: string; scopeType?: string; scopeGroups?: string[]; scopePhones?: string[] } = {}
+    const data: { role?: string; status?: string; scopeType?: string; scopeGroups?: string[]; scopePhones?: string[]; overrides?: Record<string, 'allow' | 'deny'> } = {}
 
     // role change — anti-escalation + hierarchy + last-owner protection
     if (body.role && body.role !== target.role) {
@@ -92,6 +116,21 @@ export function registerTeamRoutes(app: FastifyInstance) {
       if (body.scopeType) data.scopeType = body.scopeType
       if (body.scopeGroups) data.scopeGroups = body.scopeGroups
       if (body.scopePhones) data.scopePhones = body.scopePhones
+    }
+
+    // permission overrides — needs roles.manage_permissions + hierarchy, and the
+    // actor may only GRANT ('allow') a permission they themselves hold
+    // (anti-escalation). 'deny' is always permitted. Unknown keys are rejected.
+    if (body.overrides) {
+      requirePermission(req, 'roles.manage_permissions')
+      if (!canManageMember(a, target)) await deny('member.overrides', 'you cannot manage this member')
+      for (const [key, effect] of Object.entries(body.overrides)) {
+        if (!ALL_PERMISSION_KEYS.includes(key as PermissionKey)) throw badRequest(`unknown permission: ${key}`)
+        if (effect === 'allow' && !can(a, key as PermissionKey)) {
+          await deny('member.overrides', `cannot grant ${key}: you do not hold it`)
+        }
+      }
+      data.overrides = body.overrides
     }
 
     if (Object.keys(data).length === 0) return { ok: true }
@@ -149,7 +188,9 @@ export function registerTeamRoutes(app: FastifyInstance) {
     }
     const acceptUrl = `${env.appUrl.replace(/\/$/, '')}/invite?token=${encodeURIComponent(invite.token)}`
     try {
-      await sendInviteEmail({ to: normalized, teamName: c.teamName, inviterName: c.name ?? c.email, role, acceptUrl })
+      // Pass the AUTHENTICATED team id so the mailer uses this team's own Resend
+      // sender config when configured (else the environment fallback).
+      await sendInviteEmail({ teamId: c.teamId, to: normalized, teamName: c.teamName, inviterName: c.name ?? c.email, role, acceptUrl })
     } catch (e) {
       // Don't fail the invite if email delivery hiccups — it's recoverable
       // (the link can be resent), and the invite row already exists.

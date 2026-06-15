@@ -8,6 +8,7 @@ import { registerRoutes } from './routes'
 import { registerWs } from './ws'
 import { HttpError } from './http-error'
 import { startPairingTokenCleanup } from './provisioning'
+import { startAgentCommandCleanup } from './agent-commands'
 
 async function main() {
   assertAuthConfig() // fail fast on an insecure prod auth config
@@ -44,6 +45,7 @@ async function main() {
   registerRoutes(app, registry)
 
   startPairingTokenCleanup() // periodically prune expired/unclaimed pairing tokens
+  startAgentCommandCleanup() // fail commands past their expiry (pending or delivered)
 
   await app.listen({ port: env.port, host: '0.0.0.0' })
   console.log(

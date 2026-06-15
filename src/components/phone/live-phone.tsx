@@ -268,7 +268,10 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   /** When true, direct screen interaction is disabled (no control permission). */
   readOnly?: boolean
   onLog: (level: LogLevel, text: string) => void
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog }, ref) {
+  /** Reports a screen tap at (x, y) so the PARENT can send the control command —
+   *  this component stays visual-only (single send owner). */
+  onTap?: (x: number, y: number) => void
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap }, ref) {
   const f = width / 260
   const screenH = Math.round(width * 1.95)
   const clock = useClock()
@@ -330,10 +333,17 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   }, [awake, onLog])
 
   const tapCenter = useCallback(() => {
+    // Mirror the direct-tap guard: tapCenter now also sends (via onTap), so it
+    // must respect read-only access the same way (defense-in-depth — the button
+    // is already disabled when read-only, and the server enforces phones.control).
+    if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
     if (!awake) { lock(); return }
-    setRipple({ x: Math.round(width / 2), y: Math.round(screenH / 2), id: Date.now() })
+    const cx = Math.round(width / 2)
+    const cy = Math.round(screenH / 2)
+    setRipple({ x: cx, y: cy, id: Date.now() })
     onLog('info', 'tap (center)')
-  }, [awake, lock, onLog, width, screenH])
+    onTap?.(cx, cy)
+  }, [readOnly, awake, lock, onLog, width, screenH, onTap])
 
   useImperativeHandle(ref, () => ({ home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter }),
     [home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter])
@@ -346,6 +356,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
     if (!awake) { lock(); return }
     setRipple({ x, y, id: Date.now() })
     onLog('info', `${gesture} (${x}, ${y})`)
+    onTap?.(x, y) // parent sends the tap control command (we stay visual-only)
   }
 
   const activeAppDef = useMemo(

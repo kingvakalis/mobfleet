@@ -56,6 +56,11 @@ export function LoginPage() {
           label="Password" id="password" autoComplete="current-password" required error={!!error}
           value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
         />
+        <div className="-mt-1 text-right">
+          <Link to="/forgot-password" className="text-[12px] text-[var(--accent-text)] hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         <AuthError message={error} />
         <AuthSubmit busy={busy} busyLabel="Signing in…">Sign in</AuthSubmit>
       </form>

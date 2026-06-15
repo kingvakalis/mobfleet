@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, RotateCcw, Save, Monitor, Gauge, Bell, Building2, Palette, PanelLeft, Anchor, Lock } from 'lucide-react'
+import { Check, RotateCcw, Save, Gauge, Bell, Building2, Palette, PanelLeft, Anchor, Mail, SlidersHorizontal } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { THEMES, ACCENTS, appearanceStyle, type ThemeId, type AccentId } from '@/lib/themes'
 import {
@@ -11,6 +11,10 @@ import {
 import { useActingEmployee } from '@/lib/authorization/use-access'
 import { can } from '@/lib/authorization'
 import { logAudit } from '@/services/audit'
+import { Section, Field, Toggle } from '@/components/settings/settings-primitives'
+import { EmailSettings } from '@/components/settings/email-settings'
+import { canAccessEmailSettings } from '@/lib/email/access'
+import { AccessDenied } from '@/components/access/Can'
 
 /**
  * Workspace settings. Every control here is consumed by real app logic:
@@ -26,62 +30,6 @@ import { logAudit } from '@/services/audit'
  */
 
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof WorkspaceSettings)[]
-
-function Section({ icon: Icon, title, desc, children, wide, locked }: {
-  icon: typeof Monitor; title: string; desc: string; children: React.ReactNode; wide?: boolean
-  /** When true, every control inside is disabled (insufficient permission). */
-  locked?: boolean
-}) {
-  return (
-    <div className={`card-surface p-5 ${wide ? 'lg:col-span-2' : ''}`}>
-      <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-line bg-black/40">
-          <Icon size={14} className="text-[var(--accent-text)]" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[13px] font-medium text-white/85">
-            {title}
-            {locked && <span className="mono flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[8px] uppercase tracking-wider text-white/35"><Lock size={8} /> Read-only</span>}
-          </div>
-          <div className="mt-0.5 text-[11px] text-white/35">{desc}</div>
-        </div>
-      </div>
-      {/* fieldset[disabled] natively disables every control inside the section */}
-      <fieldset disabled={locked} className={`space-y-4 border-0 p-0 m-0 ${locked ? 'opacity-50' : ''}`}>{children}</fieldset>
-    </div>
-  )
-}
-
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-6">
-      <div className="min-w-0">
-        <div className="text-[11px] text-white/60">{label}</div>
-        {hint && <div className="mt-0.5 text-[10px] text-white/25">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
-
-function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-      className="relative h-5 w-9 rounded-full transition-colors"
-      style={{ background: on ? 'var(--accent)' : 'rgba(148,163,184,0.18)' }}
-    >
-      <span
-        className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform"
-        style={{ transform: on ? 'translateX(18px)' : 'translateX(2px)' }}
-      />
-    </button>
-  )
-}
 
 /** Generic option pill row. */
 function Pills<T extends string>({ value, options, onChange, ariaLabel }: {
@@ -183,6 +131,8 @@ function AppearancePreview({ draft }: { draft: WorkspaceSettings }) {
   )
 }
 
+type SettingsTab = 'general' | 'email'
+
 export function SettingsView() {
   const store = useSettings()
   const { employee, member } = useActingEmployee()
@@ -192,12 +142,42 @@ export function SettingsView() {
   const canDevice     = can(member, 'settings.edit_device')
   const canSecurity   = can(member, 'settings.edit_security')
   const canEditAny    = canWorkspace || canAppearance || canDevice || canSecurity
+  // Email settings are Owner/Admin-only (mirrors the team-view access pattern).
+  const canEmail = canAccessEmailSettings(member)
+  const [tab, setTab] = useState<SettingsTab>('general')
   const [draft, setDraft] = useState<WorkspaceSettings>(() => {
     const d = {} as Record<string, unknown>
     for (const k of SETTING_KEYS) d[k] = store[k]
     return d as unknown as WorkspaceSettings
   })
   const [saved, setSaved] = useState(false)
+
+  // Derive the visible tab so access revoked mid-session (e.g. the dev "acting
+  // as" switch dropping to a non-admin role) instantly falls back to General —
+  // without a setState-in-effect and without ever flashing the restricted page.
+  const activeTab: SettingsTab = tab === 'email' && !canEmail ? 'general' : tab
+
+  const TABS = [
+    { id: 'general' as const, label: 'General', icon: SlidersHorizontal },
+    ...(canEmail ? [{ id: 'email' as const, label: 'Email', icon: Mail }] : []),
+  ]
+
+  // Roving-tabindex keyboard nav for the section tablist (WAI-ARIA tabs).
+  const tabRefs = useRef<Record<SettingsTab, HTMLButtonElement | null>>({ general: null, email: null })
+  const onTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const ids = TABS.map((t) => t.id)
+    const idx = ids.indexOf(activeTab)
+    let next: number
+    if (e.key === 'ArrowRight') next = (idx + 1) % ids.length
+    else if (e.key === 'ArrowLeft') next = (idx - 1 + ids.length) % ids.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = ids.length - 1
+    else return
+    e.preventDefault()
+    const id = ids[next]
+    setTab(id)
+    tabRefs.current[id]?.focus()
+  }
 
   const dirty = SETTING_KEYS.some((k) => draft[k] !== store[k])
   const valid =
@@ -231,36 +211,75 @@ export function SettingsView() {
           <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Settings</h1>
         </div>
         <div className="flex items-center gap-2">
-          <AnimatePresence>
-            {dirty && (
-              <motion.span
-                initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
-                className="mono text-[10px] uppercase tracking-wider text-amber-400"
+          {/* Sub-navigation. The Email tab only renders for Owner/Admin. */}
+          <div role="tablist" aria-label="Settings sections" onKeyDown={onTabKeyDown} className="flex items-center gap-1 rounded-lg border border-line bg-black/40 p-1">
+            {TABS.map(({ id, label, icon: Icon }) => {
+              const active = activeTab === id
+              return (
+                <button
+                  key={id}
+                  ref={(el) => { tabRefs.current[id] = el }}
+                  type="button"
+                  role="tab"
+                  id={`settings-tab-${id}`}
+                  aria-selected={active}
+                  aria-controls={`settings-panel-${id}`}
+                  tabIndex={active ? 0 : -1}
+                  onClick={() => setTab(id)}
+                  className={[
+                    'mono flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+                    active ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/40 hover:text-white/70',
+                  ].join(' ')}
+                >
+                  <Icon size={11} /> {label}
+                </button>
+              )
+            })}
+          </div>
+          {/* Workspace settings use an explicit draft+Save; email prefs persist
+              immediately, so the Save controls only apply to the General tab. */}
+          {activeTab === 'general' && (
+            <>
+              <AnimatePresence>
+                {dirty && (
+                  <motion.span
+                    initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                    className="mono text-[10px] uppercase tracking-wider text-amber-400"
+                  >
+                    Unsaved changes
+                  </motion.span>
+                )}
+              </AnimatePresence>
+              <button
+                onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
+                disabled={!canEditAny}
+                title={canEditAny ? undefined : 'You do not have permission to edit settings'}
+                className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Unsaved changes
-              </motion.span>
-            )}
-          </AnimatePresence>
-          <button
-            onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
-            disabled={!canEditAny}
-            title={canEditAny ? undefined : 'You do not have permission to edit settings'}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <RotateCcw size={11} /> Defaults
-          </button>
-          <button
-            onClick={save}
-            disabled={!dirty || !valid || !canEditAny}
-            title={!canEditAny ? 'You do not have permission to edit settings' : !valid ? 'Fix validation errors first' : undefined}
-            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {saved ? <Check size={12} /> : <Save size={12} />} {saved ? 'Saved' : 'Save'}
-          </button>
+                <RotateCcw size={11} /> Defaults
+              </button>
+              <button
+                onClick={save}
+                disabled={!dirty || !valid || !canEditAny}
+                title={!canEditAny ? 'You do not have permission to edit settings' : !valid ? 'Fix validation errors first' : undefined}
+                className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {saved ? <Check size={12} /> : <Save size={12} />} {saved ? 'Saved' : 'Save'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      {activeTab === 'email' ? (
+        <div id="settings-panel-email" role="tabpanel" aria-labelledby="settings-tab-email" className="flex-1 overflow-y-auto p-6">
+          {/* Defensive guard: the tab is hidden for unauthorized roles, and the
+              derived activeTab never resolves to 'email' without Owner/Admin
+              access — so the page never renders for an unauthorized user. */}
+          {canEmail ? <EmailSettings /> : <AccessDenied onBack={() => setTab('general')} />}
+        </div>
+      ) : (
+      <div id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general" className="flex-1 overflow-y-auto p-6">
         <motion.div
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: EXPO_OUT }}
@@ -497,6 +516,7 @@ export function SettingsView() {
           </Section>
         </motion.div>
       </div>
+      )}
     </div>
   )
 }

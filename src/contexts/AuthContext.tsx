@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import type { Session, User } from '@supabase/supabase-js'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { setAuthToken } from '@/lib/provider/auth-token'
-import { clearPendingTeamName, stashPendingTeamName } from './onboarding'
+import { passwordResetRedirectUrl } from '@/lib/auth-redirect'
+import { clearOnboardingProgress, clearPendingInvite, clearPendingTeamName, stashPendingTeamName } from './onboarding'
 
 /**
  * Supabase auth provider — the single source of session truth. Wraps the app
@@ -22,6 +23,11 @@ interface AuthValue {
   login: (email: string, password: string) => Promise<{ error?: string }>
   signup: (email: string, password: string, workspaceName?: string) => Promise<{ error?: string; needsConfirmation?: boolean }>
   logout: () => Promise<void>
+  /** Email a password-reset link (Supabase). The caller shows a GENERIC success
+   *  regardless of the result so account existence is never revealed. */
+  forgotPassword: (email: string) => Promise<{ error?: string }>
+  /** Set a new password for the active recovery session (from the emailed link). */
+  resetPassword: (newPassword: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -76,10 +82,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {}
       },
       async logout() {
-        // Drop any pending workspace name so it can't carry into a different
-        // user's first provisioning on a shared browser.
+        // Drop any pending workspace name / invite / onboarding progress so they
+        // can't carry into a different user's session on a shared browser.
         clearPendingTeamName()
+        clearPendingInvite()
+        clearOnboardingProgress()
         await supabase?.auth.signOut()
+      },
+      async forgotPassword(email) {
+        if (!supabase) return { error: 'Authentication is not configured.' }
+        // Supabase emails a recovery link that lands on /reset-password. The
+        // redirect target is the deploy URL (VITE_APP_URL) or the current origin
+        // (dev → http://localhost:5173/reset-password).
+        //
+        // SUPABASE DASHBOARD: these URLs MUST be allow-listed under Authentication
+        // → URL Configuration → Redirect URLs, or the link is rejected:
+        //   http://localhost:5173/reset-password
+        //   http://mobfleet.co/reset-password
+        //   https://mobfleet.co/reset-password
+        const redirectTo = passwordResetRedirectUrl(
+          import.meta.env.VITE_APP_URL as string | undefined,
+          window.location.origin,
+        )
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
+        return error ? { error: error.message } : {}
+      },
+      async resetPassword(newPassword) {
+        if (!supabase) return { error: 'Authentication is not configured.' }
+        // Updates the user behind the active Supabase recovery session, which the
+        // client establishes from the emailed link via detectSessionInUrl — the
+        // PASSWORD_RECOVERY event is captured by onAuthStateChange above. No tokens
+        // are parsed or handled manually here.
+        const { error } = await supabase.auth.updateUser({ password: newPassword })
+        return error ? { error: error.message } : {}
       },
     }),
     [enabled, loading, session],

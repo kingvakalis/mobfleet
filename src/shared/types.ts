@@ -7,6 +7,65 @@
 
 export type DeviceStatus = 'online' | 'busy' | 'warming' | 'offline' | 'error'
 
+/** Actions the hardware agent can run on a device (mirrors the agent + server
+ *  command schema). Queued via ProviderClient.sendCommand. `back`/`switcher` are
+ *  the navigation keys driven by the live Phone Control surface. */
+export type AgentCommandAction =
+  | 'screenshot' | 'tap' | 'swipe' | 'type' | 'home' | 'back' | 'lock' | 'unlock' | 'switcher' | 'launch' | 'install' | 'reboot'
+
+/** Result of queueing a command (POST /v1/agent/command). */
+export interface QueuedCommand {
+  commandId: string
+  status: 'pending' | 'delivered' | 'acked' | 'failed'
+}
+
+/**
+ * A strict, typed operator control command for the live Phone Control surface.
+ * The UI builds these; controlCommandToWire() (shared/control-command.ts) maps
+ * each to the existing {action,payload} agent-command wire format
+ * (POST /v1/agent/command), so this adds type-safety WITHOUT a second command
+ * channel. The discriminant is `type`; fields are never widened to arbitrary
+ * strings. `key` maps to the home/back/lock/switcher actions.
+ */
+export type ControlCommand =
+  | { type: 'tap'; deviceId: string; x: number; y: number }
+  | { type: 'swipe'; deviceId: string; dir: 'up' | 'down' | 'left' | 'right' }
+  | { type: 'key'; deviceId: string; key: 'home' | 'back' | 'lock' | 'switcher' }
+  | { type: 'launch_app'; deviceId: string; appName: string }
+  | { type: 'screenshot'; deviceId: string }
+  | { type: 'type_text'; deviceId: string; text: string }
+
+/** One human-readable command-log line for a device, streamed to operators over
+ *  the live socket (CommandLogFrame). Never contains typed text — only a count. */
+export interface DeviceCommandLogEntry {
+  ts: number
+  text: string
+  commandType?: ControlCommand['type']
+  success?: boolean
+}
+
+/** Server → browser frame carrying a single command-log entry for a device
+ *  (broadcast team-scoped over the existing /ws socket — never a second socket). */
+export type CommandLogFrame = {
+  type: 'command_log'
+  deviceId: string
+  entry: DeviceCommandLogEntry
+}
+
+/** A past control session for a device (history surface). No session table
+ *  exists yet, so the sessions endpoint returns [] today (see routes.ts). */
+export interface DeviceSessionRecord {
+  id: string
+  deviceId: string
+  startedAt: number
+  endedAt: number | null
+  durationMs?: number | null
+  userId?: string | null
+  userName?: string | null
+  /** Device-agent version for this connection session, if the agent reported one. */
+  agentVersion?: string | null
+}
+
 export type TaskType = 'upload' | 'warmup' | 'engage' | 'post'
 
 export interface TaskSpec {
@@ -148,6 +207,21 @@ export interface ProviderClient {
   assignGroup(ids: string[], group: string): Promise<void>
   rotateProxy(deviceId: string): Promise<void>
   testProxy(ip: string): Promise<Proxy>
+  /** Queue a command for a device's agent (reboot, screenshot, lock, …). */
+  sendCommand(
+    deviceId: string,
+    command: { action: AgentCommandAction; payload?: Record<string, unknown> },
+  ): Promise<QueuedCommand>
+  /** Send a strict, typed operator control command (tap/swipe/key/launch/…).
+   *  Resolves once the command is ACCEPTED by the server (queued) — NOT when the
+   *  device has executed it. Reuses the same durable queue as sendCommand. */
+  sendControlCommand(command: ControlCommand): Promise<void>
+  /** Subscribe to a device's command-log stream (delivered over the existing
+   *  live socket). Returns an unsubscribe; isolated per deviceId. */
+  subscribeDeviceLogs(deviceId: string, callback: (entry: DeviceCommandLogEntry) => void): () => void
+  /** Recent control sessions for a device (newest first). [] when no session
+   *  history is persisted (e.g. the simulated provider). */
+  listDeviceSessions(deviceId: string): Promise<DeviceSessionRecord[]>
   subscribe(listener: () => void): () => void
   getSnapshot(): FleetSnapshot
 }

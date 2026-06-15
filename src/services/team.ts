@@ -4,6 +4,7 @@ import { ROLE_TEMPLATES, type RoleId } from '@/lib/authorization/roles'
 import type { PermissionKey } from '@/lib/authorization/permissions'
 import type { ScopeType, AccessScope } from '@/lib/authorization/scopes'
 import type { Member, OverrideEffect } from '@/lib/authorization/effective-access'
+import { getActiveTeam, getAuthToken } from '@/lib/provider/auth-token'
 
 /**
  * Team, roles, shifts, per-phone time tracking, and per-employee access.
@@ -343,3 +344,80 @@ export function phonesUsedToday(e: Employee): number {
   const past = e.history.find((h) => h.date === today)?.sessions.length ?? 0
   return past + (e.currentPhone ? 1 : 0)
 }
+
+// ─── Railway backend REST (live team membership) ─────────────────────────────
+// The Railway/Fastify API for team membership. Auth: the Supabase JWT (mirrored
+// from AuthContext into the provider token-seam) as a Bearer header, plus the
+// active team id as x-team-id (the backend resolves the tenant from it). Base URL
+// from VITE_API_URL (same env the HTTP provider uses; '' → relative dev proxy).
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
+
+/** A team member as returned by GET /v1/team/members. Returns identity + role +
+ *  permission overrides. (Suspension status is also returned but the view tracks
+ *  it optimistically; per-member resource scope is not returned.) */
+export interface TeamMemberDTO {
+  userId: string
+  role: RoleId
+  createdAt: number
+  email: string
+  name: string | null
+  isSelf: boolean
+  /** Per-permission overrides: { [permissionKey]: 'allow' | 'deny' }. */
+  overrides: Partial<Record<PermissionKey, OverrideEffect>>
+}
+
+export interface TeamInviteDTO {
+  id: string
+  email: string
+  role: string
+  status: string
+  createdAt: number
+  expiresAt: number
+  /** Only returned by the backend in non-production (prod relies on email). */
+  acceptUrl?: string
+}
+
+/** Patch body accepted by PATCH /v1/team/members/:userId. */
+export interface MemberPatch {
+  role?: RoleId
+  status?: 'active' | 'suspended'
+  scopeType?: ScopeType
+  scopeGroups?: string[]
+  scopePhones?: string[]
+  /** Complete replacement map of per-permission overrides ({ key: 'allow'|'deny' }). */
+  overrides?: Partial<Record<PermissionKey, OverrideEffect>>
+}
+
+async function teamApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken()
+  const team = getActiveTeam()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (team) headers['x-team-id'] = team
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error ?? `HTTP ${res.status}`)
+  }
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
+
+/** GET /v1/team/members → identity + role per member (no status/scope). */
+export const fetchTeamMembers = (): Promise<TeamMemberDTO[]> => teamApi<TeamMemberDTO[]>('/v1/team/members')
+
+/** POST /v1/team/invites — the backend has no create-member endpoint; adding a
+ *  person is an invitation (the invitee accepts a link). `name` isn't stored. */
+export const inviteTeamMember = (email: string, role: RoleId): Promise<TeamInviteDTO> =>
+  teamApi<TeamInviteDTO>('/v1/team/invites', { method: 'POST', body: JSON.stringify({ email, role }) })
+
+/** DELETE /v1/team/members/:userId */
+export const removeTeamMember = (userId: string): Promise<{ ok: true }> =>
+  teamApi<{ ok: true }>(`/v1/team/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
+
+/** PATCH /v1/team/members/:userId — role / status (suspend) / scope. */
+export const patchTeamMember = (userId: string, patch: MemberPatch): Promise<{ ok: true }> =>
+  teamApi<{ ok: true }>(`/v1/team/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify(patch) })

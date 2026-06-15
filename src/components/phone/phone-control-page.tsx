@@ -19,6 +19,8 @@ import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-acc
 import { canActOnPhone, can } from '@/lib/authorization'
 import { AccessDenied } from '@/components/access/Can'
 import { logAudit } from '@/services/audit'
+import { client } from '@/lib/provider'
+import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 9) }
@@ -40,25 +42,6 @@ const INSTALLED_APPS: AppDef[] = [
   { name: 'Safari',    abbr: 'Sa', bg: '#0a84ff' },
   { name: 'Settings',  abbr: 'Se', bg: '#636366' },
   { name: 'Photos',    abbr: 'Ph', bg: 'linear-gradient(135deg,#ff9500,#ff2d55,#af52de)' },
-]
-
-const MOCK_SESSIONS = [
-  { date: 'Today, 09:14', duration: '1h 23m', operator: 'M. Chen' },
-  { date: 'Today, 07:52', duration: '0h 47m', operator: 'J. Rivera' },
-  { date: 'Yesterday, 22:10', duration: '2h 05m', operator: 'M. Chen' },
-  { date: 'Yesterday, 18:33', duration: '0h 31m', operator: 'K. Park' },
-]
-
-const MOCK_LOGS = [
-  '[09:14:02] SYS  Device stream initialised',
-  '[09:14:03] SYS  Control channel established',
-  '[09:14:05] CMD  Screen unlocked',
-  '[09:14:06] SYS  Session ready · latency 38ms',
-  '[09:15:12] CMD  Launched: Instagram',
-  '[09:15:44] GES  Gesture: Tap at (188,422)',
-  '[09:16:03] GES  Gesture: Swipe UP',
-  '[09:18:55] CMD  Screenshot captured',
-  '[09:20:01] SYS  FPS stabilised at 18',
 ]
 
 // ─── Slider component ─────────────────────────────────────────────────────────
@@ -228,9 +211,13 @@ export function PhoneControlPage() {
   const [sendText, setSendText]     = useState('')
   const [notes, setNotes]           = useState('')
   const [activeTab, setActiveTab]   = useState<'apps'|'automations'|'sessions'|'logs'>('apps')
-  const [logs, setLogs]             = useState<LogEntry[]>(() => MOCK_LOGS.map(t => ({
-    id: uid(), ts: new Date(Date.now() - Math.random() * 600000), type: 'system' as const, text: t
-  })))
+  const [logs, setLogs]             = useState<LogEntry[]>([])
+  const [sessions, setSessions]     = useState<DeviceSessionRecord[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [sessionsError, setSessionsError]     = useState<string | null>(null)
+  // In-flight command guard (double-send prevention for discrete actions). State
+  // (not a ref) so disabled buttons re-render and reading it during render is safe.
+  const [inFlight, setInFlight] = useState<Set<string>>(() => new Set())
 
   // Live telemetry
   const [latency, setLatency] = useState(41)
@@ -259,6 +246,40 @@ export function PhoneControlPage() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [logs, activeTab])
 
+  const deviceId = device?.id
+  // Real command-log stream: subscribe to THIS device's logs over the provider's
+  // existing socket (server `command_log` broadcast / mock echo). Clears and
+  // resubscribes on device change; unsubscribes on unmount. No mock logs.
+  useEffect(() => {
+    if (!deviceId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLogs([])
+    const unsub = client.subscribeDeviceLogs(deviceId, (entry) => {
+      const next: LogEntry = {
+        id: uid(),
+        ts: new Date(entry.ts),
+        type: entry.success === false ? 'error' : entry.commandType === 'screenshot' ? 'screenshot' : 'command',
+        text: entry.text,
+      }
+      setLogs(l => [...l, next].slice(-500))
+    })
+    return unsub
+  }, [deviceId])
+
+  // Real session history (GET /v1/devices/:id/sessions). Empty for the simulated
+  // provider — no mock fallback; never crashes the page on error.
+  useEffect(() => {
+    if (!deviceId) return
+    let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSessionsLoading(true); setSessionsError(null); setSessions([])
+    client.listDeviceSessions(deviceId)
+      .then(s => { if (!cancelled) setSessions(s) })
+      .catch(() => { if (!cancelled) setSessionsError('Could not load sessions for this device.') })
+      .finally(() => { if (!cancelled) setSessionsLoading(false) })
+    return () => { cancelled = true }
+  }, [deviceId])
+
   if (!canView) return (
     <AccessDenied
       onBack={closePhoneControl}
@@ -286,10 +307,51 @@ export function PhoneControlPage() {
     { key: 'reboot',     label: 'Reboot',     icon: <Power size={18} />, danger: true },
   ]
 
-  // Command lifecycle against the simulated stream: dispatch → ack.
+  // Stream-local lifecycle (for actions with no agent counterpart, e.g. restart stream).
   const dispatchCommand = (label: string, ack: string) => {
     addLog(`→ ${label} dispatched`)
     setTimeout(() => addLog(`✓ ${ack}`, 'screenshot'), 450)
+  }
+
+  // In-flight guard: ignore a repeat of the SAME keyed action while one is still
+  // pending, and disable that control meanwhile. Gesture taps/swipes pass no key
+  // (each is a distinct event). The ref is authoritative; bumpInFlight re-renders.
+  const isBusy = (key: string) => inFlight.has(key)
+  const guard = (key: string | undefined, run: () => Promise<unknown>) => {
+    if (key && inFlight.has(key)) return // already pending — ignore the duplicate
+    if (key) setInFlight(prev => (prev.has(key) ? prev : new Set(prev).add(key)))
+    void run().finally(() => {
+      if (key) setInFlight(prev => {
+        if (!prev.has(key)) return prev
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    })
+  }
+
+  // Send a strict, typed control command through the SAME durable queue
+  // (POST /v1/agent/command via the provider). The on-screen LivePhone animation
+  // fires separately for instant feedback; the authoritative log entry arrives
+  // over the device-log subscription (server/mock `command_log`), so we surface
+  // only FAILURES here — never a fake "executed" success.
+  const sendControl = (command: ControlCommand, gateKey?: string, label?: string) =>
+    guard(gateKey, () =>
+      client.sendControlCommand(command).catch((e) =>
+        addLog(`✗ ${label ?? command.type} failed: ${e instanceof Error ? e.message : 'error'}`, 'error')),
+    )
+
+  // Reboot has no ControlCommand counterpart — it stays on the generic queue call.
+  const sendReboot = () =>
+    guard('reboot', () =>
+      client.sendCommand(device.id, { action: 'reboot' }).catch((e) =>
+        addLog(`✗ Device reboot failed: ${e instanceof Error ? e.message : 'error'}`, 'error')),
+    )
+
+  const launchAppCmd = (name: string) => {
+    if (!canControl) { denyAction('phone control'); return }
+    phoneRef.current?.launchApp(name) // visual
+    sendControl({ type: 'launch_app', deviceId: device.id, appName: name }, `launch:${name}`, `Launch ${name}`)
   }
 
   const denyAction = (need: string) => {
@@ -300,17 +362,30 @@ export function PhoneControlPage() {
   const runQuick = (key: string) => {
     const p = phoneRef.current
     switch (key) {
-      case 'lock': case 'home': case 'back': case 'switcher': case 'restart':
+      case 'lock':
         if (!canControl) { denyAction('phone control'); return }
-        if (key === 'lock') p?.lock()
-        else if (key === 'home') p?.home()
-        else if (key === 'back') p?.back()
-        else if (key === 'switcher') p?.switcher()
-        else dispatchCommand('Restart stream', 'Stream re-established')
+        p?.lock(); sendControl({ type: 'key', deviceId: device.id, key: 'lock' }, 'lock', 'Lock')
+        break
+      case 'home':
+        if (!canControl) { denyAction('phone control'); return }
+        p?.home(); sendControl({ type: 'key', deviceId: device.id, key: 'home' }, 'home', 'Home')
+        break
+      case 'back':
+        if (!canControl) { denyAction('phone control'); return }
+        p?.back(); sendControl({ type: 'key', deviceId: device.id, key: 'back' }, 'back', 'Back')
+        break
+      case 'switcher':
+        if (!canControl) { denyAction('phone control'); return }
+        p?.switcher(); sendControl({ type: 'key', deviceId: device.id, key: 'switcher' }, 'switcher', 'App switcher')
+        break
+      case 'restart':
+        // Stream-local only — no agent counterpart.
+        if (!canControl) { denyAction('phone control'); return }
+        dispatchCommand('Restart stream', 'Stream re-established')
         break
       case 'screenshot':
         if (!canScreenshot) { denyAction('screenshot'); return }
-        p?.screenshot()
+        p?.screenshot(); sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot')
         break
       case 'reboot':
         if (!canReboot) { denyAction('reboot'); return }
@@ -320,14 +395,18 @@ export function PhoneControlPage() {
           return
         }
         setConfirmingReboot(false)
-        dispatchCommand('Device reboot', 'Reboot accepted — device restarting')
+        sendReboot()
         logAudit({ actor: employee.name, action: 'phone.rebooted', target: device.name, result: 'success' })
         break
     }
   }
 
   // Body-level handler so the JSX array below never reads phoneRef during render.
-  const captureScreenshot = () => phoneRef.current?.screenshot()
+  const captureScreenshot = () => {
+    if (!canScreenshot) { denyAction('screenshot'); return }
+    phoneRef.current?.screenshot()
+    sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot')
+  }
 
   const avatarLetters = device.name.slice(0, 2).toUpperCase()
 
@@ -472,8 +551,8 @@ export function PhoneControlPage() {
           {/* Directional Control — D-pad drives the live phone */}
           <Card title="Directional Control">
             <div className="mx-auto grid w-[132px] grid-cols-3 grid-rows-3 gap-1.5">
-              <DPadButton disabled={readOnly} className="col-start-2" icon={<ArrowUp size={15} />} label="Swipe up" onClick={() => phoneRef.current?.swipe('up')} />
-              <DPadButton disabled={readOnly} className="col-start-1 row-start-2" icon={<ArrowLeft size={15} />} label="Swipe left" onClick={() => phoneRef.current?.swipe('left')} />
+              <DPadButton disabled={readOnly} className="col-start-2" icon={<ArrowUp size={15} />} label="Swipe up" onClick={() => { phoneRef.current?.swipe('up'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'up' }) }} />
+              <DPadButton disabled={readOnly} className="col-start-1 row-start-2" icon={<ArrowLeft size={15} />} label="Swipe left" onClick={() => { phoneRef.current?.swipe('left'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'left' }) }} />
               <DPadButton
                 disabled={readOnly}
                 className="col-start-2 row-start-2"
@@ -482,8 +561,8 @@ export function PhoneControlPage() {
                 center
                 onClick={() => phoneRef.current?.tapCenter()}
               />
-              <DPadButton disabled={readOnly} className="col-start-3 row-start-2" icon={<ArrowRight size={15} />} label="Swipe right" onClick={() => phoneRef.current?.swipe('right')} />
-              <DPadButton disabled={readOnly} className="col-start-2 row-start-3" icon={<ArrowDown size={15} />} label="Swipe down" onClick={() => phoneRef.current?.swipe('down')} />
+              <DPadButton disabled={readOnly} className="col-start-3 row-start-2" icon={<ArrowRight size={15} />} label="Swipe right" onClick={() => { phoneRef.current?.swipe('right'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'right' }) }} />
+              <DPadButton disabled={readOnly} className="col-start-2 row-start-3" icon={<ArrowDown size={15} />} label="Swipe down" onClick={() => { phoneRef.current?.swipe('down'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'down' }) }} />
             </div>
             <p className="mt-2.5 text-center text-[10px] text-white/30">{readOnly ? 'Control permission required' : 'Arrows swipe · center taps'}</p>
           </Card>
@@ -499,8 +578,8 @@ export function PhoneControlPage() {
             />
             <div className="flex gap-2 mt-2">
               <button
-                onClick={() => { if (!canControl) { denyAction('phone control'); return } addLog(`Send text: "${sendText}"`); setSendText('') }}
-                disabled={!canControl}
+                onClick={() => { if (!canControl) { denyAction('phone control'); return } const t = sendText.trim(); if (!t) return; sendControl({ type: 'type_text', deviceId: device.id, text: t }, 'type', 'Send text'); setSendText('') }}
+                disabled={!canControl || isBusy('type')}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium text-[#0d1117] transition-colors enabled:hover:bg-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ background: '#2dd4bf' }}
               >
@@ -593,6 +672,7 @@ export function PhoneControlPage() {
                 gesture={gesture}
                 readOnly={readOnly}
                 onLog={phoneLog}
+                onTap={(x, y) => sendControl({ type: 'tap', deviceId: device.id, x, y })}
               />
             </div>
           </PhoneStage>
@@ -600,8 +680,8 @@ export function PhoneControlPage() {
           {/* Bottom action bar */}
           <div className="flex gap-2 mt-5">
             <button
-              onClick={() => { if (!canControl) { denyAction('phone control'); return } phoneRef.current?.launchApp('Instagram') }}
-              disabled={!canControl}
+              onClick={() => launchAppCmd('Instagram')}
+              disabled={!canControl || isBusy('launch:Instagram')}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] transition-colors enabled:hover:bg-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: '#2dd4bf' }}
             >
@@ -650,7 +730,7 @@ export function PhoneControlPage() {
                 <button
                   key={key}
                   onClick={() => runQuick(key)}
-                  disabled={!need}
+                  disabled={!need || isBusy(key)}
                   title={!need ? 'You lack permission for this action' : label}
                   className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all disabled:cursor-not-allowed disabled:opacity-35"
                   style={{
@@ -732,8 +812,8 @@ export function PhoneControlPage() {
                       </div>
                       <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
                       <button
-                        onClick={() => { if (!canControl) { denyAction('phone control'); return } phoneRef.current?.launchApp(app.name) }}
-                        disabled={!canControl}
+                        onClick={() => launchAppCmd(app.name)}
+                        disabled={!canControl || isBusy(`launch:${app.name}`)}
                         className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] enabled:hover:border enabled:hover:border-[#2dd4bf]/40 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Launch
@@ -753,18 +833,28 @@ export function PhoneControlPage() {
                 </div>
               )}
 
-              {/* Sessions tab */}
+              {/* Sessions tab — real history (empty for the simulated provider) */}
               {activeTab === 'sessions' && (
                 <div className="flex flex-col gap-2">
-                  {MOCK_SESSIONS.map((s, i) => (
-                    <div key={i} className="p-2.5 rounded-lg border border-white/[0.06]">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[11px] text-white/70">{s.date}</span>
-                        <span className="font-mono text-[10px] text-[#2dd4bf]">{s.duration}</span>
+                  {sessionsLoading ? (
+                    <span className="py-6 text-center text-[11px] text-white/30">Loading sessions…</span>
+                  ) : sessionsError ? (
+                    <span className="py-6 text-center text-[11px] text-amber-300/80">{sessionsError}</span>
+                  ) : sessions.length === 0 ? (
+                    <span className="py-6 text-center text-[11px] text-white/30">No sessions recorded for this device yet.</span>
+                  ) : (
+                    sessions.map((s) => (
+                      <div key={s.id} className="p-2.5 rounded-lg border border-white/[0.06]">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-white/70">{new Date(s.startedAt).toLocaleString()}</span>
+                          <span className="font-mono text-[10px] text-[#2dd4bf]">
+                            {s.durationMs != null ? `${Math.max(1, Math.round(s.durationMs / 60000))}m` : '—'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-white/35">{s.userName ?? s.userId ?? 'Unknown operator'}</span>
                       </div>
-                      <span className="text-[10px] text-white/35">{s.operator}</span>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
 

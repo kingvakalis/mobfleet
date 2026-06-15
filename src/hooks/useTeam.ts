@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { TeamMemberRow, TeamRole, TeamRow } from '@/lib/database.types'
+import type { TeamInviteRow, TeamMemberRow, TeamRole, TeamRow } from '@/lib/database.types'
 import { useAuth } from '@/contexts/AuthContext'
-import { takePendingTeamName } from '@/contexts/onboarding'
+import { peekPendingInvite, takePendingTeamName } from '@/contexts/onboarding'
 
 export interface UseTeam {
   /** True when Supabase is configured. */
@@ -10,7 +10,12 @@ export interface UseTeam {
   loading: boolean
   error: string | null
   team: TeamRow | null
+  /** Full roster (active + suspended) for the active team. */
   members: TeamMemberRow[]
+  /** Pending invitations for the active team (empty unless the caller is admin). */
+  invites: TeamInviteRow[]
+  /** The current user's member row in the active team (role, scope, overrides). */
+  currentMember: TeamMemberRow | null
   /** The current user's role in the active team. */
   role: TeamRole | null
   refresh: () => Promise<void>
@@ -19,11 +24,11 @@ export interface UseTeam {
 const MEMBERSHIP_SELECT = 'role, team_id, teams ( id, name, owner_user_id, created_at )'
 
 /**
- * Resolves the signed-in user's active team (their first membership), its
- * members, and their role — all through RLS, so a user only ever sees teams
- * they belong to. On first login with no team it provisions one (with the user
- * as OWNER via the schema's owner-bootstrap trigger), using the workspace name
- * stashed at signup.
+ * Resolves the signed-in user's active team (their first membership), its full
+ * roster + pending invites, and their role — all through RLS, so a user only ever
+ * sees teams they belong to. On first login with no team it provisions one (with
+ * the user as OWNER via the schema's owner-bootstrap trigger), using the
+ * workspace name stashed at signup.
  */
 export function useTeam(): UseTeam {
   const { enabled, user } = useAuth()
@@ -38,6 +43,7 @@ export function useTeam(): UseTeam {
   const [error, setError] = useState<string | null>(null)
   const [team, setTeam] = useState<TeamRow | null>(null)
   const [members, setMembers] = useState<TeamMemberRow[]>([])
+  const [invites, setInvites] = useState<TeamInviteRow[]>([])
   const [role, setRole] = useState<TeamRole | null>(null)
   const provisioning = useRef(false)
 
@@ -46,7 +52,7 @@ export function useTeam(): UseTeam {
   // one — mirrors the cancellation guard in AuthContext.
   const load = useCallback(async (isActive: () => boolean = () => true) => {
     if (!supabase || !userId) {
-      if (isActive()) { setTeam(null); setMembers([]); setRole(null); setLoading(false) }
+      if (isActive()) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false) }
       return
     }
     const sb = supabase
@@ -66,7 +72,20 @@ export function useTeam(): UseTeam {
 
     // No team yet → provision one with this user as owner (the ref guards the
     // common double-invoke; the DB's uniq_team_owner index is the real backstop).
-    if (!activeTeam && !provisioning.current) {
+    // EXCEPT when an invite is pending: the invitee must JOIN the inviter's team
+    // (via accept_invite), not get their own auto-provisioned workspace.
+    if (!activeTeam && !provisioning.current && !peekPendingInvite()) {
+      // Distinguish a genuine first login (no membership → provision) from a
+      // SUSPENDED/removed member whose rows RLS hides (membership exists but is
+      // not 'active'). Provisioning for the latter would ESCAPE suspension by
+      // handing them a fresh owner workspace, so we must not.
+      const { data: hasMembership } = await sb.rpc('has_any_membership')
+      if (!isActive()) return
+      if (hasMembership) {
+        setError('Your access to this workspace has been suspended. Contact a workspace admin.')
+        setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false)
+        return
+      }
       provisioning.current = true
       const name = takePendingTeamName() ?? `${(userEmail ?? 'My').split('@')[0]}'s Workspace`
       const { data: created, error: cErr } = await sb
@@ -98,19 +117,23 @@ export function useTeam(): UseTeam {
       }
     }
 
-    if (!activeTeam) { setTeam(null); setMembers([]); setRole(null); setLoading(false); return }
+    // #region agent log
+    fetch('http://127.0.0.1:7627/ingest/1b257ea2-3233-4b89-b6f7-a1d72b0f2da3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a33ba4'},body:JSON.stringify({sessionId:'a33ba4',runId:'pre-fix',hypothesisId:'B,E',location:'useTeam.ts:120',message:'useTeam resolved membership',data:{membershipsCount:memberships?.length??0,activeTeamId:activeTeam?.id??null,activeRole:activeRole??null,pendingInvite:peekPendingInvite()},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!activeTeam) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false); return }
 
-    const { data: mem, error: rosterErr } = await sb
-      .from('team_members')
-      .select('id, team_id, user_id, role, invited_at, joined_at')
-      .eq('team_id', activeTeam.id)
-      .order('joined_at', { ascending: true })
+    // Full roster + pending invites (invites are admin-only via RLS → [] for others).
+    const [{ data: mem, error: rosterErr }, { data: inv }] = await Promise.all([
+      sb.from('team_members').select('*').eq('team_id', activeTeam.id).order('joined_at', { ascending: true }),
+      sb.from('team_invites').select('*').eq('team_id', activeTeam.id).eq('status', 'pending').order('created_at', { ascending: true }),
+    ])
     if (!isActive()) return
     if (rosterErr) { setError(rosterErr.message) }
 
     setTeam(activeTeam)
     setRole(activeRole)
     setMembers((mem as TeamMemberRow[]) ?? [])
+    setInvites((inv as TeamInviteRow[]) ?? [])
     setLoading(false)
   }, [userId, userEmail])
 
@@ -127,5 +150,7 @@ export function useTeam(): UseTeam {
     return () => { active = false }
   }, [enabled, load])
 
-  return { enabled, loading, error, team, members, role, refresh: load }
+  const currentMember = (userId ? members.find((m) => m.user_id === userId) : null) ?? null
+
+  return { enabled, loading, error, team, members, invites, currentMember, role, refresh: load }
 }

@@ -21,6 +21,9 @@ export interface AuthContext {
   membershipId: string
   /** The acting member's resolved resource scope (from their membership row). */
   scope: AccessScope
+  /** The acting member's per-permission overrides (from their membership row), so
+   *  server-side can()/requirePermission honour deny + allow, not just the UI. */
+  overrides: Member['overrides']
 }
 
 const id = (prefix: string) => `${prefix}_${randomUUID()}`
@@ -37,9 +40,22 @@ export function buildScope(scopeType?: string | null, scopeGroups?: unknown, sco
   return { type, groups: asStringArray(scopeGroups), phones: asStringArray(scopePhones) }
 }
 
+/** Read the persisted overrides JSON into the engine's override map. Defensive:
+ *  null/undefined/non-object → {}, and only 'allow' | 'deny' values are kept, so a
+ *  malformed column can never inject a bad effect. */
+export function parseOverrides(v: unknown): Member['overrides'] {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  const out: Member['overrides'] = {}
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (val === 'allow' || val === 'deny') out[k as keyof Member['overrides']] = val
+  }
+  return out
+}
+
 /** Map a Membership row to the authorization engine's Member shape, including
- *  suspension status and the member's real resource scope. The teamId boundary
- *  is still the hard tenant isolation; scope narrows access WITHIN the team. */
+ *  suspension status, the member's real resource scope, AND their per-permission
+ *  overrides. The teamId boundary is still the hard tenant isolation; scope +
+ *  overrides narrow/adjust access WITHIN the team. */
 export function toMember(m: {
   userId: string
   role: string
@@ -47,12 +63,13 @@ export function toMember(m: {
   scopeType?: string | null
   scopeGroups?: unknown
   scopePhones?: unknown
+  overrides?: unknown
 }): Member {
   return {
     id: m.userId,
     role: isRoleId(m.role) ? m.role : 'viewer',
     suspended: m.status === 'suspended',
-    overrides: {},
+    overrides: parseOverrides(m.overrides),
     scope: buildScope(m.scopeType, m.scopeGroups, m.scopePhones),
   }
 }
@@ -132,6 +149,7 @@ export async function resolveAuthContext(identity: Identity, requestedTeamId?: s
     role: isRoleId(chosen.role) ? chosen.role : 'viewer',
     membershipId: chosen.id,
     scope: buildScope(chosen.scopeType, chosen.scopeGroups, chosen.scopePhones),
+    overrides: parseOverrides(chosen.overrides),
   }
 }
 

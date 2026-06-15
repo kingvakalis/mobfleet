@@ -12,7 +12,8 @@ import { create } from 'zustand'
 export type AuditAction =
   | 'role.changed' | 'permission.granted' | 'permission.denied' | 'permission.inherited'
   | 'scope.changed' | 'employee.suspended' | 'employee.reinstated' | 'employee.removed'
-  | 'employee.invited' | 'account.password_revealed' | 'account.recovery_revealed'
+  | 'employee.invited' | 'invite.created' | 'invite.revoked'
+  | 'account.password_revealed' | 'account.recovery_revealed'
   | 'account.created' | 'account.updated' | 'account.deleted' | 'accounts.imported'
   | 'accounts.exported' | 'phone.command' | 'phone.rebooted' | 'phone.retired'
   | 'automation.run' | 'automation.edited' | 'automation.deleted' | 'job.cancelled' | 'job.retried'
@@ -58,6 +59,8 @@ export const AUDIT_LABEL: Record<AuditAction, string> = {
   'employee.reinstated': 'Employee reinstated',
   'employee.removed': 'Employee removed',
   'employee.invited': 'Employee invited',
+  'invite.created': 'Invitation sent',
+  'invite.revoked': 'Invitation revoked',
   'account.password_revealed': 'Password revealed',
   'account.recovery_revealed': 'Recovery data revealed',
   'account.created': 'Account created',

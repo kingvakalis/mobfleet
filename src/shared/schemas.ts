@@ -83,6 +83,123 @@ export const assignGroupBody = z.object({
   group: z.string().min(1),
 })
 
+// --- agent command channel ---
+// The actions the hardware agent can execute. Mirrors agent/src/types.ts
+// agentCommandSchema, plus `reboot` (idevicediagnostics restart) and the
+// `back`/`switcher` navigation keys driven by the live Phone Control surface.
+export const agentCommandActionSchema = z.enum([
+  'screenshot', 'tap', 'swipe', 'type', 'home', 'back', 'lock', 'unlock', 'switcher', 'launch', 'install', 'reboot',
+])
+export type AgentCommandAction = z.infer<typeof agentCommandActionSchema>
+
+const swipeDirSchema = z.enum(['up', 'down', 'left', 'right'])
+const keyNameSchema = z.enum(['home', 'back', 'lock', 'switcher'])
+/** Bound on typed text — prevents an oversized payload from being queued. */
+const MAX_TYPED_TEXT = 5000
+/** Bound on tap coordinates — finite + within a sane device-pixel range. */
+const COORD_MAX = 100_000
+
+/**
+ * Body for POST /v1/agent/command — a dashboard user queues a command for a
+ * device's agent. The payload is validated PER ACTION at runtime (TypeScript
+ * types are not runtime validation): tap needs finite x/y, swipe a direction,
+ * type non-empty bounded text, launch a bounded appName. Extra payload keys are
+ * tolerated (existing lenient convention); the required fields are enforced.
+ */
+export const agentCommandBody = z
+  .object({
+    deviceId: z.string().min(1).max(128),
+    action: agentCommandActionSchema,
+    payload: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((cmd, ctx) => {
+    const p = cmd.payload ?? {}
+    const fail = (message: string) => ctx.addIssue({ code: 'custom', message, path: ['payload'] })
+    const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+    switch (cmd.action) {
+      case 'tap':
+        if (!finite(p.x) || !finite(p.y)) fail('tap requires finite x and y coordinates')
+        else if (p.x < 0 || p.y < 0 || p.x > COORD_MAX || p.y > COORD_MAX) fail('tap coordinates out of range')
+        break
+      case 'swipe':
+        if (!swipeDirSchema.safeParse(p.dir).success) fail('swipe requires dir of up|down|left|right')
+        break
+      case 'type':
+        if (typeof p.text !== 'string' || p.text.length < 1) fail('type requires non-empty text')
+        else if (p.text.length > MAX_TYPED_TEXT) fail(`text exceeds ${MAX_TYPED_TEXT} characters`)
+        break
+      case 'launch':
+        if (typeof p.appName !== 'string' || p.appName.trim().length < 1) fail('launch requires a non-empty appName')
+        else if (p.appName.length > 120) fail('appName exceeds 120 characters')
+        break
+      // screenshot / home / back / lock / unlock / switcher / reboot / install: no payload required
+    }
+  })
+export type AgentCommandBody = z.infer<typeof agentCommandBody>
+
+/**
+ * Strict, typed control-command validator (the discriminated-union UI shape).
+ * Used to validate a ControlCommand before mapping it to the wire format, and
+ * exercised directly in tests. Mirrors shared/types.ts ControlCommand.
+ */
+export const controlCommandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('tap'), deviceId: z.string().min(1).max(128), x: z.number().finite(), y: z.number().finite() }),
+  z.object({ type: z.literal('swipe'), deviceId: z.string().min(1).max(128), dir: swipeDirSchema }),
+  z.object({ type: z.literal('key'), deviceId: z.string().min(1).max(128), key: keyNameSchema }),
+  z.object({ type: z.literal('launch_app'), deviceId: z.string().min(1).max(128), appName: z.string().trim().min(1).max(120) }),
+  z.object({ type: z.literal('screenshot'), deviceId: z.string().min(1).max(128) }),
+  z.object({ type: z.literal('type_text'), deviceId: z.string().min(1).max(128), text: z.string().min(1).max(MAX_TYPED_TEXT) }),
+])
+
+/** A single command-log entry + the server→browser frame that carries it. */
+export const commandLogEntrySchema = z.object({
+  ts: z.number(),
+  text: z.string(),
+  commandType: z.enum(['tap', 'swipe', 'key', 'launch_app', 'screenshot', 'type_text']).optional(),
+  success: z.boolean().optional(),
+})
+export const commandLogFrameSchema = z.object({
+  type: z.literal('command_log'),
+  deviceId: z.string().min(1),
+  entry: commandLogEntrySchema,
+})
+
+/** Body for POST /v1/agent/command/:commandId/ack — the agent reports a result. */
+export const agentCommandAckBody = z.object({
+  status: z.enum(['acked', 'failed']),
+  error: z.string().max(2000).optional(),
+})
+
+/**
+ * The agent's command RESULT (mirrors agent/src/types.ts CommandResultBody).
+ * Timing fields are optional so the HTTP ack path — which carries only
+ * status + error — can normalize into the SAME shape. The validated body is
+ * stored in AgentCommand.result on ack (never raw frames, keys, or secrets).
+ */
+export const commandResultBody = z.object({
+  success: z.boolean(),
+  startedAt: z.number().optional(),
+  completedAt: z.number().optional(),
+  durationMs: z.number().optional(),
+  result: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.string().max(64).optional(),
+      message: z.string().max(2000).optional(),
+      retryable: z.boolean().optional(),
+    })
+    .optional(),
+})
+export type CommandResultBody = z.infer<typeof commandResultBody>
+
+/** Device-agent → server WS frame carrying a command result. A `deviceId` in the
+ *  frame is NOT trusted — the server uses the authenticated socket's device. */
+export const commandResultFrameSchema = commandResultBody.extend({
+  type: z.literal('command_result'),
+  commandId: z.string().min(1).max(128),
+  deviceId: z.string().min(1).max(128).optional(),
+})
+
 // --- WS frames (server → client) ---
 export const wsSnapshotFrame = z.object({
   type: z.literal('snapshot'),

@@ -50,7 +50,7 @@ export async function authenticate(req: FastifyRequest, _reply: FastifyReply): P
  *  resolveAuthContext refuses to build a context for them.) */
 export function actor(req: FastifyRequest): Member {
   if (!req.auth) throw unauthorized()
-  return { id: req.auth.userId, role: req.auth.role, overrides: {}, scope: req.auth.scope }
+  return { id: req.auth.userId, role: req.auth.role, overrides: req.auth.overrides, scope: req.auth.scope }
 }
 
 /** Throw 403 unless the acting user holds the permission. */

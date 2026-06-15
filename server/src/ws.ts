@@ -4,8 +4,13 @@ import type { EngineRegistry } from './tenancy/engine-registry'
 import { authFromToken } from './auth/context'
 import { toMember } from './auth/db'
 import { can } from '../../src/lib/authorization/effective-access'
-import { heartbeatFrameSchema } from '../../src/shared/schemas'
+import { heartbeatFrameSchema, commandResultFrameSchema } from '../../src/shared/schemas'
 import { resolveDeviceKey } from './provisioning'
+import { registerDeviceSender } from './device-hub'
+import { registerBrowserLogSocket } from './command-log-hub'
+import { acknowledgeCommandResult } from './command-completion'
+import { openDeviceSession, closeDeviceSession } from './device-sessions'
+import { rateLimit } from './rate-limit'
 
 /** Drop heartbeats arriving faster than this from one socket — a legit agent
  *  sends one every 10s, so anything ≥10/s is a flood (each accepted heartbeat
@@ -80,6 +85,7 @@ export function registerWs(app: FastifyInstance, registry: EngineRegistry, allow
     // subscriber ref-count + store listener would leak (sim loop pinned on,
     // unbounded listener growth → DoS).
     let off: (() => void) | null = null
+    let offLog: (() => void) | null = null
     let ping: ReturnType<typeof setInterval> | null = null
     let closed = false
     const cleanup = () => {
@@ -87,6 +93,7 @@ export function registerWs(app: FastifyInstance, registry: EngineRegistry, allow
       closed = true
       if (ping) clearInterval(ping)
       off?.()
+      offLog?.()
       registry.removeSubscriber(engine)
     }
     socket.on('close', cleanup)
@@ -106,6 +113,13 @@ export function registerWs(app: FastifyInstance, registry: EngineRegistry, allow
     }
     send() // initial snapshot for THIS team only
     off = engine.store.onChange(send) // only this team's changes
+    // Stream THIS team's command-log entries to this browser over the SAME
+    // socket (no second connection). Team-scoped: only this team's logs arrive.
+    offLog = registerBrowserLogSocket(auth.teamId, (frame) => {
+      if (socket.readyState !== socket.OPEN) return
+      if (socket.bufferedAmount > 1_000_000) return
+      socket.send(JSON.stringify(frame))
+    })
     ping = setInterval(() => {
       if (socket.readyState === socket.OPEN) socket.ping()
     }, 30_000)
@@ -200,12 +214,21 @@ async function registerDeviceSocket(socket: WebSocket, registry: EngineRegistry,
   }
 
   let ping: ReturnType<typeof setInterval> | null = null
+  let unregister: (() => void) | null = null
+  // The session row THIS socket opened. Closed by id on disconnect, so an old
+  // socket's delayed cleanup can never close a newer reconnect's session.
+  let deviceSessionId: string | null = null
   let closed = false
   const cleanup = () => {
     if (closed) return
     closed = true
     aborted = true
     if (ping) clearInterval(ping)
+    unregister?.() // drop this socket from the command-push registry
+    // Close exactly this connection's session (idempotent: endedAt-null filter +
+    // the `closed` guard ⇒ runs once, never overwrites an earlier end, never
+    // throws). Covers both the 'close' and 'error'→close paths above.
+    if (deviceSessionId) void closeDeviceSession(deviceSessionId, Date.now())
   }
   socket.on('close', cleanup)
   socket.on('error', cleanup)
@@ -213,20 +236,94 @@ async function registerDeviceSocket(socket: WebSocket, registry: EngineRegistry,
     cleanup()
     return
   }
+
+  // Authenticated device-agent connection → open ONE session row for this exact
+  // socket (guarded so it's created once, never per-message/heartbeat). No agent
+  // version is supplied over the deviceKey WS today, so it's persisted as null.
+  // A persistence failure is logged + tolerated (session history is non-critical).
+  if (!deviceSessionId) {
+    deviceSessionId = await openDeviceSession({ teamId: dev.teamId, deviceId: dev.deviceId, agentVersion: null, now: Date.now() })
+  }
+  // If the socket closed DURING session creation, cleanup already ran with a null
+  // id — close the just-created session now and stop setting up this dead socket.
+  if (closed) {
+    if (deviceSessionId) void closeDeviceSession(deviceSessionId, Date.now())
+    return
+  }
+
+  // Liveness: a half-open socket (common on flaky mobile networks) fires no
+  // 'close' until the OS TCP timeout (minutes), during which it would falsely look
+  // live and swallow pushed commands. Ping every 30s and terminate if the prior
+  // ping got no pong, so the socket is reaped within one interval (→ cleanup →
+  // unregister), and the agent's reconnect evicts any leftover via registerDeviceSender.
+  let alive = true
+  socket.on('pong', () => {
+    alive = true
+  })
   ping = setInterval(() => {
-    if (socket.readyState === socket.OPEN) socket.ping()
+    if (socket.readyState !== socket.OPEN) return
+    if (!alive) {
+      socket.terminate()
+      return
+    }
+    alive = false
+    socket.ping()
   }, 30_000)
+
+  // Register this live socket so POST /v1/agent/command can push commands to it
+  // instantly (hybrid delivery). Registering EVICTS any prior socket for this
+  // device (terminate), so a stale half-open connection can't be pushed to.
+  unregister = registerDeviceSender(
+    dev.teamId,
+    dev.deviceId,
+    (frame: unknown) => {
+      if (socket.readyState !== socket.OPEN || socket.bufferedAmount >= 1_000_000) return false
+      socket.send(JSON.stringify(frame))
+      return true
+    },
+    () => {
+      try {
+        socket.terminate()
+      } catch {
+        /* already gone */
+      }
+    },
+  )
 
   let lastHeartbeatAt = 0
   process = (raw: Buffer) => {
     if (socket.readyState !== socket.OPEN) return
     if (raw.length > MAX_FRAME_BYTES) return
-    let frame
+    let msg: unknown
     try {
-      frame = heartbeatFrameSchema.parse(JSON.parse(raw.toString('utf8')))
+      msg = JSON.parse(raw.toString('utf8'))
     } catch {
       return
     }
+    // A command RESULT: the agent reporting execution of a queued command. Mark
+    // the row acked/failed (scoped to this device — own-rows). Idempotent with the
+    // HTTP ack path, so receiving both is harmless.
+    if ((msg as { type?: string } | null)?.type === 'command_result') {
+      // Throttle result frames so a buggy/compromised key can't flood the DB with
+      // ack writes. Shares the per-device budget with the HTTP ack endpoint.
+      if (!rateLimit(`cmdack:${dev.deviceId}`, 240, 60_000)) return
+      // Validate the result frame; malformed → ignore (existing quiet behavior).
+      const parsed = commandResultFrameSchema.safeParse(msg)
+      if (!parsed.success) return
+      // Use the AUTHENTICATED dev.{teamId,deviceId} (own-rows) — never the frame's
+      // deviceId. Persist the result + broadcast a completion command_log to the
+      // team, but only on a NEW terminal transition (acknowledgeCommandResult
+      // dedups retried acks). A failure here never crashes the socket.
+      const { type: _frameType, commandId, deviceId: _frameDevice, ...result } = parsed.data
+      void acknowledgeCommandResult({ teamId: dev.teamId, deviceId: dev.deviceId, commandId, result, now: Date.now() })
+        .catch((err) =>
+          console.error(JSON.stringify({ event: 'command.ack.error', teamId: dev.teamId, deviceId: dev.deviceId, commandId, error: err instanceof Error ? err.message : 'error' })),
+        )
+      return
+    }
+    const parsed = heartbeatFrameSchema.safeParse(msg)
+    if (!parsed.success) return
+    const frame = parsed.data
     const now = Date.now()
     if (now - lastHeartbeatAt < HEARTBEAT_MIN_INTERVAL_MS) return
     lastHeartbeatAt = now

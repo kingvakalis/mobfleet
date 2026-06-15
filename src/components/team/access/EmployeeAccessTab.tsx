@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ShieldCheck, Lock } from 'lucide-react'
 import { useFleet } from '@/hooks/use-fleet'
-import { useTeam, toMember, type Employee } from '@/services/team'
+import { toMember } from '@/services/team'
+import type { RosterApi } from '@/hooks/useTeamRoster'
+import type { RosterMember } from '@/services/team-members'
 import { logAudit } from '@/services/audit'
 import {
   PERMISSIONS_BY_CATEGORY, RISK_META, type PermissionKey,
@@ -16,22 +18,23 @@ const SCOPE_TYPES: ScopeType[] = ['workspace', 'assigned_groups', 'assigned_phon
  * Per-employee access editor: role, resource scope, and permission overrides.
  * Enforces anti-escalation — the actor can only grant permissions they hold
  * and assign roles below their authority. Locked read-only when the actor may
- * not manage the target. Every change is written to the audit log.
+ * not manage the target. Writes go through the roster (Supabase when configured),
+ * and every change is recorded in the audit log.
  */
-export function EmployeeAccessTab({ employee, actor, actorName }: {
-  employee: Employee
+export function EmployeeAccessTab({ employee, roster, allMembers, actor, actorName }: {
+  employee: RosterMember
+  roster: RosterApi
+  allMembers: Member[]
   actor: Member
   actorName: string
 }) {
   const snapshot = useFleet()
-  const { employees, updateEmployee, setOverride } = useTeam()
   const target = toMember(employee)
   const manageable = canManageMember(actor, employee.id === actor.id ? actor : target)
   const [openCat, setOpenCat] = useState<string | null>('Phones')
 
   const fleetGroups = useMemo(() => [...new Set(snapshot.devices.map((d) => d.group))].sort(), [snapshot.devices])
   const fleetPhones = useMemo(() => snapshot.devices.map((d) => d.name).sort(), [snapshot.devices])
-  const allMembers = useMemo(() => employees.map(toMember), [employees])
 
   const eff = useMemo(() => effectivePermissions(target), [target])
   const assignable = useMemo(() => assignableRoles(actor), [actor])
@@ -40,19 +43,19 @@ export function EmployeeAccessTab({ employee, actor, actorName }: {
   const changeRole = (next: typeof employee.role) => {
     const check = canChangeRole(actor, target, next, allMembers)
     if (!check.ok) { window.alert(check.reason); return }
-    updateEmployee(employee.id, { role: next })
+    roster.updateEmployee(employee, { role: next })
     logAudit({ actor: actorName, action: 'role.changed', target: employee.name, detail: `${employee.role} → ${next}`, result: 'success' })
   }
 
   const setScopeType = (t: ScopeType) => {
-    updateEmployee(employee.id, { scopeType: t })
+    roster.updateEmployee(employee, { scopeType: t })
     logAudit({ actor: actorName, action: 'scope.changed', target: employee.name, detail: `scope → ${SCOPE_LABELS[t]}`, result: 'success' })
   }
 
   const toggleScopeItem = (kind: 'groups' | 'phones', value: string) => {
     const list = kind === 'groups' ? employee.groups : employee.phones
     const next = list.includes(value) ? list.filter((x) => x !== value) : [...list, value]
-    updateEmployee(employee.id, { [kind]: next })
+    roster.updateEmployee(employee, { [kind]: next })
     logAudit({ actor: actorName, action: 'scope.changed', target: employee.name, detail: `${kind}: ${next.join(', ') || 'none'}`, result: 'success' })
   }
 
@@ -63,7 +66,7 @@ export function EmployeeAccessTab({ employee, actor, actorName }: {
       window.alert('You cannot grant a permission you do not hold.')
       return
     }
-    setOverride(employee.id, key, effect === 'inherit' ? null : effect)
+    roster.setOverride(employee, key, effect === 'inherit' ? null : effect)
     logAudit({
       actor: actorName,
       action: effect === 'allow' ? 'permission.granted' : effect === 'deny' ? 'permission.denied' : 'permission.inherited',

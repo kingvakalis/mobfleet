@@ -14,11 +14,25 @@
 create extension if not exists pgcrypto; -- gen_random_uuid(), crypt() (seed)
 
 -- ── Enums ────────────────────────────────────────────────────────────────────
-create type public.team_role as enum ('owner', 'admin', 'operator', 'viewer');
-create type public.device_status as enum ('online', 'offline', 'error', 'busy', 'warming');
+-- Idempotent: Postgres has no `create type if not exists`, so guard each with a
+-- duplicate_object catch. This tolerates enum types left behind by a prior
+-- partial/manual apply (the remote can have the types without the tables) while
+-- staying correct on a truly fresh database. NOTE: tables below are deliberately
+-- NOT guarded — a pre-existing table should fail loudly (it implies real schema).
+do $$ begin
+  create type public.team_role as enum ('owner', 'admin', 'operator', 'viewer');
+exception when duplicate_object then null;
+end $$;
+do $$ begin
+  create type public.device_status as enum ('online', 'offline', 'error', 'busy', 'warming');
+exception when duplicate_object then null;
+end $$;
 -- automation_jobs.status wasn't given an explicit enum in the spec; a small,
 -- closed set keeps job state honest and indexable. Adjust as the runner evolves.
-create type public.job_status as enum ('queued', 'running', 'succeeded', 'failed', 'cancelled');
+do $$ begin
+  create type public.job_status as enum ('queued', 'running', 'succeeded', 'failed', 'cancelled');
+exception when duplicate_object then null;
+end $$;
 
 -- ── teams ────────────────────────────────────────────────────────────────────
 create table public.teams (
