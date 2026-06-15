@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
+import { useNavigate } from 'react-router-dom'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { setAuthToken } from '@/lib/provider/auth-token'
 import { passwordResetRedirectUrl } from '@/lib/auth-redirect'
@@ -34,6 +35,7 @@ const AuthContext = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const enabled = isSupabaseConfigured
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(enabled)
   const [session, setSession] = useState<Session | null>(null)
 
@@ -47,16 +49,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthToken(data.session?.access_token ?? null)
       setLoading(false)
     })
-    // Live updates: sign-in, sign-out, token refresh.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    // Live updates: sign-in, sign-out, token refresh, and PASSWORD_RECOVERY.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next)
       setAuthToken(next?.access_token ?? null)
+      // A password-reset link establishes a RECOVERY session wherever it lands —
+      // and if the Supabase redirect URL isn't allow-listed, Supabase falls back
+      // to the Site URL ("/"), dropping the user into the gated app ("Access
+      // Restricted") instead of the reset form. Route any recovery session to the
+      // public /reset-password page so the user always gets the new-password form.
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password', { replace: true })
+      }
     })
     return () => {
       active = false
       sub.subscription.unsubscribe()
     }
-  }, [enabled])
+  }, [enabled, navigate])
 
   const value = useMemo<AuthValue>(
     () => ({
