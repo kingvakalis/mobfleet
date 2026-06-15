@@ -2,12 +2,36 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { can, type Member } from '../../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../../src/lib/authorization/permissions'
 import { forbidden, unauthorized } from '../http-error'
-import { verifyToken } from './identity'
-import { resolveAuthContext, type AuthContext } from './db'
+import { verifyToken, type Identity } from './identity'
+import { ensureUser, resolveAuthContext, type AuthContext } from './db'
+
+/**
+ * How a route is authenticated, declared per-route via `config: { auth: … }` and
+ * read in the global onRequest hook (see routes.ts). This is the matched route's
+ * STATIC config, resolved by Fastify before onRequest, so it can't be bypassed by
+ * query strings / URL variants / registration order. Unset → 'team' (fail-closed).
+ *   team     — full tenant auth → req.auth (default)
+ *   identity — verified JWT + ensured profile only → req.identity (no team/provision)
+ *   device   — self-authenticates in the handler via its device API key
+ *   public   — no auth (health, WS upgrade, device claim)
+ */
+export type AuthMode = 'team' | 'identity' | 'device' | 'public'
+
+/** Identity-only context: a verified JWT identity + the ensured Prisma profile,
+ *  WITHOUT a resolved team. Attached by authenticateIdentity for the onboarding /
+ *  /v1/me routes, which must work for a user who has no team yet. */
+export interface ResolvedIdentity {
+  identity: Identity
+  user: { id: string; email: string; name: string | null }
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
     auth?: AuthContext
+    identity?: ResolvedIdentity
+  }
+  interface FastifyContextConfig {
+    auth?: AuthMode
   }
 }
 
@@ -42,6 +66,29 @@ export async function authenticate(req: FastifyRequest, _reply: FastifyReply): P
   const requestedTeamId = (req.headers['x-team-id'] as string | undefined)?.trim() || undefined
   const onboardTeamName = (req.headers['x-onboard-team-name'] as string | undefined)?.trim() || undefined
   req.auth = await authFromToken(token, requestedTeamId, onboardTeamName)
+}
+
+/** Identity-only auth (config: { auth: 'identity' }): verify the JWT and ensure the
+ *  Prisma profile exists, but DON'T resolve a team or auto-provision. Used by the
+ *  routes that must work before the user has a team (/v1/me, /v1/onboarding/team),
+ *  so a no-team user is reported as onboarding-required rather than provisioned. */
+export async function authenticateIdentity(req: FastifyRequest): Promise<void> {
+  const token = tokenFromRequest(req)
+  if (!token) throw unauthorized('missing bearer token')
+  let identity: Identity
+  try {
+    identity = await verifyToken(token)
+  } catch (e) {
+    throw unauthorized(e instanceof Error ? e.message : 'invalid token')
+  }
+  const user = await ensureUser(identity)
+  req.identity = { identity, user: { id: user.id, email: user.email, name: user.name } }
+}
+
+/** The verified identity-only context (throws if the identity preHandler didn't run). */
+export function identityOf(req: FastifyRequest): ResolvedIdentity {
+  if (!req.identity) throw unauthorized()
+  return req.identity
 }
 
 /** The acting user as an authorization-engine Member — carries the resolved

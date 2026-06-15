@@ -1,7 +1,8 @@
-// v1 dev persistence: SQLite (zero external infra, restart-persistent).
-// PROD: schema.postgres.prisma is the migration-compatible Postgres mirror
-// (see server/.env.example). Timestamps are stored as Float (epoch ms fits
-// exactly in a double) to keep JSON serialization clean.
+// The MobFleet server requires PostgreSQL for dev, test, AND prod — the datasource
+// below is `postgresql` (SQLite is no longer supported; first-team provisioning
+// uses a pg_advisory_xact_lock). schema.postgres.prisma is the prod build mirror.
+// Timestamps are stored as Float (epoch ms fits exactly in a double) to keep JSON
+// serialization clean.
 //
 // MULTI-TENANCY: every tenant is a Team. Users authenticate via an external
 // identity provider (Clerk / Supabase — see src/auth) and join teams through

@@ -12,6 +12,7 @@
     "agent": "tsx src/scripts/heartbeat-agent.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:it": "node --import tsx --test --test-concurrency=1 \"src/**/*.itest.ts\"",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "build": "prisma generate --schema=prisma/schema.postgres.prisma && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --sourcemap --outfile=dist/index.js",
