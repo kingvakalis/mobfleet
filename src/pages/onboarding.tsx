@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Check, Rocket } from 'lucide-react'
@@ -97,6 +97,13 @@ export function OnboardingPage() {
   const team = useTeamContext()
   const addToast = useToastStore((s) => s.addToast)
 
+  // The gate routes no-team users here; provision their first workspace (deliberate,
+  // idempotent, server-enforced by RLS + the owner-bootstrap trigger) before the
+  // survey. One attempt, retryable on failure — never an infinite re-create loop.
+  const provisionAttempted = useRef(false)
+  const [provisionError, setProvisionError] = useState<string | null>(null)
+  const retryProvision = () => { provisionAttempted.current = false; setProvisionError(null) }
+
   // Resume from localStorage via lazy initializers, so progress is correct from
   // the first render (no setState-in-effect hydration pass).
   const [step, setStep] = useState<number>(() => {
@@ -141,14 +148,48 @@ export function OnboardingPage() {
     try { localStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, answers: a })) } catch { /* quota */ }
   }, [step, a, done])
 
-  // Guards: onboarding needs a real session; already-onboarded users skip it —
-  // EXCEPT the user who just finished (done), so the completion screen survives
-  // the onboarded-flag update.
+  // Create the first workspace once membership has resolved to "no team". Guarded so
+  // it fires exactly once; provisionTeam is itself idempotent (adopts an existing
+  // team / a concurrent winner), so double-submits and StrictMode can't duplicate.
+  useEffect(() => {
+    if (!enabled || loading || !session) return
+    if (team.loading || team.team || team.suspended) return
+    if (provisionAttempted.current) return
+    provisionAttempted.current = true
+    void team.provisionTeam().then((res) => {
+      if (res.error) { provisionAttempted.current = false; setProvisionError(res.error) }
+    })
+    // provisionTeam is a stable useCallback; team's other fields are listed explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, loading, session, team.loading, team.team, team.suspended, team.provisionTeam])
+
+  // Guards (in order). Onboarding needs a real session. We ensure a workspace exists
+  // BEFORE the survey and BEFORE the already-onboarded redirect — otherwise an
+  // onboarded-but-teamless user would loop between "/" and "/onboarding". The
+  // already-onboarded user who just finished (done) keeps their completion screen.
   if (!enabled) return <Navigate to="/" replace />
-  if (loading) {
+  if (loading || team.loading) {
     return <div className="flex h-screen w-full items-center justify-center bg-canvas"><Spinner size={24} /></div>
   }
   if (!session) return <Navigate to="/login?redirect=/onboarding" replace />
+  // Suspended members never provision a bypass team — the gate shows the suspended
+  // state at "/".
+  if (team.suspended) return <Navigate to="/" replace />
+  if (provisionError) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-canvas px-6 text-center text-fg">
+        <h1 className="mono text-sm font-bold uppercase tracking-widest text-white/85">Couldn’t create your workspace</h1>
+        <p className="mono max-w-[340px] text-[11px] leading-relaxed text-white/40">{provisionError}</p>
+        <button type="button" onClick={retryProvision} className="btn-accent mono px-5 py-2.5 text-[11px] uppercase tracking-widest">
+          Try again
+        </button>
+      </div>
+    )
+  }
+  // First workspace still being created (the provision effect is in flight).
+  if (!team.team && !done) {
+    return <div className="flex h-screen w-full items-center justify-center bg-canvas"><Spinner size={24} /></div>
+  }
   if (!done && user?.user_metadata?.onboarded) return <Navigate to="/" replace />
 
   const set = (patch: Partial<Answers>) => setA((prev) => ({ ...prev, ...patch }))
@@ -199,9 +240,6 @@ export function OnboardingPage() {
         referral_source: referral,
         conversion_reasons: conversions,
       })
-      // #region agent log
-      fetch('http://127.0.0.1:7627/ingest/1b257ea2-3233-4b89-b6f7-a1d72b0f2da3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a33ba4'},body:JSON.stringify({sessionId:'a33ba4',runId:'pre-fix',hypothesisId:'C',location:'onboarding.tsx:202',message:'onboarding_responses insert result',data:{ok:!error,errorMessage:error?.message??null,errorCode:(error as {code?:string}|null)?.code??null,userId:user.id,teamId:team.team?.id??null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (error) {
         setSaving(false)
         addToast(`Could not save onboarding: ${error.message}`, 'error')

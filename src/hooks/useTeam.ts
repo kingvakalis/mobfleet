@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { TeamInviteRow, TeamMemberRow, TeamRole, TeamRow } from '@/lib/database.types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,6 +9,8 @@ export interface UseTeam {
   enabled: boolean
   loading: boolean
   error: string | null
+  /** Membership exists but is NOT active (suspended/removed) — distinct from "no team". */
+  suspended: boolean
   team: TeamRow | null
   /** Full roster (active + suspended) for the active team. */
   members: TeamMemberRow[]
@@ -19,6 +21,10 @@ export interface UseTeam {
   /** The current user's role in the active team. */
   role: TeamRole | null
   refresh: () => Promise<void>
+  /** Deliberately create this user's FIRST team (as owner) and refresh. Idempotent;
+   *  RLS + the owner-bootstrap trigger enforce that the browser can't insert an
+   *  arbitrary owner membership. Used by the onboarding flow. */
+  provisionTeam: (name?: string) => Promise<{ error?: string }>
 }
 
 const MEMBERSHIP_SELECT = 'role, team_id, teams ( id, name, owner_user_id, created_at )'
@@ -45,18 +51,18 @@ export function useTeam(): UseTeam {
   const [members, setMembers] = useState<TeamMemberRow[]>([])
   const [invites, setInvites] = useState<TeamInviteRow[]>([])
   const [role, setRole] = useState<TeamRole | null>(null)
-  const provisioning = useRef(false)
+  const [suspended, setSuspended] = useState(false)
 
   // `isActive` lets a still-mounted effect bail before committing state, so a
   // stale in-flight load (after a user/team change) can't clobber the current
   // one — mirrors the cancellation guard in AuthContext.
   const load = useCallback(async (isActive: () => boolean = () => true) => {
     if (!supabase || !userId) {
-      if (isActive()) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false) }
+      if (isActive()) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setSuspended(false); setLoading(false) }
       return
     }
     const sb = supabase
-    if (isActive()) { setLoading(true); setError(null) }
+    if (isActive()) { setLoading(true); setError(null); setSuspended(false) }
 
     // Active team = the user's first membership (RLS ensures it's theirs).
     const { data: memberships, error: mErr } = await sb
@@ -67,60 +73,36 @@ export function useTeam(): UseTeam {
     if (!isActive()) return
     if (mErr) { setError(mErr.message); setLoading(false); return }
 
-    let activeTeam = (memberships?.[0]?.teams as TeamRow | undefined) ?? null
-    let activeRole = (memberships?.[0]?.role as TeamRole | undefined) ?? null
+    const activeTeam = (memberships?.[0]?.teams as TeamRow | undefined) ?? null
+    const activeRole = (memberships?.[0]?.role as TeamRole | undefined) ?? null
 
-    // No team yet → provision one with this user as owner (the ref guards the
-    // common double-invoke; the DB's uniq_team_owner index is the real backstop).
-    // EXCEPT when an invite is pending: the invitee must JOIN the inviter's team
-    // (via accept_invite), not get their own auto-provisioned workspace.
-    if (!activeTeam && !provisioning.current && !peekPendingInvite()) {
-      // Distinguish a genuine first login (no membership → provision) from a
-      // SUSPENDED/removed member whose rows RLS hides (membership exists but is
-      // not 'active'). Provisioning for the latter would ESCAPE suspension by
-      // handing them a fresh owner workspace, so we must not.
-      const { data: hasMembership } = await sb.rpc('has_any_membership')
+    // No ACTIVE team. Classify the state — but do NOT auto-provision here. Team
+    // creation is a deliberate onboarding step (provisionTeam), so a slow or raced
+    // data load can never silently create a team, skip one, or strand the user on a
+    // permission-denied dashboard. The three outcomes:
+    //   • pending invite   → leave team null; the gate redirects to /invite to redeem it
+    //   • suspended/removed → has_any_membership sees the row RLS hides → suspended state
+    //   • genuine new user  → team null, not suspended, no error → onboarding required
+    if (!activeTeam && !peekPendingInvite()) {
+      const { data: hasMembership, error: rpcErr } = await sb.rpc('has_any_membership')
       if (!isActive()) return
+      if (rpcErr) {
+        // API/DB failure — NEVER misclassify as "no team / onboarding required".
+        setError('Unable to load your workspace. Please try again.')
+        setTeam(null); setMembers([]); setInvites([]); setRole(null); setSuspended(false); setLoading(false)
+        return
+      }
       if (hasMembership) {
-        setError('Your access to this workspace has been suspended. Contact a workspace admin.')
+        // Membership exists but isn't active → suspended/removed. Do NOT hand them a
+        // fresh owner workspace (that would escape suspension); the gate shows it.
+        setSuspended(true)
         setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false)
         return
       }
-      provisioning.current = true
-      const name = takePendingTeamName() ?? `${(userEmail ?? 'My').split('@')[0]}'s Workspace`
-      const { data: created, error: cErr } = await sb
-        .from('teams')
-        .insert({ name, owner_user_id: userId })
-        .select()
-        .single()
-      provisioning.current = false
-      if (!isActive()) return
-      if (cErr) {
-        // 23505 = unique_violation on uniq_team_owner: a concurrent load already
-        // provisioned this owner's team. Treat it as "already done" and adopt the
-        // team that won, rather than surfacing a spurious error.
-        if (cErr.code === '23505') {
-          const { data: retry } = await sb
-            .from('team_members')
-            .select(MEMBERSHIP_SELECT)
-            .eq('user_id', userId)
-            .order('joined_at', { ascending: true })
-          if (!isActive()) return
-          activeTeam = (retry?.[0]?.teams as TeamRow | undefined) ?? null
-          activeRole = (retry?.[0]?.role as TeamRole | undefined) ?? null
-        } else {
-          setError(cErr.message); setLoading(false); return
-        }
-      } else {
-        activeTeam = created as TeamRow
-        activeRole = 'owner'
-      }
+      // else: genuine first sign-in with no membership → onboarding required.
     }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7627/ingest/1b257ea2-3233-4b89-b6f7-a1d72b0f2da3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a33ba4'},body:JSON.stringify({sessionId:'a33ba4',runId:'pre-fix',hypothesisId:'B,E',location:'useTeam.ts:120',message:'useTeam resolved membership',data:{membershipsCount:memberships?.length??0,activeTeamId:activeTeam?.id??null,activeRole:activeRole??null,pendingInvite:peekPendingInvite()},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    if (!activeTeam) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setLoading(false); return }
+    if (!activeTeam) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setSuspended(false); setLoading(false); return }
 
     // Full roster + pending invites (invites are admin-only via RLS → [] for others).
     const [{ data: mem, error: rosterErr }, { data: inv }] = await Promise.all([
@@ -135,7 +117,31 @@ export function useTeam(): UseTeam {
     setMembers((mem as TeamMemberRow[]) ?? [])
     setInvites((inv as TeamInviteRow[]) ?? [])
     setLoading(false)
-  }, [userId, userEmail])
+  }, [userId]) // userEmail is only used by provisionTeam, not by the resolve path
+
+  /**
+   * Deliberately provision this user's FIRST team (as owner), then refresh. The gate
+   * routes a no-team user to onboarding, which calls this. Server-enforced: RLS only
+   * permits inserting a `teams` row with owner_user_id = the authenticated user, and
+   * the schema's owner-bootstrap trigger creates the owner membership — the browser
+   * cannot insert an arbitrary owner membership or pick another user/role. Idempotent:
+   * if a membership already exists it adopts it, and a unique-violation (concurrent
+   * submit / two tabs) is treated as success and re-resolved — so at most one first
+   * team is created.
+   */
+  const provisionTeam = useCallback(async (name?: string): Promise<{ error?: string }> => {
+    if (!supabase || !userId) return { error: 'You must be signed in to create a workspace.' }
+    const sb = supabase
+    const { data: existing, error: exErr } = await sb.from('team_members').select('team_id').eq('user_id', userId).limit(1)
+    if (exErr) return { error: exErr.message }
+    if (existing && existing.length > 0) { await load(); return {} } // already a member → adopt it
+    const teamName = (name ?? takePendingTeamName() ?? `${(userEmail ?? 'My').split('@')[0]}'s Workspace`).trim() || 'My Workspace'
+    const { error: cErr } = await sb.from('teams').insert({ name: teamName, owner_user_id: userId }).select().single()
+    // 23505 = uniq_team_owner clash: a concurrent request already provisioned it.
+    if (cErr && cErr.code !== '23505') return { error: cErr.message }
+    await load() // re-resolve → team + owner role (created by the owner-bootstrap trigger)
+    return {}
+  }, [userId, userEmail, load])
 
   useEffect(() => {
     // loading initialises to `enabled`; when disabled there's nothing to load
@@ -152,5 +158,5 @@ export function useTeam(): UseTeam {
 
   const currentMember = (userId ? members.find((m) => m.user_id === userId) : null) ?? null
 
-  return { enabled, loading, error, team, members, invites, currentMember, role, refresh: load }
+  return { enabled, loading, error, suspended, team, members, invites, currentMember, role, refresh: load, provisionTeam }
 }
