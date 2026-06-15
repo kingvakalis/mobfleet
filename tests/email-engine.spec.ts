@@ -91,7 +91,9 @@ test('invite preview mirrors the server invite template (inviter, workspace, rol
   expect(html).toContain('Alex Morgan')
   expect(html).toContain('MOBFLEET Operations')
   expect(html).toContain('Operator')
-  expect(html).toContain('Accept your invitation')
+  expect(html).toContain('Accept invitation')
+  expect(html).toContain('MOBFLEET')
+  expect(html).toContain('Fleet Control Plane')
 })
 
 test('reset preview renders the expiry window', () => {
@@ -130,4 +132,18 @@ test('builders HTML-escape interpolated values', () => {
   expect(html).not.toContain('<script>x</script>')
   expect(html).toContain('&lt;script&gt;')
   expect(html).toContain('A &amp; B')
+})
+
+test('previews render the approved palette + branding (parity with server templates)', () => {
+  // The preview imports the SAME shared builders the Fastify mailer uses, so the
+  // approved palette here is what real delivery renders.
+  for (const type of ['invite', 'reset', 'welcome'] as const) {
+    const { html } = renderPreview(type)
+    expect(html).toContain('#0a0a0a') // body background
+    expect(html).toContain('#2dd4bf') // teal accent / CTA
+    expect(html).toContain('#ffffff') // primary text
+    expect(html.toLowerCase()).toContain('mobfleet')
+    expect(html).not.toContain('class=') // no Tailwind classes in email
+    expect(html).not.toContain('var(--') // no CSS variables in email
+  }
 })

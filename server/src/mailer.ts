@@ -1,4 +1,11 @@
 import { chooseMailSender, loadTeamEmailSettings, type TeamEmailSettingsRow } from './email-settings'
+import {
+  buildInviteEmail,
+  buildResetEmail,
+  buildWelcomeEmail,
+  type ResetEmailData,
+  type WelcomeEmailData,
+} from '../../src/shared/email-templates'
 
 /**
  * Transactional email sender. A team's own sender configuration
@@ -17,26 +24,25 @@ const ENV_FROM = process.env.MAIL_FROM ?? 'MobFleet <invites@mobfleet.local>'
 
 export interface InviteEmail {
   to: string
+  /** Maps to the template's workspaceName. */
   teamName: string
   inviterName: string
   role: string
+  /** Maps to the template's inviteUrl (the secure, backend-supplied accept link). */
   acceptUrl: string
   /** The inviting user's AUTHENTICATED team — selects that team's Resend config
    *  when present. Omit to use the environment configuration. */
   teamId?: string
 }
 
-function renderInvite(e: InviteEmail): { subject: string; text: string; html: string } {
-  const subject = `${e.inviterName} invited you to ${e.teamName} on MobFleet`
-  const text =
-    `${e.inviterName} invited you to join "${e.teamName}" as ${e.role}.\n\n` +
-    `Accept your invitation:\n${e.acceptUrl}\n\n` +
-    `This link expires soon. If you weren't expecting this, you can ignore it.`
-  const html =
-    `<p><strong>${e.inviterName}</strong> invited you to join <strong>${e.teamName}</strong> as <strong>${e.role}</strong>.</p>` +
-    `<p><a href="${e.acceptUrl}">Accept your invitation</a></p>` +
-    `<p style="color:#888;font-size:12px">This link expires soon. If you weren't expecting this, ignore this email.</p>`
-  return { subject, text, html }
+export interface ResetEmail extends ResetEmailData {
+  to: string
+  teamId?: string
+}
+
+export interface WelcomeEmail extends WelcomeEmailData {
+  to: string
+  teamId?: string
 }
 
 interface Outbound {
@@ -98,11 +104,39 @@ async function sendEmail(msg: Outbound): Promise<void> {
   }
 }
 
-/**
- * Send a team invitation. Uses the inviting user's team-specific sender config
- * when present (e.teamId), else the environment configuration.
- */
+/** Send a team invitation. Uses the inviting user's team-specific sender config
+ *  when present (e.teamId), else the environment configuration. */
 export async function sendInviteEmail(e: InviteEmail): Promise<void> {
-  const { subject, text, html } = renderInvite(e)
+  const { subject, text, html } = buildInviteEmail({
+    inviterName: e.inviterName,
+    workspaceName: e.teamName,
+    inviteUrl: e.acceptUrl,
+    role: e.role,
+  })
   await sendEmail({ teamId: e.teamId, mailType: 'invite', to: e.to, subject, text, html, consoleHint: e.acceptUrl })
+}
+
+/**
+ * Optional custom password-reset send via Resend. NOT CURRENTLY WIRED to any
+ * trigger: the ACTIVE password-reset email is sent by Supabase Auth
+ * (AuthContext.forgotPassword → supabase.auth.resetPasswordForEmail), whose branded
+ * template lives at supabase/templates/reset-password.html. This function exists as
+ * a ready integration point if reset delivery is ever moved to the server mailer.
+ */
+export async function sendResetEmail(e: ResetEmail): Promise<void> {
+  const { subject, text, html } = buildResetEmail({ resetUrl: e.resetUrl, expiresIn: e.expiresIn })
+  await sendEmail({ teamId: e.teamId, mailType: 'reset', to: e.to, subject, text, html, consoleHint: e.resetUrl })
+}
+
+/**
+ * Post-signup welcome email. Branded template + sender are ready, but NO automatic
+ * trigger is currently wired — signup, team creation, and invite-accept are all
+ * Supabase-direct flows with no server hook to fire this safely + exactly once.
+ * Call this from a real one-time trigger (e.g. first-team provisioning) with
+ * duplicate-send protection before treating welcome delivery as active. Never call
+ * it on every login. See README / delivery report for the documented gap.
+ */
+export async function sendWelcomeEmail(e: WelcomeEmail): Promise<void> {
+  const { subject, text, html } = buildWelcomeEmail({ name: e.name, dashboardUrl: e.dashboardUrl })
+  await sendEmail({ teamId: e.teamId, mailType: 'welcome', to: e.to, subject, text, html, consoleHint: e.dashboardUrl })
 }
