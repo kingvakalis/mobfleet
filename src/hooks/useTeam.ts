@@ -41,9 +41,9 @@ export function useTeam(): UseTeam {
   // Key reloads on the STABLE user id, not the `user` object — Supabase hands us
   // a fresh `user` reference on every silent token refresh (~hourly / on focus),
   // and depending on the object would re-fire the load + flash a spinner + remount
-  // the live views. id/email are stable strings across refreshes.
+  // the live views. The id is a stable string across refreshes. (provisionTeam reads
+  // the live email/id straight from the client via getUser(), so we don't keep it here.)
   const userId = user?.id ?? null
-  const userEmail = user?.email ?? null
 
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
@@ -130,18 +130,31 @@ export function useTeam(): UseTeam {
    * team is created.
    */
   const provisionTeam = useCallback(async (name?: string): Promise<{ error?: string }> => {
-    if (!supabase || !userId) return { error: 'You must be signed in to create a workspace.' }
+    if (!supabase) return { error: 'Authentication is not configured.' }
     const sb = supabase
-    const { data: existing, error: exErr } = await sb.from('team_members').select('team_id').eq('user_id', userId).limit(1)
+    // Resolve the CURRENT authenticated user straight from the Supabase client (a
+    // server-validated read), NOT a possibly-stale id from React state. The RLS
+    // INSERT policy on `teams` is `with check (owner_user_id = auth.uid())`, so the
+    // row's owner_user_id must equal this id AND the insert must travel on the
+    // authenticated client's JWT. getUser() guarantees both: it confirms the live
+    // session (the same client then sends its bearer token on the insert) and yields
+    // the exact id the server evaluates as auth.uid(). A bad/expired session fails
+    // here with a clear "sign in" message instead of an opaque RLS violation.
+    const { data: authData, error: authErr } = await sb.auth.getUser()
+    const uid = authData?.user?.id
+    if (authErr || !uid) return { error: 'You must be signed in to create a workspace.' }
+    // Already a member somewhere? Don't create a second first-team.
+    const { data: existing, error: exErr } = await sb.from('team_members').select('team_id').eq('user_id', uid).limit(1)
     if (exErr) return { error: exErr.message }
     if (existing && existing.length > 0) { await load(); return {} } // already a member → adopt it
-    const teamName = (name ?? takePendingTeamName() ?? `${(userEmail ?? 'My').split('@')[0]}'s Workspace`).trim() || 'My Workspace'
-    const { error: cErr } = await sb.from('teams').insert({ name: teamName, owner_user_id: userId }).select().single()
+    const teamName = (name ?? takePendingTeamName() ?? `${(authData.user.email ?? 'My').split('@')[0]}'s Workspace`).trim() || 'My Workspace'
+    // owner_user_id is explicitly the authenticated uid → satisfies the RLS with-check.
+    const { error: cErr } = await sb.from('teams').insert({ name: teamName, owner_user_id: uid }).select().single()
     // 23505 = uniq_team_owner clash: a concurrent request already provisioned it.
     if (cErr && cErr.code !== '23505') return { error: cErr.message }
     await load() // re-resolve → team + owner role (created by the owner-bootstrap trigger)
     return {}
-  }, [userId, userEmail, load])
+  }, [load])
 
   useEffect(() => {
     // loading initialises to `enabled`; when disabled there's nothing to load
