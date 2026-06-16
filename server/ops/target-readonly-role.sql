@@ -15,11 +15,21 @@ CREATE ROLE mobfleet_inv_ro LOGIN PASSWORD '<STRONG_RANDOM_PASSWORD>'
 GRANT CONNECT ON DATABASE "<DB>" TO mobfleet_inv_ro;
 GRANT USAGE ON SCHEMA public TO mobfleet_inv_ro;
 
--- SELECT only. The inventory reads User/Team/Membership/Invite and COUNTS every Team-relation
--- table (Device, Job, Proxy, Automation, DevicePairingToken, DeviceApiKey, AuditLog, AgentCommand,
--- TeamEmailSettings, DeviceSession). Granting SELECT on ALL public tables is the simplest
--- read-only superset and stays correct if a new Team relation is added later.
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO mobfleet_inv_ro;
+-- SELECT on EXACTLY the tables the inventory reads (derived from the implementation):
+--   * target.ts findMany:                     "User", "Team", "Membership", "Invite"
+--   * relations.ts countChildrenByRelation
+--     (every Team-FK relation, from the DMMF): "Device", "Job", "Proxy", "Automation",
+--     "DevicePairingToken", "DeviceApiKey", "AuditLog", "AgentCommand", "TeamEmailSettings",
+--     "DeviceSession" (plus "Membership"/"Invite", already listed above)
+--   * read-only pre-flight inspects:           "Team", "Membership", "Invite", "User" (already above)
+-- NOT granted: "MigrationRecord" (no Team relation; the inventory never reads it) or any other table.
+-- Names are double-quoted because Prisma uses case-sensitive PascalCase table names.
+GRANT SELECT ON
+  public."AgentCommand", public."AuditLog", public."Automation", public."Device",
+  public."DeviceApiKey", public."DevicePairingToken", public."DeviceSession", public."Invite",
+  public."Job", public."Membership", public."Proxy", public."Team",
+  public."TeamEmailSettings", public."User"
+TO mobfleet_inv_ro;
 
 ALTER ROLE mobfleet_inv_ro SET default_transaction_read_only = on;
 REVOKE CREATE ON SCHEMA public FROM mobfleet_inv_ro;

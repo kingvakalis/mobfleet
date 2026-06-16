@@ -13,17 +13,18 @@ Each role: `CONNECT` + `USAGE` + `SELECT`-only on the inspected tables, `NOSUPER
 NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`, and `default_transaction_read_only = on`. Do
 **not** use the normal application writer credentials.
 
-## 2. Supply the two connection strings via LOCAL secure env vars only
-Never paste them into chat, Git, source files, logs, or the report.
-```bash
-export SUPABASE_DB_URL='postgresql://mobfleet_inv_ro:***@<supabase-host>:5432/postgres'
-export DATABASE_URL='postgresql://mobfleet_inv_ro:***@<railway-host>:5432/<db>'
-```
+## 2. Run the inventory exactly once (Windows PowerShell)
+Supply the two read-only connection strings via LOCAL env vars only — never paste them into chat,
+Git, source files, logs, or the report.
+```powershell
+$env:SUPABASE_DB_URL="<SOURCE_READONLY_URL>"
+$env:DATABASE_URL="<TARGET_READONLY_URL>"
 
-## 3. Run the inventory exactly once
-```bash
-cd server
+cd C:\Users\user\Desktop\PHONE-FARM-MAIN\server
 npm run migrate:inventory
+
+Remove-Item Env:SUPABASE_DB_URL
+Remove-Item Env:DATABASE_URL
 ```
 What it enforces before reading anything (aborts on any failure):
 - **Source:** one `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` transaction, mode proven via
@@ -38,11 +39,15 @@ Output: a redacted human summary on stdout + `migration-inventory.json` (gitigno
 masked, invite tokens are fingerprinted (last 4), connection strings/credentials are never printed.
 Exit code is non-zero if blockers exist. Blockers are **not** auto-resolved.
 
-## 4. Clean up the temporary roles (administrator)
-- Source: [`source-cleanup.sql`](./source-cleanup.sql)
-- Target: [`target-cleanup.sql`](./target-cleanup.sql)
-
-## 5. Unset the env vars
+### Bash (optional)
 ```bash
+export SUPABASE_DB_URL='<SOURCE_READONLY_URL>'
+export DATABASE_URL='<TARGET_READONLY_URL>'
+cd server
+npm run migrate:inventory
 unset SUPABASE_DB_URL DATABASE_URL
 ```
+
+## 3. Clean up the temporary roles (administrator)
+- Source: [`source-cleanup.sql`](./source-cleanup.sql)
+- Target: [`target-cleanup.sql`](./target-cleanup.sql)
