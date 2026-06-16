@@ -189,3 +189,41 @@ test('inventory: a missing target table is a blocker, does NOT crash, and change
   assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
   assert.deepEqual(await targetCounts(db), tgtBefore, 'target unchanged (table restored)')
 })
+
+test('inventory: tolerates a pre-3A target (3A columns/table absent) -> blockers, no crash, legacy analyzed, unchanged', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+  const coreCounts = async () => ({ users: await db.user.count(), teams: await db.team.count(), memberships: await db.membership.count(), invites: await db.invite.count() })
+
+  // Simulate Phase 3A NOT deployed (reversed in finally; DROP COLUMN also drops its unique index).
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "supabaseTeamId"')
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "archivedAt"')
+  await db.$executeRawUnsafe('ALTER TABLE "MigrationRecord" RENAME TO "MigrationRecord_bak"')
+  try {
+    const coreBefore = await coreCounts()
+    const target = await readTargetSnapshot(db) // must NOT crash despite the absent 3A columns/table
+    assert.equal(target.phase3a.supabaseTeamIdPresent, false)
+    assert.equal(target.phase3a.archivedAtPresent, false)
+    assert.equal(target.phase3a.migrationRecordPresent, false)
+    assert.ok(target.phase3a.missing.includes('Team.supabaseTeamId'))
+
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    assert.ok(report.findings.filter((f) => f.code === 'TGT_PHASE3A_SCHEMA_MISSING').length >= 3)
+    assert.equal(report.hasBlockers, true)
+    assert.equal(report.target.mappedTeams, null) // unavailable, not zero
+    assert.equal(report.plan.teamsToCreate, null)
+    assert.deepEqual(report.artifacts, [])
+    assert.ok(report.target.teams >= 1) // legacy data still analyzed
+    assert.ok(report.target.users >= 1)
+
+    assert.deepEqual(await coreCounts(), coreBefore, 'inventory changed nothing in the pre-3A target')
+  } finally {
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "supabaseTeamId" TEXT')
+    await db.$executeRawUnsafe('CREATE UNIQUE INDEX "Team_supabaseTeamId_key" ON "Team"("supabaseTeamId")')
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "archivedAt" DOUBLE PRECISION')
+    await db.$executeRawUnsafe('ALTER TABLE "MigrationRecord_bak" RENAME TO "MigrationRecord"')
+  }
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+})

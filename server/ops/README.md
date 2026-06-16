@@ -39,11 +39,18 @@ Output: a redacted human summary on stdout + `migration-inventory.json` (gitigno
 masked, invite tokens are fingerprinted (last 4), connection strings/credentials are never printed.
 Exit code is non-zero if blockers exist. Blockers are **not** auto-resolved.
 
-**Schema drift (safe):** the inventory inspects `pg_tables` first and reports `expected` / `present`
-/ `missing` / `extra` target tables. Each MISSING expected table raises a `TGT_EXPECTED_TABLE_MISSING`
-blocker and is **skipped (never queried)** — the run does not crash and still analyzes every table
-that exists. NOTE: the Step 3A migration (`Team.supabaseTeamId`/`archivedAt` + `MigrationRecord`)
-must already be applied to the target, because the inventory reads those columns.
+**Schema drift (safe):** the inventory inspects `pg_tables` + `information_schema.columns` first and
+reports `expected` / `present` / `missing` / `extra` tables plus Phase 3A column/table presence.
+- Each MISSING expected table -> `TGT_EXPECTED_TABLE_MISSING` blocker; the table is **skipped
+  (never queried)**; analysis continues on every table that exists.
+- **Pre-3A target tolerated:** if the Step 3A migration is not yet deployed (no
+  `Team.supabaseTeamId`/`archivedAt`, no `MigrationRecord`, non-nullable `Invite.invitedByUserId`),
+  each absent item -> `TGT_PHASE3A_SCHEMA_MISSING` blocker; those columns/tables are **never
+  selected** (no crash); mapping/archival counts (mapped teams, artifact candidates) are reported as
+  **"unavailable" — never silently zero**; and all safely-readable legacy data is still analyzed.
+
+The inventory runs read-only regardless; Phase 3A must of course be applied (and verified) before the
+actual migration/cutover, but the inventory will not crash if it has not been.
 
 ### Bash (optional)
 ```bash

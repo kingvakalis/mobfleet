@@ -22,6 +22,7 @@ export type ConflictCode =
   | 'TGT_MEMBERSHIP_CONFLICT' // existing membership on the mapped team disagrees with source
   | 'TGT_INVITE_TOKEN_COLLISION' // a token already exists in Prisma for a different team/email/status
   | 'TGT_EXPECTED_TABLE_MISSING' // an expected target table is absent (schema drift) -- it is skipped, not queried
+  | 'TGT_PHASE3A_SCHEMA_MISSING' // a required Phase 3A table/column is absent (migration not deployed) -- never queried
   | 'SRC_DUP_MEMBERSHIP' // duplicate (team_id,user_id) source membership rows
   | 'SRC_INVALID_ROLE' // source role not in the known set
   | 'SRC_INVALID_STATUS' // source status not in the known set
@@ -46,6 +47,7 @@ export const SEVERITY: Record<ConflictCode, Severity> = {
   TGT_MEMBERSHIP_CONFLICT: 'blocker',
   TGT_INVITE_TOKEN_COLLISION: 'blocker',
   TGT_EXPECTED_TABLE_MISSING: 'blocker',
+  TGT_PHASE3A_SCHEMA_MISSING: 'blocker',
   SRC_DUP_MEMBERSHIP: 'blocker',
   SRC_INVALID_ROLE: 'blocker',
   SRC_INVALID_STATUS: 'blocker',
@@ -165,6 +167,18 @@ export interface TargetSchemaReport {
   extra: string[]
 }
 
+/** Presence of the Phase 3A schema items in the live target (the 3A migration may not be
+ *  deployed yet). When `supabaseTeamIdPresent` is false the mapping/artifact analysis cannot run
+ *  and its conclusions are reported as unavailable (null), not zero. `missing` lists each absent
+ *  required item (e.g. "Team.supabaseTeamId", "MigrationRecord"). */
+export interface Phase3aSchemaReport {
+  supabaseTeamIdPresent: boolean
+  archivedAtPresent: boolean
+  inviteInvitedByNullable: boolean
+  migrationRecordPresent: boolean
+  missing: string[]
+}
+
 /** childCountsByTeam[teamId][relationModel] = row count (every PRESENT Team relation, from DMMF). */
 export interface TargetSnapshot {
   users: TgtUser[]
@@ -174,6 +188,7 @@ export interface TargetSnapshot {
   childCountsByTeam: Record<string, Record<string, number>>
   auditCountByTeam: Record<string, number>
   schema: TargetSchemaReport
+  phase3a: Phase3aSchemaReport
 }
 
 export type ArtifactClass = 'auto_provision_candidate' | 'native' | 'unknown'
@@ -202,15 +217,18 @@ export interface InventoryReport {
   /** Set by the script after the target read-only pre-flight (analyze() leaves it null). */
   targetReadOnly: RoleReadOnlyProof | null
   source: { authUsers: number; teams: number; members: number; invites: number; proof: SnapshotProof | null }
-  target: { users: number; teams: number; mappedTeams: number; unmappedActiveTeams: number; archivedTeams: number; memberships: number; invites: number }
+  // mappedTeams/unmappedActiveTeams/archivedTeams are null = UNAVAILABLE (the Phase 3A column the
+  // count depends on is absent) -- never silently 0.
+  target: { users: number; teams: number; mappedTeams: number | null; unmappedActiveTeams: number | null; archivedTeams: number | null; memberships: number; invites: number }
   targetSchema: TargetSchemaReport
+  phase3a: Phase3aSchemaReport
   plan: {
     usersToCreate: number
-    teamsToCreate: number
-    teamsAlreadyMapped: number
+    teamsToCreate: number | null // null = unavailable (mapping needs Team.supabaseTeamId)
+    teamsAlreadyMapped: number | null
     membershipsToUpsert: number
     invitesToMigrate: number
-    artifactsToArchive: number
+    artifactsToArchive: number | null
   }
   artifacts: ArtifactVerdict[]
   findings: Finding[]

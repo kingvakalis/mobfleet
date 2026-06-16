@@ -11,6 +11,7 @@ export function toJson(report: InventoryReport): string {
 
 export function renderHuman(report: InventoryReport): string {
   const L: string[] = []
+  const na = (v: number | null): string => (v === null ? 'unavailable' : String(v))
   L.push('========== Supabase -> Prisma migration inventory (DRY-RUN, read-only) ==========')
   L.push(report.generatedAt ? `generated: ${report.generatedAt}` : 'generated: (unstamped)')
   if (report.source.proof) {
@@ -28,15 +29,20 @@ export function renderHuman(report: InventoryReport): string {
   }
   L.push('')
   L.push(`SOURCE  authUsers=${report.source.authUsers} teams=${report.source.teams} members=${report.source.members} invites=${report.source.invites}`)
-  L.push(`TARGET  users=${report.target.users} teams=${report.target.teams} (mapped=${report.target.mappedTeams}, unmappedActive=${report.target.unmappedActiveTeams}, archived=${report.target.archivedTeams}) memberships=${report.target.memberships} invites=${report.target.invites}`)
+  L.push(`TARGET  users=${report.target.users} teams=${report.target.teams} (mapped=${na(report.target.mappedTeams)}, unmappedActive=${na(report.target.unmappedActiveTeams)}, archived=${na(report.target.archivedTeams)}) memberships=${report.target.memberships} invites=${report.target.invites}`)
   const sc = report.targetSchema
   L.push(`TARGET SCHEMA  expected=${sc.expected.length} present=${sc.present.length} missing=${sc.missing.length} extra=${sc.extra.length}`)
   if (sc.missing.length) L.push(`  MISSING (blockers): ${sc.missing.join(', ')}`)
   if (sc.extra.length) L.push(`  extra (present but not read by the inventory): ${sc.extra.join(', ')}`)
+  const p3 = report.phase3a
+  const p3ok = p3.missing.length === 0
+  L.push(`PHASE 3A SCHEMA  ${p3ok ? 'applied' : 'NOT fully applied'} ` +
+    `[supabaseTeamId=${p3.supabaseTeamIdPresent} archivedAt=${p3.archivedAtPresent} inviteInvitedByNullable=${p3.inviteInvitedByNullable} MigrationRecord=${p3.migrationRecordPresent}]`)
+  if (!p3ok) L.push(`  MISSING (blockers): ${p3.missing.join(', ')}  -> mapping/archival reported as "unavailable", not zero`)
   L.push('')
   L.push('PLAN (what a future --commit WOULD do; nothing is written now):')
-  L.push(`  usersToCreate=${report.plan.usersToCreate}  teamsToCreate=${report.plan.teamsToCreate}  teamsAlreadyMapped=${report.plan.teamsAlreadyMapped}`)
-  L.push(`  membershipsToUpsert=${report.plan.membershipsToUpsert}  invitesToMigrate=${report.plan.invitesToMigrate}  artifactsToArchive=${report.plan.artifactsToArchive}`)
+  L.push(`  usersToCreate=${report.plan.usersToCreate}  teamsToCreate=${na(report.plan.teamsToCreate)}  teamsAlreadyMapped=${na(report.plan.teamsAlreadyMapped)}`)
+  L.push(`  membershipsToUpsert=${report.plan.membershipsToUpsert}  invitesToMigrate=${report.plan.invitesToMigrate}  artifactsToArchive=${na(report.plan.artifactsToArchive)}`)
   L.push('')
   L.push('ARTIFACT CLASSIFICATION (unmapped active Prisma teams):')
   const byClass = { auto_provision_candidate: 0, native: 0, unknown: 0 }

@@ -173,24 +173,36 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     }
   }
 
+  // ── Phase 3A schema presence: each absent required item is a blocker (it was never queried;
+  //    mapping/archival conclusions become unavailable rather than wrong) ──
+  for (const item of target.phase3a.missing) {
+    add('TGT_PHASE3A_SCHEMA_MISSING', 'table', item, `required Phase 3A schema item "${item}" is absent (3A migration not deployed) -- not queried; mapping/archival analysis is unavailable until it is applied`)
+  }
+  // Mapping needs Team.supabaseTeamId; artifact/archival needs Team.archivedAt too. When absent,
+  // these are UNAVAILABLE (null), never zero -- we must not pretend every team is unmapped/active.
+  const mapOk = target.phase3a.supabaseTeamIdPresent
+  const arcOk = target.phase3a.archivedAtPresent
+
   // ── Target: duplicate supabaseTeamId (defensive) + mapped-team membership conflicts ──
-  for (const [sid, n] of supaIdCount) if (n > 1) add('TGT_SUPABASE_ID_UNEXPECTED_TEAM', 'team', sid, `supabaseTeamId is claimed by ${n} Prisma teams`)
-  let teamsAlreadyMapped = 0
-  for (const t of source.teams) {
-    const mapped = tgtTeamBySupabaseId.get(t.id)
-    if (!mapped) continue
-    teamsAlreadyMapped++
-    const tgtM = tgtMembersByTeam.get(mapped.id) ?? []
-    const tgtMByUserAuth = new Map<string, TgtMembership>()
-    for (const tm of tgtM) {
-      const au = tgtUserById.get(tm.userId)
-      if (au) tgtMByUserAuth.set(au.authProviderId, tm)
-    }
-    for (const sm of membersByTeam.get(t.id) ?? []) {
-      const existing = tgtMByUserAuth.get(sm.userId)
-      if (!existing) continue
-      if (existing.role !== sm.role || existing.status !== sm.status || scopeKey(existing) !== scopeKey(sm)) {
-        add('TGT_MEMBERSHIP_CONFLICT', 'membership', `${t.id}:${sm.userId}`, 'mapped-team membership in Prisma differs from source (role/status/scope/overrides)', { source: { role: sm.role, status: sm.status }, prisma: { role: existing.role, status: existing.status } })
+  let teamsAlreadyMapped: number | null = mapOk ? 0 : null
+  if (mapOk) {
+    for (const [sid, n] of supaIdCount) if (n > 1) add('TGT_SUPABASE_ID_UNEXPECTED_TEAM', 'team', sid, `supabaseTeamId is claimed by ${n} Prisma teams`)
+    for (const t of source.teams) {
+      const mapped = tgtTeamBySupabaseId.get(t.id)
+      if (!mapped) continue
+      teamsAlreadyMapped = (teamsAlreadyMapped ?? 0) + 1
+      const tgtM = tgtMembersByTeam.get(mapped.id) ?? []
+      const tgtMByUserAuth = new Map<string, TgtMembership>()
+      for (const tm of tgtM) {
+        const au = tgtUserById.get(tm.userId)
+        if (au) tgtMByUserAuth.set(au.authProviderId, tm)
+      }
+      for (const sm of membersByTeam.get(t.id) ?? []) {
+        const existing = tgtMByUserAuth.get(sm.userId)
+        if (!existing) continue
+        if (existing.role !== sm.role || existing.status !== sm.status || scopeKey(existing) !== scopeKey(sm)) {
+          add('TGT_MEMBERSHIP_CONFLICT', 'membership', `${t.id}:${sm.userId}`, 'mapped-team membership in Prisma differs from source (role/status/scope/overrides)', { source: { role: sm.role, status: sm.status }, prisma: { role: existing.role, status: existing.status } })
+        }
       }
     }
   }
@@ -201,9 +213,10 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     add('TGT_EXPECTED_TABLE_MISSING', 'table', t, `expected target table "${t}" is missing (schema drift) -- skipped, not queried; resolve before Phase 3C`)
   }
 
-  // ── Artifact classification of unmapped, active Prisma teams ──
+  // ── Artifact classification of unmapped, active Prisma teams (needs Team.supabaseTeamId +
+  //    archivedAt; when absent it is SKIPPED and left provisional/unavailable, never guessed) ──
   const artifacts: ArtifactVerdict[] = []
-  for (const t of target.teams) {
+  if (mapOk && arcOk) for (const t of target.teams) {
     if (t.supabaseTeamId !== null || t.archivedAt !== null) continue
     const tm = tgtMembersByTeam.get(t.id) ?? []
     const owners = tm.filter((m) => m.role === 'owner')
@@ -237,8 +250,8 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
   for (const m of source.members) referencedUids.add(m.userId)
   for (const t of source.teams) if (t.ownerUserId) referencedUids.add(t.ownerUserId)
   const usersToCreate = [...referencedUids].filter((uid) => authById.has(uid) && !tgtUserByAuthId.has(uid)).length
-  const teamsToCreate = source.teams.filter((t) => !tgtTeamBySupabaseId.has(t.id)).length
-  const artifactsToArchive = artifacts.filter((a) => a.classification === 'auto_provision_candidate').length
+  const teamsToCreate = mapOk ? source.teams.filter((t) => !tgtTeamBySupabaseId.has(t.id)).length : null
+  const artifactsToArchive = mapOk && arcOk ? artifacts.filter((a) => a.classification === 'auto_provision_candidate').length : null
 
   // ── Counts + blockers ──
   const byCode: Record<string, number> = {}
@@ -257,13 +270,14 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     target: {
       users: target.users.length,
       teams: target.teams.length,
-      mappedTeams: tgtTeamBySupabaseId.size,
-      unmappedActiveTeams: target.teams.filter((t) => t.supabaseTeamId === null && t.archivedAt === null).length,
-      archivedTeams: target.teams.filter((t) => t.archivedAt !== null).length,
+      mappedTeams: mapOk ? tgtTeamBySupabaseId.size : null,
+      unmappedActiveTeams: mapOk && arcOk ? target.teams.filter((t) => t.supabaseTeamId === null && t.archivedAt === null).length : null,
+      archivedTeams: arcOk ? target.teams.filter((t) => t.archivedAt !== null).length : null,
       memberships: target.memberships.length,
       invites: target.invites.length,
     },
     targetSchema: target.schema,
+    phase3a: target.phase3a,
     plan: { usersToCreate, teamsToCreate, teamsAlreadyMapped, membershipsToUpsert: source.members.length, invitesToMigrate: source.invites.length, artifactsToArchive },
     artifacts,
     findings,

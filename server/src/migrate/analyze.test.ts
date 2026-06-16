@@ -20,7 +20,8 @@ const T_JAN = '2024-01-01T00:00:00Z'
 const TS_JUN = Date.parse('2024-06-01T00:00:00Z')
 
 const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], proof: PROOF, roleProof: ROLE_PROOF, ...o })
-const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, schema: { expected: [], present: [], missing: [], extra: [] }, ...o })
+const PHASE3A_OK = { supabaseTeamIdPresent: true, archivedAtPresent: true, inviteInvitedByNullable: true, migrationRecordPresent: true, missing: [] as string[] }
+const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, schema: { expected: [], present: [], missing: [], extra: [] }, phase3a: PHASE3A_OK, ...o })
 
 const au = (o: Partial<SrcAuthUser> & { id: string }): SrcAuthUser => ({ email: `${o.id}@x.com`, emailConfirmedAt: T_JAN, fullName: null, createdAt: T_JAN, ...o })
 const st = (o: Partial<SrcTeam> & { id: string }): SrcTeam => ({ name: 'Acme', ownerUserId: null, createdAt: T_JAN, ...o })
@@ -159,6 +160,41 @@ test('each missing expected target table -> TGT_EXPECTED_TABLE_MISSING blocker; 
 test('no missing tables -> no TGT_EXPECTED_TABLE_MISSING', () => {
   const r = analyze(src({}), tgt({ schema: { expected: ['Team', 'User'], present: ['Team', 'User'], missing: [], extra: [] } }))
   assert.ok(!has(r.findings, 'TGT_EXPECTED_TABLE_MISSING'))
+})
+
+// ── Pre-3A target tolerance ──
+test('pre-3A target (3A columns/table absent): TGT_PHASE3A_SCHEMA_MISSING blockers; mapping/archival unavailable not zero; legacy still analyzed', () => {
+  const r = analyze(
+    src({ authUsers: [au({ id: 'u1' })], teams: [st({ id: 't1', ownerUserId: 'u1' })], members: [sm({ teamId: 't1', userId: 'u1' })] }),
+    tgt({
+      users: [tu({ id: 'pu1', authProviderId: 'u1' })],
+      teams: [tt({ id: 'pt1', name: "u1's Workspace", supabaseTeamId: null, archivedAt: null })],
+      phase3a: { supabaseTeamIdPresent: false, archivedAtPresent: false, inviteInvitedByNullable: false, migrationRecordPresent: false, missing: ['Team.supabaseTeamId', 'Team.archivedAt', 'Invite.invitedByUserId (must be nullable)', 'MigrationRecord'] },
+    }),
+  )
+  const p3 = r.findings.filter((f) => f.code === 'TGT_PHASE3A_SCHEMA_MISSING')
+  assert.equal(p3.length, 4)
+  assert.ok(p3.every((f) => f.severity === 'blocker'))
+  assert.equal(r.hasBlockers, true)
+  // mapping/archival are UNAVAILABLE (null), never silently zero
+  assert.equal(r.target.mappedTeams, null)
+  assert.equal(r.target.unmappedActiveTeams, null)
+  assert.equal(r.target.archivedTeams, null)
+  assert.equal(r.plan.teamsToCreate, null)
+  assert.equal(r.plan.teamsAlreadyMapped, null)
+  assert.equal(r.plan.artifactsToArchive, null)
+  assert.deepEqual(r.artifacts, []) // not classified (would be guessing every team unmapped)
+  // legacy data is still analyzed
+  assert.equal(r.target.teams, 1)
+  assert.equal(r.target.users, 1)
+  assert.equal(r.plan.membershipsToUpsert, 1)
+  assert.equal(r.plan.usersToCreate, 0)
+})
+test('3A applied: mapping/archival counts are numbers, no phase3a blocker', () => {
+  const r = analyze(src({}), tgt({ teams: [tt({ id: 'p', supabaseTeamId: 's1' })] }))
+  assert.ok(!has(r.findings, 'TGT_PHASE3A_SCHEMA_MISSING'))
+  assert.equal(typeof r.target.mappedTeams, 'number')
+  assert.equal(typeof r.target.archivedTeams, 'number')
 })
 
 // ── Artifact classification ──
