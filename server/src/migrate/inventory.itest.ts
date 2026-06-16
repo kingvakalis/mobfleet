@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { Client } from 'pg'
 import { testDb, resetDb } from '../it-support'
 import { readSourceSnapshot } from './source'
@@ -270,5 +271,50 @@ test('inventory: OFFLINE snapshot mode (no Supabase connection) analyzes + leave
     assert.deepEqual(await targetCounts(db), tgtBefore)
   } finally {
     rmSync(snapPath, { force: true })
+  }
+})
+
+// The export SQL itself: run it against a disposable Supabase-shaped source and verify the
+// authUsers closure (data minimization) + deterministic ordering. Needs only the source DB.
+test('export SQL: authUsers minimized to the relevant closure; ordering deterministic', { skip: SRC_URL ? false : 'set TEST_SOURCE_DB_URL' }, async () => {
+  const c = new Client({ connectionString: SRC_URL! })
+  await c.connect()
+  try {
+    await c.query('DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA auth')
+    await c.query('CREATE TABLE auth.users (id text primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb, created_at timestamptz)')
+    await c.query('DROP TABLE IF EXISTS public.team_invites, public.team_members, public.teams CASCADE')
+    await c.query('CREATE TABLE public.teams (id text primary key, name text, owner_user_id text, created_at timestamptz)')
+    await c.query('CREATE TABLE public.team_members (id text primary key, team_id text, user_id text, role text, status text, email text, name text, invited_by text, scope_type text, scope_groups jsonb, scope_phones jsonb, overrides jsonb, joined_at timestamptz)')
+    await c.query('CREATE TABLE public.team_invites (id text primary key, team_id text, email text, role text, token text, status text, invited_by text, created_at timestamptz, expires_at timestamptz, accepted_at timestamptz)')
+    await c.query(`INSERT INTO auth.users (id,email,email_confirmed_at,raw_user_meta_data,created_at) VALUES
+      ('u_member','member@x.com',now(),'{}'::jsonb,now()),
+      ('u_owner','owner@x.com',now(),'{}'::jsonb,now()),
+      ('u_inviter','inviter@x.com',now(),'{}'::jsonb,now()),
+      ('u_emailmatch','invitee@x.com',now(),'{}'::jsonb,now()),
+      ('u_unrelated','nobody@x.com',now(),'{}'::jsonb,now())`)
+    await c.query(`INSERT INTO public.teams (id,name,owner_user_id,created_at) VALUES ('team1','Acme','u_owner',now())`)
+    await c.query(`INSERT INTO public.team_members (id,team_id,user_id,role,status,scope_type,scope_groups,scope_phones,overrides,joined_at) VALUES
+      ('m1','team1','u_member','operator','active','workspace','[]'::jsonb,'[]'::jsonb,'{}'::jsonb,now())`)
+    // inv1: inviter ref + email (UPPER + spaces) matches u_emailmatch; inv2: NULL inviter + duplicate normalized email
+    await c.query(`INSERT INTO public.team_invites (id,team_id,email,role,token,status,invited_by,created_at,expires_at) VALUES
+      ('inv1','team1','INVITEE@x.com  ','operator','tok1','pending','u_inviter',now(),now()),
+      ('inv2','team1','  invitee@x.com','operator','tok2','pending',NULL,now(),now())`)
+
+    const sqlPath = fileURLToPath(new URL('../../ops/export-supabase-inventory-snapshot.sql', import.meta.url))
+    const sql = readFileSync(sqlPath, 'utf8')
+    const run = async () => (await c.query<{ snapshot: { authUsers: Array<{ id: string }> } }>(sql)).rows[0].snapshot
+    const snap1 = await run()
+    const ids = snap1.authUsers.map((u) => u.id)
+
+    for (const id of ['u_member', 'u_owner', 'u_inviter', 'u_emailmatch']) assert.ok(ids.includes(id), `expected ${id} in closure`)
+    assert.ok(!ids.includes('u_unrelated'), 'unrelated auth user must be excluded')
+    assert.equal(ids.filter((id) => id === 'u_emailmatch').length, 1, 'duplicate normalized invite emails must not duplicate the user')
+    assert.ok(!ids.includes(null as unknown as string), 'null references must not produce a null user')
+    assert.equal(ids.length, 4)
+    // deterministic order: a second run is byte-for-byte the same order, and sorted by id
+    assert.deepEqual((await run()).authUsers.map((u) => u.id), ids)
+    assert.deepEqual([...ids].sort(), ids)
+  } finally {
+    await c.end()
   }
 })
