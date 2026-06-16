@@ -195,6 +195,12 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     }
   }
 
+  // ── Target schema drift: each EXPECTED table that is missing is a blocker (it was skipped,
+  //    never queried -- the rest of the analysis still runs on the tables that do exist) ──
+  for (const t of target.schema.missing) {
+    add('TGT_EXPECTED_TABLE_MISSING', 'table', t, `expected target table "${t}" is missing (schema drift) -- skipped, not queried; resolve before Phase 3C`)
+  }
+
   // ── Artifact classification of unmapped, active Prisma teams ──
   const artifacts: ArtifactVerdict[] = []
   for (const t of target.teams) {
@@ -257,6 +263,7 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
       memberships: target.memberships.length,
       invites: target.invites.length,
     },
+    targetSchema: target.schema,
     plan: { usersToCreate, teamsToCreate, teamsAlreadyMapped, membershipsToUpsert: source.members.length, invitesToMigrate: source.invites.length, artifactsToArchive },
     artifacts,
     findings,

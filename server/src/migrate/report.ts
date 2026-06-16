@@ -29,6 +29,10 @@ export function renderHuman(report: InventoryReport): string {
   L.push('')
   L.push(`SOURCE  authUsers=${report.source.authUsers} teams=${report.source.teams} members=${report.source.members} invites=${report.source.invites}`)
   L.push(`TARGET  users=${report.target.users} teams=${report.target.teams} (mapped=${report.target.mappedTeams}, unmappedActive=${report.target.unmappedActiveTeams}, archived=${report.target.archivedTeams}) memberships=${report.target.memberships} invites=${report.target.invites}`)
+  const sc = report.targetSchema
+  L.push(`TARGET SCHEMA  expected=${sc.expected.length} present=${sc.present.length} missing=${sc.missing.length} extra=${sc.extra.length}`)
+  if (sc.missing.length) L.push(`  MISSING (blockers): ${sc.missing.join(', ')}`)
+  if (sc.extra.length) L.push(`  extra (present but not read by the inventory): ${sc.extra.join(', ')}`)
   L.push('')
   L.push('PLAN (what a future --commit WOULD do; nothing is written now):')
   L.push(`  usersToCreate=${report.plan.usersToCreate}  teamsToCreate=${report.plan.teamsToCreate}  teamsAlreadyMapped=${report.plan.teamsAlreadyMapped}`)

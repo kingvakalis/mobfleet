@@ -20,7 +20,7 @@ const T_JAN = '2024-01-01T00:00:00Z'
 const TS_JUN = Date.parse('2024-06-01T00:00:00Z')
 
 const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], proof: PROOF, roleProof: ROLE_PROOF, ...o })
-const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, ...o })
+const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, schema: { expected: [], present: [], missing: [], extra: [] }, ...o })
 
 const au = (o: Partial<SrcAuthUser> & { id: string }): SrcAuthUser => ({ email: `${o.id}@x.com`, emailConfirmedAt: T_JAN, fullName: null, createdAt: T_JAN, ...o })
 const st = (o: Partial<SrcTeam> & { id: string }): SrcTeam => ({ name: 'Acme', ownerUserId: null, createdAt: T_JAN, ...o })
@@ -137,6 +137,28 @@ test('mapped team idempotent re-inspection: matching membership -> no conflict; 
   assert.equal(ok.plan.teamsAlreadyMapped, 1)
   assert.ok(!has(ok.findings, 'TGT_MEMBERSHIP_CONFLICT'))
   assert.ok(has(base('admin').findings, 'TGT_MEMBERSHIP_CONFLICT'))
+})
+
+// ── Target schema drift ──
+test('each missing expected target table -> TGT_EXPECTED_TABLE_MISSING blocker; analysis of present tables continues', () => {
+  const r = analyze(
+    src({ authUsers: [au({ id: 'u1' })], teams: [st({ id: 't1', ownerUserId: 'u1' })], members: [sm({ teamId: 't1', userId: 'u1' })] }),
+    tgt({ schema: { expected: ['AgentCommand', 'DeviceSession', 'Team', 'TeamEmailSettings'], present: ['Team'], missing: ['AgentCommand', 'DeviceSession', 'TeamEmailSettings'], extra: ['MigrationRecord'] } }),
+  )
+  const missing = r.findings.filter((f) => f.code === 'TGT_EXPECTED_TABLE_MISSING')
+  assert.equal(missing.length, 3)
+  assert.ok(missing.every((f) => f.severity === 'blocker' && f.entity === 'table'))
+  assert.deepEqual(missing.map((f) => f.ref).sort(), ['AgentCommand', 'DeviceSession', 'TeamEmailSettings'])
+  assert.equal(r.hasBlockers, true)
+  assert.deepEqual(r.targetSchema.missing, ['AgentCommand', 'DeviceSession', 'TeamEmailSettings'])
+  assert.deepEqual(r.targetSchema.extra, ['MigrationRecord'])
+  // present tables were still analyzed (the source plan was computed, not aborted)
+  assert.equal(r.plan.teamsToCreate, 1)
+  assert.equal(r.plan.usersToCreate, 1)
+})
+test('no missing tables -> no TGT_EXPECTED_TABLE_MISSING', () => {
+  const r = analyze(src({}), tgt({ schema: { expected: ['Team', 'User'], present: ['Team', 'User'], missing: [], extra: [] } }))
+  assert.ok(!has(r.findings, 'TGT_EXPECTED_TABLE_MISSING'))
 })
 
 // ── Artifact classification ──

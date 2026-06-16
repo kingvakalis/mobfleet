@@ -21,6 +21,7 @@ export type ConflictCode =
   | 'TGT_SUPABASE_ID_UNEXPECTED_TEAM' // a mapped Team.supabaseTeamId points at an unexpected/renamed team
   | 'TGT_MEMBERSHIP_CONFLICT' // existing membership on the mapped team disagrees with source
   | 'TGT_INVITE_TOKEN_COLLISION' // a token already exists in Prisma for a different team/email/status
+  | 'TGT_EXPECTED_TABLE_MISSING' // an expected target table is absent (schema drift) -- it is skipped, not queried
   | 'SRC_DUP_MEMBERSHIP' // duplicate (team_id,user_id) source membership rows
   | 'SRC_INVALID_ROLE' // source role not in the known set
   | 'SRC_INVALID_STATUS' // source status not in the known set
@@ -44,6 +45,7 @@ export const SEVERITY: Record<ConflictCode, Severity> = {
   TGT_SUPABASE_ID_UNEXPECTED_TEAM: 'blocker',
   TGT_MEMBERSHIP_CONFLICT: 'blocker',
   TGT_INVITE_TOKEN_COLLISION: 'blocker',
+  TGT_EXPECTED_TABLE_MISSING: 'blocker',
   SRC_DUP_MEMBERSHIP: 'blocker',
   SRC_INVALID_ROLE: 'blocker',
   SRC_INVALID_STATUS: 'blocker',
@@ -61,7 +63,7 @@ export const VALID_SCOPE_TYPES = ['workspace', 'assigned_groups', 'assigned_phon
 export interface Finding {
   code: ConflictCode
   severity: Severity
-  entity: 'user' | 'team' | 'membership' | 'invite'
+  entity: 'user' | 'team' | 'membership' | 'invite' | 'table'
   /** A stable, NON-SECRET reference for manual resolution (e.g. a Supabase team id,
    *  a masked email key). Never a token or connection string. */
   ref: string
@@ -154,7 +156,16 @@ export interface TgtUser { id: string; authProviderId: string; email: string }
 export interface TgtTeam { id: string; name: string; supabaseTeamId: string | null; archivedAt: number | null; createdAt: number }
 export interface TgtMembership { id: string; userId: string; teamId: string; role: string; status: string; scopeType: string; scopeGroups: unknown; scopePhones: unknown; overrides: unknown }
 export interface TgtInvite { id: string; teamId: string; email: string; token: string; status: string }
-/** childCountsByTeam[teamId][relationModel] = row count (every Team relation, from DMMF). */
+/** Target schema-drift report: expected = tables the inventory reads; present/missing = of those;
+ *  extra = present public tables not read by the inventory (excludes internal `_*`). */
+export interface TargetSchemaReport {
+  expected: string[]
+  present: string[]
+  missing: string[]
+  extra: string[]
+}
+
+/** childCountsByTeam[teamId][relationModel] = row count (every PRESENT Team relation, from DMMF). */
 export interface TargetSnapshot {
   users: TgtUser[]
   teams: TgtTeam[]
@@ -162,6 +173,7 @@ export interface TargetSnapshot {
   invites: TgtInvite[]
   childCountsByTeam: Record<string, Record<string, number>>
   auditCountByTeam: Record<string, number>
+  schema: TargetSchemaReport
 }
 
 export type ArtifactClass = 'auto_provision_candidate' | 'native' | 'unknown'
@@ -191,6 +203,7 @@ export interface InventoryReport {
   targetReadOnly: RoleReadOnlyProof | null
   source: { authUsers: number; teams: number; members: number; invites: number; proof: SnapshotProof | null }
   target: { users: number; teams: number; mappedTeams: number; unmappedActiveTeams: number; archivedTeams: number; memberships: number; invites: number }
+  targetSchema: TargetSchemaReport
   plan: {
     usersToCreate: number
     teamsToCreate: number

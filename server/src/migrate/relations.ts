@@ -36,13 +36,26 @@ export function teamRelations(): TeamRelation[] {
 
 type Counter = { count: (args: { where: Record<string, unknown> }) => Promise<number> }
 
-/** Count child rows of `teamId` across EVERY Team relation (read-only). Returns a map
- *  keyed by related model name. Includes Membership/Invite; the analyzer decides which
- *  relations count as "real data" for artifact classification. */
-export async function countChildrenByRelation(prisma: PrismaClient, teamId: string): Promise<Record<string, number>> {
+/** The exact set of target tables the inventory READS: the core models loaded directly plus
+ *  every Team-FK relation (DMMF-derived). MigrationRecord is intentionally excluded -- it has no
+ *  Team relation and is never read. */
+export const CORE_TARGET_MODELS = ['User', 'Team', 'Membership', 'Invite'] as const
+export function expectedTargetTables(): string[] {
+  return [...new Set([...CORE_TARGET_MODELS, ...teamRelations().map((r) => r.model)])].sort()
+}
+
+/** Count child rows of `teamId` across every Team relation that is PRESENT (read-only). Relations
+ *  whose table is absent (schema drift) are SKIPPED -- never queried -- and omitted from the result.
+ *  Returns a map keyed by related model name. */
+export async function countChildrenByRelation(
+  prisma: PrismaClient,
+  teamId: string,
+  presentTables?: Set<string>,
+): Promise<Record<string, number>> {
   const client = prisma as unknown as Record<string, Counter>
   const counts: Record<string, number> = {}
   for (const r of teamRelations()) {
+    if (presentTables && !presentTables.has(r.model)) continue // skip missing tables
     counts[r.model] = await client[r.delegate].count({ where: { [r.teamFkField]: teamId } })
   }
   return counts

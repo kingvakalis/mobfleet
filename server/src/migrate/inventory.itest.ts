@@ -163,3 +163,29 @@ test('inventory: source role enforcement REJECTS a superuser source connection',
   assert.ok(snap.roleProof.violations.length > 0)
   assert.equal(snap.roleProof.isSuperuser, true)
 })
+
+test('inventory: a missing target table is a blocker, does NOT crash, and changes neither DB', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+  const tgtBefore = await targetCounts(db)
+
+  // Simulate target schema drift by renaming an expected table out of the way (reversible:
+  // RENAME preserves all rows/indexes/FKs, so the shared test schema is fully restored after).
+  await db.$executeRawUnsafe('ALTER TABLE "DeviceSession" RENAME TO "DeviceSession_bak"')
+  try {
+    const target = await readTargetSnapshot(db) // must NOT crash on the absent table
+    assert.ok(target.schema.missing.includes('DeviceSession'))
+    for (const counts of Object.values(target.childCountsByTeam)) assert.ok(!('DeviceSession' in counts))
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    assert.ok(report.findings.some((f) => f.code === 'TGT_EXPECTED_TABLE_MISSING' && f.ref === 'DeviceSession' && f.severity === 'blocker'))
+    assert.equal(report.hasBlockers, true)
+    assert.ok(report.target.teams >= 1) // present tables were still analyzed
+  } finally {
+    await db.$executeRawUnsafe('ALTER TABLE "DeviceSession_bak" RENAME TO "DeviceSession"')
+  }
+
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+  assert.deepEqual(await targetCounts(db), tgtBefore, 'target unchanged (table restored)')
+})

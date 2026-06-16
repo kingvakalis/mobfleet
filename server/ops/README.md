@@ -39,6 +39,12 @@ Output: a redacted human summary on stdout + `migration-inventory.json` (gitigno
 masked, invite tokens are fingerprinted (last 4), connection strings/credentials are never printed.
 Exit code is non-zero if blockers exist. Blockers are **not** auto-resolved.
 
+**Schema drift (safe):** the inventory inspects `pg_tables` first and reports `expected` / `present`
+/ `missing` / `extra` target tables. Each MISSING expected table raises a `TGT_EXPECTED_TABLE_MISSING`
+blocker and is **skipped (never queried)** — the run does not crash and still analyzes every table
+that exists. NOTE: the Step 3A migration (`Team.supabaseTeamId`/`archivedAt` + `MigrationRecord`)
+must already be applied to the target, because the inventory reads those columns.
+
 ### Bash (optional)
 ```bash
 export SUPABASE_DB_URL='<SOURCE_READONLY_URL>'
