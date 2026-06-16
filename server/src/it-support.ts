@@ -22,7 +22,7 @@ export function testDb(): PrismaClient {
 
 /** Clear the entities these tests create (CASCADE clears dependent rows). */
 export async function resetDb(db: PrismaClient): Promise<void> {
-  await db.$executeRawUnsafe('TRUNCATE TABLE "Invite", "Membership", "Team", "User" CASCADE')
+  await db.$executeRawUnsafe('TRUNCATE TABLE "MigrationRecord", "Invite", "Membership", "Team", "User" CASCADE')
 }
 
 /** Seed a User (the ensured profile) and return it in the FirstTeamUser shape. */
