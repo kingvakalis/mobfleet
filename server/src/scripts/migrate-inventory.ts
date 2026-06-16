@@ -48,9 +48,11 @@ async function main(): Promise<number> {
   try {
     // Fail fast: prove the TARGET role is least-privilege read-only BEFORE reading anything.
     const targetReadOnly = await assertTargetReadOnly(prisma)
-    console.log(`  target role: ${targetReadOnly.currentUser}@${targetReadOnly.database} -- read-only verified (no insert/update/delete/create)`)
-    // Source: read through one REPEATABLE READ READ ONLY transaction (proven inside).
-    const source = await readSourceSnapshot(sourceUrl)
+    console.log(`  target role: ${targetReadOnly.role}@${targetReadOnly.database} -- least-privilege read-only VERIFIED`)
+    // Source: one REPEATABLE READ READ ONLY transaction (proven), and the source role is
+    // verified least-privilege read-only on that same connection (enforced -> aborts on any violation).
+    const source = await readSourceSnapshot(sourceUrl, { enforceReadOnlyRole: true })
+    console.log(`  source role: ${source.roleProof.role}@${source.roleProof.database} -- least-privilege read-only VERIFIED`)
     const target = await readTargetSnapshot(prisma)
     report = analyze(source, target)
     report.targetReadOnly = targetReadOnly

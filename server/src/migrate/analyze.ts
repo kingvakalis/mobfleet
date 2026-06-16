@@ -245,6 +245,7 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
 
   return {
     generatedAt: null,
+    sourceRole: source.roleProof, // source role read-only proof (carried from the snapshot)
     targetReadOnly: null, // set by the script after the target read-only pre-flight
     source: { authUsers: source.authUsers.length, teams: source.teams.length, members: source.members.length, invites: source.invites.length, proof: source.proof },
     target: {

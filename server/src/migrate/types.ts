@@ -115,15 +115,30 @@ export interface SnapshotProof {
   readOnly: boolean // expected true
   backendPid: number // the single backend connection all reads ran on
 }
-/** Proof that the TARGET (Prisma) connection's role is least-privilege read-only:
- *  it holds NO write/DDL privilege on the business tables (rule 5). */
-export interface TargetReadOnlyProof {
-  currentUser: string
+/** Proof that a connection's ROLE is least-privilege read-only (rule 5, hardened): no
+ *  superuser/CREATEDB/CREATEROLE/REPLICATION/BYPASSRLS attributes; not the database or
+ *  inspected-schema owner; owns none of the inspected tables; not a member of any
+ *  privileged/owner role; no CREATE on the database or inspected schemas; no
+ *  INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER on inspected tables; and
+ *  default_transaction_read_only enabled. `violations` is empty for a compliant role. */
+export interface RoleReadOnlyProof {
+  label: string // 'source' | 'target'
+  role: string
   database: string
-  canInsert: boolean
-  canUpdate: boolean
-  canDelete: boolean
-  canCreate: boolean
+  isSuperuser: boolean
+  canCreateDb: boolean
+  canCreateRole: boolean
+  isReplication: boolean
+  bypassRls: boolean
+  isDatabaseOwner: boolean
+  ownedSchemas: string[]
+  ownedTables: string[]
+  schemasWithCreate: string[]
+  tablesWritable: string[]
+  canCreateOnDatabase: boolean
+  memberOfPrivilegedRoleCount: number
+  defaultTransactionReadOnly: string
+  violations: string[]
 }
 export interface SourceSnapshot {
   authUsers: SrcAuthUser[]
@@ -131,6 +146,7 @@ export interface SourceSnapshot {
   members: SrcMember[]
   invites: SrcInvite[]
   proof: SnapshotProof
+  roleProof: RoleReadOnlyProof
 }
 
 // ── Target snapshot (read-only from Prisma) ──
@@ -169,8 +185,10 @@ export interface ArtifactVerdict {
 export interface InventoryReport {
   /** Set by the script after analyze() (pure code cannot read the clock). */
   generatedAt: string | null
-  /** Set by the script after a target read-only pre-flight (analyze() leaves it null). */
-  targetReadOnly: TargetReadOnlyProof | null
+  /** Source role read-only proof (carried from the snapshot). */
+  sourceRole: RoleReadOnlyProof | null
+  /** Set by the script after the target read-only pre-flight (analyze() leaves it null). */
+  targetReadOnly: RoleReadOnlyProof | null
   source: { authUsers: number; teams: number; members: number; invites: number; proof: SnapshotProof | null }
   target: { users: number; teams: number; mappedTeams: number; unmappedActiveTeams: number; archivedTeams: number; memberships: number; invites: number }
   plan: {

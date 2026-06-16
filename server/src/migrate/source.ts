@@ -1,15 +1,18 @@
 import { Client } from 'pg'
+import { assertRoleReadOnly, inspectRoleReadOnly, SOURCE_ROLE_OPTS, type SqlRunner } from './preflight'
 import type { SourceSnapshot, SrcAuthUser, SrcInvite, SrcMember, SrcTeam } from './types'
 
 /**
  * Reads the entire Supabase source snapshot through ONE connection inside ONE
  * `REPEATABLE READ READ ONLY` transaction, and PROVES that mode before reading
- * anything (rule 1). Aborts (throws) if the transaction is not provably repeatable-read
- * + read-only. The transaction is rolled back at the end; nothing is ever written.
+ * anything (rule 1). Also verifies the source ROLE is least-privilege read-only on that
+ * SAME connection (opts.enforceReadOnlyRole aborts on any violation; otherwise the proof is
+ * still collected). Aborts (throws) if the transaction is not provably repeatable-read +
+ * read-only. The transaction is rolled back at the end; nothing is ever written.
  *
  * The connection string is NEVER logged. Pass it from a runtime-supplied env var.
  */
-export async function readSourceSnapshot(connectionString: string): Promise<SourceSnapshot> {
+export async function readSourceSnapshot(connectionString: string, opts: { enforceReadOnlyRole?: boolean } = {}): Promise<SourceSnapshot> {
   const client = new Client({ connectionString, application_name: 'mobfleet-migrate-inventory-dryrun' })
   await client.connect()
   try {
@@ -29,6 +32,12 @@ export async function readSourceSnapshot(connectionString: string): Promise<Sour
       )
     }
     const backendPid = Number(proofRow.pid)
+
+    // Verify the SOURCE role is least-privilege read-only on this SAME connection/transaction.
+    const run: SqlRunner = (sql) => client.query(sql).then((r) => r.rows as Array<Record<string, unknown>>)
+    const roleProof = opts.enforceReadOnlyRole
+      ? await assertRoleReadOnly(run, SOURCE_ROLE_OPTS)
+      : await inspectRoleReadOnly(run, SOURCE_ROLE_OPTS)
 
     // All four reads run on THIS client, inside THIS one proven transaction.
     const authUsers = (
@@ -69,7 +78,7 @@ export async function readSourceSnapshot(connectionString: string): Promise<Sour
     // Read-only: roll back (there is nothing to commit) before releasing the connection.
     await client.query('ROLLBACK')
 
-    return { authUsers, teams, members, invites, proof: { isolation, readOnly, backendPid } }
+    return { authUsers, teams, members, invites, proof: { isolation, readOnly, backendPid }, roleProof }
   } finally {
     await client.end()
   }

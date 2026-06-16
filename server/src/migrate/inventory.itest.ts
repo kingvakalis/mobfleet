@@ -153,3 +153,13 @@ test('inventory: dry run leaves SOURCE logically unchanged and TARGET row counts
   assert.deepEqual(r1.counts, r2.counts)
   assert.deepEqual(r1.plan, r2.plan)
 })
+
+test('inventory: source role enforcement REJECTS a superuser source connection', { skip }, async () => {
+  await seedSource(SRC_URL!)
+  // The disposable source connects as a superuser -> enforcing read-only must abort.
+  await assert.rejects(readSourceSnapshot(SRC_URL!, { enforceReadOnlyRole: true }), /least-privilege read-only/)
+  // Non-enforced (default) still returns a snapshot + the role proof for inspection.
+  const snap = await readSourceSnapshot(SRC_URL!)
+  assert.ok(snap.roleProof.violations.length > 0)
+  assert.equal(snap.roleProof.isSuperuser, true)
+})

@@ -16,9 +16,15 @@ export function renderHuman(report: InventoryReport): string {
   if (report.source.proof) {
     L.push(`source snapshot: isolation=${report.source.proof.isolation}, read_only=${report.source.proof.readOnly}, backend_pid=${report.source.proof.backendPid}`)
   }
-  if (report.targetReadOnly) {
-    const t = report.targetReadOnly
-    L.push(`target role: ${t.currentUser}@${t.database} read-only verified (insert=${t.canInsert} update=${t.canUpdate} delete=${t.canDelete} create=${t.canCreate})`)
+  for (const rp of [report.sourceRole, report.targetReadOnly]) {
+    if (!rp) continue
+    const ok = rp.violations.length === 0
+    L.push(`${rp.label} role: ${rp.role}@${rp.database} -- read-only ${ok ? 'VERIFIED' : 'VIOLATIONS(' + rp.violations.length + ')'} ` +
+      `[superuser=${rp.isSuperuser} createdb=${rp.canCreateDb} createrole=${rp.canCreateRole} replication=${rp.isReplication} ` +
+      `bypassrls=${rp.bypassRls} dbOwner=${rp.isDatabaseOwner} ownsSchemas=${rp.ownedSchemas.length} ownsTables=${rp.ownedTables.length} ` +
+      `createDb=${rp.canCreateOnDatabase} createSchemas=${rp.schemasWithCreate.length} writableTables=${rp.tablesWritable.length} ` +
+      `privRoleMember=${rp.memberOfPrivilegedRoleCount} default_ro=${rp.defaultTransactionReadOnly}]`)
+    if (!ok) for (const v of rp.violations) L.push(`    ! ${v}`)
   }
   L.push('')
   L.push(`SOURCE  authUsers=${report.source.authUsers} teams=${report.source.teams} members=${report.source.members} invites=${report.source.invites}`)

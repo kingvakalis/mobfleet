@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyze } from './analyze'
 import type {
-  ConflictCode, SourceSnapshot, SrcAuthUser, SrcInvite, SrcMember, SrcTeam,
+  ConflictCode, RoleReadOnlyProof, SourceSnapshot, SrcAuthUser, SrcInvite, SrcMember, SrcTeam,
   TargetSnapshot, TgtInvite, TgtMembership, TgtTeam, TgtUser,
 } from './types'
 
@@ -10,10 +10,16 @@ import type {
 // artifact classification + plan. Synthetic snapshots, fully deterministic.
 
 const PROOF = { isolation: 'repeatable read', readOnly: true, backendPid: 1 }
+const ROLE_PROOF: RoleReadOnlyProof = {
+  label: 'source', role: 'mobfleet_inv_ro', database: 'src', isSuperuser: false, canCreateDb: false,
+  canCreateRole: false, isReplication: false, bypassRls: false, isDatabaseOwner: false, ownedSchemas: [],
+  ownedTables: [], schemasWithCreate: [], tablesWritable: [], canCreateOnDatabase: false,
+  memberOfPrivilegedRoleCount: 0, defaultTransactionReadOnly: 'on', violations: [],
+}
 const T_JAN = '2024-01-01T00:00:00Z'
 const TS_JUN = Date.parse('2024-06-01T00:00:00Z')
 
-const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], proof: PROOF, ...o })
+const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], proof: PROOF, roleProof: ROLE_PROOF, ...o })
 const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, ...o })
 
 const au = (o: Partial<SrcAuthUser> & { id: string }): SrcAuthUser => ({ email: `${o.id}@x.com`, emailConfirmedAt: T_JAN, fullName: null, createdAt: T_JAN, ...o })
