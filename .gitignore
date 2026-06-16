@@ -38,3 +38,8 @@ playwright-report
 .env
 *.db
 *.db-journal
+
+# Local migration inventory/conflict reports (Phase 3B) — may contain private user/team
+# ids; keep local, never commit. (matches at any depth.)
+migration-inventory*.json
+**/migration-inventory*.json

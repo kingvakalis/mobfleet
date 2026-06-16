@@ -115,6 +115,16 @@ export interface SnapshotProof {
   readOnly: boolean // expected true
   backendPid: number // the single backend connection all reads ran on
 }
+/** Proof that the TARGET (Prisma) connection's role is least-privilege read-only:
+ *  it holds NO write/DDL privilege on the business tables (rule 5). */
+export interface TargetReadOnlyProof {
+  currentUser: string
+  database: string
+  canInsert: boolean
+  canUpdate: boolean
+  canDelete: boolean
+  canCreate: boolean
+}
 export interface SourceSnapshot {
   authUsers: SrcAuthUser[]
   teams: SrcTeam[]
@@ -159,6 +169,8 @@ export interface ArtifactVerdict {
 export interface InventoryReport {
   /** Set by the script after analyze() (pure code cannot read the clock). */
   generatedAt: string | null
+  /** Set by the script after a target read-only pre-flight (analyze() leaves it null). */
+  targetReadOnly: TargetReadOnlyProof | null
   source: { authUsers: number; teams: number; members: number; invites: number; proof: SnapshotProof | null }
   target: { users: number; teams: number; mappedTeams: number; unmappedActiveTeams: number; archivedTeams: number; memberships: number; invites: number }
   plan: {

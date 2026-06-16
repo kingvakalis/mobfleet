@@ -16,6 +16,10 @@ export function renderHuman(report: InventoryReport): string {
   if (report.source.proof) {
     L.push(`source snapshot: isolation=${report.source.proof.isolation}, read_only=${report.source.proof.readOnly}, backend_pid=${report.source.proof.backendPid}`)
   }
+  if (report.targetReadOnly) {
+    const t = report.targetReadOnly
+    L.push(`target role: ${t.currentUser}@${t.database} read-only verified (insert=${t.canInsert} update=${t.canUpdate} delete=${t.canDelete} create=${t.canCreate})`)
+  }
   L.push('')
   L.push(`SOURCE  authUsers=${report.source.authUsers} teams=${report.source.teams} members=${report.source.members} invites=${report.source.invites}`)
   L.push(`TARGET  users=${report.target.users} teams=${report.target.teams} (mapped=${report.target.mappedTeams}, unmappedActive=${report.target.unmappedActiveTeams}, archived=${report.target.archivedTeams}) memberships=${report.target.memberships} invites=${report.target.invites}`)

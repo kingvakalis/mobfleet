@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs'
 import { PrismaClient } from '@prisma/client'
 import { analyze } from '../migrate/analyze'
+import { assertTargetReadOnly } from '../migrate/preflight'
 import { readSourceSnapshot } from '../migrate/source'
 import { readTargetSnapshot } from '../migrate/target'
 import { renderHuman, toJson } from '../migrate/report'
@@ -42,13 +43,17 @@ async function main(): Promise<number> {
   console.log(`  source (Supabase): ${maskConn(sourceUrl)}`)
   console.log(`  target (Prisma):   ${maskConn(targetUrl)}`)
 
-  const source = await readSourceSnapshot(sourceUrl)
-
   const prisma = new PrismaClient()
   let report
   try {
+    // Fail fast: prove the TARGET role is least-privilege read-only BEFORE reading anything.
+    const targetReadOnly = await assertTargetReadOnly(prisma)
+    console.log(`  target role: ${targetReadOnly.currentUser}@${targetReadOnly.database} -- read-only verified (no insert/update/delete/create)`)
+    // Source: read through one REPEATABLE READ READ ONLY transaction (proven inside).
+    const source = await readSourceSnapshot(sourceUrl)
     const target = await readTargetSnapshot(prisma)
     report = analyze(source, target)
+    report.targetReadOnly = targetReadOnly
   } finally {
     await prisma.$disconnect()
   }
