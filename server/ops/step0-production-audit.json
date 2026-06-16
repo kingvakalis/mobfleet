@@ -1,0 +1,1694 @@
+{
+  "meta": {
+    "current_user": "postgres",
+    "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "current_database": "railway",
+    "transaction_read_only": "on"
+  },
+  "audit": "step0_production_schema_audit",
+  "roles": [
+    {
+      "role": "mobfleet_inv_ro",
+      "login": true,
+      "inherit": false,
+      "createdb": false,
+      "bypassrls": false,
+      "superuser": false,
+      "createrole": false,
+      "usage_on_public": true,
+      "create_on_public": false,
+      "create_on_database": false
+    },
+    {
+      "role": "postgres",
+      "login": true,
+      "inherit": true,
+      "createdb": true,
+      "bypassrls": true,
+      "superuser": true,
+      "createrole": true,
+      "usage_on_public": true,
+      "create_on_public": true,
+      "create_on_database": true
+    }
+  ],
+  "owners": {
+    "database_owner": "postgres",
+    "public_schema_owner": "pg_database_owner"
+  },
+  "tables": [
+    "AuditLog",
+    "Automation",
+    "Device",
+    "DeviceApiKey",
+    "DevicePairingToken",
+    "Invite",
+    "Job",
+    "Membership",
+    "Proxy",
+    "Team",
+    "User"
+  ],
+  "columns": [
+    {
+      "table": "AuditLog",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "actorId",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "action",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "target",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "result",
+      "position": 6,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "detail",
+      "position": 7,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "AuditLog",
+      "column": "createdAt",
+      "position": 8,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": "''::text"
+    },
+    {
+      "table": "Automation",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "name",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "description",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "taskType",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "successRate",
+      "position": 6,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "runs",
+      "position": 7,
+      "udt_name": "int4",
+      "data_type": "integer",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Automation",
+      "column": "lastRun",
+      "position": 8,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": "''::text"
+    },
+    {
+      "table": "Device",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "name",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "status",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "region",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "osVersion",
+      "position": 6,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "model",
+      "position": 7,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "proxy",
+      "position": 8,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "battery",
+      "position": 9,
+      "udt_name": "int4",
+      "data_type": "integer",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "group",
+      "position": 10,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "assignedUser",
+      "position": 11,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "jobId",
+      "position": 12,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "createdAt",
+      "position": 13,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "udid",
+      "position": 14,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "platform",
+      "position": 15,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "ipAddress",
+      "position": 16,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "wdaPort",
+      "position": 17,
+      "udt_name": "int4",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "lastHeartbeat",
+      "position": 18,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "cpuUsage",
+      "position": 19,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Device",
+      "column": "memoryUsage",
+      "position": 20,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "deviceId",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "keyHash",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "createdAt",
+      "position": 5,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DeviceApiKey",
+      "column": "lastUsedAt",
+      "position": 6,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "DevicePairingToken",
+      "column": "token",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DevicePairingToken",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DevicePairingToken",
+      "column": "createdAt",
+      "position": 3,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DevicePairingToken",
+      "column": "expiresAt",
+      "position": 4,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "DevicePairingToken",
+      "column": "claimedByDeviceId",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "email",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "role",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "token",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "status",
+      "position": 6,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "invitedByUserId",
+      "position": 7,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "createdAt",
+      "position": 8,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "expiresAt",
+      "position": 9,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Invite",
+      "column": "acceptedAt",
+      "position": 10,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": "''::text"
+    },
+    {
+      "table": "Job",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "deviceId",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "type",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "status",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "progress",
+      "position": 6,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "createdAt",
+      "position": 7,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "startedAt",
+      "position": 8,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "finishedAt",
+      "position": 9,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "error",
+      "position": 10,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Job",
+      "column": "config",
+      "position": 11,
+      "udt_name": "jsonb",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "userId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "teamId",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "role",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "status",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": "'active'::text"
+    },
+    {
+      "table": "Membership",
+      "column": "scopeType",
+      "position": 6,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": "'workspace'::text"
+    },
+    {
+      "table": "Membership",
+      "column": "scopeGroups",
+      "position": 7,
+      "udt_name": "jsonb",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "scopePhones",
+      "position": 8,
+      "udt_name": "jsonb",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Membership",
+      "column": "createdAt",
+      "position": 9,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "ip",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "teamId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "region",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "provider",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "assignedTo",
+      "position": 5,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "status",
+      "position": 6,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "latency",
+      "position": 7,
+      "udt_name": "int4",
+      "data_type": "integer",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Proxy",
+      "column": "lastCheck",
+      "position": 8,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Team",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Team",
+      "column": "name",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "Team",
+      "column": "createdAt",
+      "position": 3,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "User",
+      "column": "id",
+      "position": 1,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "User",
+      "column": "authProviderId",
+      "position": 2,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "User",
+      "column": "email",
+      "position": 3,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "column_default": null
+    },
+    {
+      "table": "User",
+      "column": "name",
+      "position": 4,
+      "udt_name": "text",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "column_default": null
+    },
+    {
+      "table": "User",
+      "column": "createdAt",
+      "position": 5,
+      "udt_name": "float8",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "column_default": null
+    }
+  ],
+  "indexes": [
+    {
+      "name": "AuditLog_pkey",
+      "table": "AuditLog",
+      "definition": "CREATE UNIQUE INDEX \"AuditLog_pkey\" ON public.\"AuditLog\" USING btree (id)"
+    },
+    {
+      "name": "AuditLog_teamId_createdAt_idx",
+      "table": "AuditLog",
+      "definition": "CREATE INDEX \"AuditLog_teamId_createdAt_idx\" ON public.\"AuditLog\" USING btree (\"teamId\", \"createdAt\")"
+    },
+    {
+      "name": "AuditLog_teamId_idx",
+      "table": "AuditLog",
+      "definition": "CREATE INDEX \"AuditLog_teamId_idx\" ON public.\"AuditLog\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Automation_pkey",
+      "table": "Automation",
+      "definition": "CREATE UNIQUE INDEX \"Automation_pkey\" ON public.\"Automation\" USING btree (\"teamId\", id)"
+    },
+    {
+      "name": "Automation_teamId_idx",
+      "table": "Automation",
+      "definition": "CREATE INDEX \"Automation_teamId_idx\" ON public.\"Automation\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Device_pkey",
+      "table": "Device",
+      "definition": "CREATE UNIQUE INDEX \"Device_pkey\" ON public.\"Device\" USING btree (\"teamId\", id)"
+    },
+    {
+      "name": "Device_teamId_idx",
+      "table": "Device",
+      "definition": "CREATE INDEX \"Device_teamId_idx\" ON public.\"Device\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "DeviceApiKey_deviceId_idx",
+      "table": "DeviceApiKey",
+      "definition": "CREATE INDEX \"DeviceApiKey_deviceId_idx\" ON public.\"DeviceApiKey\" USING btree (\"deviceId\")"
+    },
+    {
+      "name": "DeviceApiKey_keyHash_key",
+      "table": "DeviceApiKey",
+      "definition": "CREATE UNIQUE INDEX \"DeviceApiKey_keyHash_key\" ON public.\"DeviceApiKey\" USING btree (\"keyHash\")"
+    },
+    {
+      "name": "DeviceApiKey_pkey",
+      "table": "DeviceApiKey",
+      "definition": "CREATE UNIQUE INDEX \"DeviceApiKey_pkey\" ON public.\"DeviceApiKey\" USING btree (id)"
+    },
+    {
+      "name": "DeviceApiKey_teamId_idx",
+      "table": "DeviceApiKey",
+      "definition": "CREATE INDEX \"DeviceApiKey_teamId_idx\" ON public.\"DeviceApiKey\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "DevicePairingToken_pkey",
+      "table": "DevicePairingToken",
+      "definition": "CREATE UNIQUE INDEX \"DevicePairingToken_pkey\" ON public.\"DevicePairingToken\" USING btree (token)"
+    },
+    {
+      "name": "DevicePairingToken_teamId_idx",
+      "table": "DevicePairingToken",
+      "definition": "CREATE INDEX \"DevicePairingToken_teamId_idx\" ON public.\"DevicePairingToken\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Invite_email_idx",
+      "table": "Invite",
+      "definition": "CREATE INDEX \"Invite_email_idx\" ON public.\"Invite\" USING btree (email)"
+    },
+    {
+      "name": "Invite_pkey",
+      "table": "Invite",
+      "definition": "CREATE UNIQUE INDEX \"Invite_pkey\" ON public.\"Invite\" USING btree (id)"
+    },
+    {
+      "name": "Invite_teamId_idx",
+      "table": "Invite",
+      "definition": "CREATE INDEX \"Invite_teamId_idx\" ON public.\"Invite\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Invite_token_key",
+      "table": "Invite",
+      "definition": "CREATE UNIQUE INDEX \"Invite_token_key\" ON public.\"Invite\" USING btree (token)"
+    },
+    {
+      "name": "Job_pkey",
+      "table": "Job",
+      "definition": "CREATE UNIQUE INDEX \"Job_pkey\" ON public.\"Job\" USING btree (\"teamId\", id)"
+    },
+    {
+      "name": "Job_teamId_idx",
+      "table": "Job",
+      "definition": "CREATE INDEX \"Job_teamId_idx\" ON public.\"Job\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Membership_pkey",
+      "table": "Membership",
+      "definition": "CREATE UNIQUE INDEX \"Membership_pkey\" ON public.\"Membership\" USING btree (id)"
+    },
+    {
+      "name": "Membership_teamId_idx",
+      "table": "Membership",
+      "definition": "CREATE INDEX \"Membership_teamId_idx\" ON public.\"Membership\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Membership_userId_teamId_key",
+      "table": "Membership",
+      "definition": "CREATE UNIQUE INDEX \"Membership_userId_teamId_key\" ON public.\"Membership\" USING btree (\"userId\", \"teamId\")"
+    },
+    {
+      "name": "Proxy_pkey",
+      "table": "Proxy",
+      "definition": "CREATE UNIQUE INDEX \"Proxy_pkey\" ON public.\"Proxy\" USING btree (\"teamId\", ip)"
+    },
+    {
+      "name": "Proxy_teamId_idx",
+      "table": "Proxy",
+      "definition": "CREATE INDEX \"Proxy_teamId_idx\" ON public.\"Proxy\" USING btree (\"teamId\")"
+    },
+    {
+      "name": "Team_pkey",
+      "table": "Team",
+      "definition": "CREATE UNIQUE INDEX \"Team_pkey\" ON public.\"Team\" USING btree (id)"
+    },
+    {
+      "name": "User_authProviderId_key",
+      "table": "User",
+      "definition": "CREATE UNIQUE INDEX \"User_authProviderId_key\" ON public.\"User\" USING btree (\"authProviderId\")"
+    },
+    {
+      "name": "User_email_key",
+      "table": "User",
+      "definition": "CREATE UNIQUE INDEX \"User_email_key\" ON public.\"User\" USING btree (email)"
+    },
+    {
+      "name": "User_pkey",
+      "table": "User",
+      "definition": "CREATE UNIQUE INDEX \"User_pkey\" ON public.\"User\" USING btree (id)"
+    }
+  ],
+  "triggers": [],
+  "invite_fk": [
+    {
+      "name": "Invite_invitedByUserId_fkey",
+      "definition": "FOREIGN KEY (\"invitedByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+    },
+    {
+      "name": "Invite_teamId_fkey",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    }
+  ],
+  "sequences": [],
+  "extensions": [
+    {
+      "name": "plpgsql",
+      "version": "1.0"
+    }
+  ],
+  "row_counts": {
+    "Job": 0,
+    "Team": 0,
+    "User": 0,
+    "Proxy": 0,
+    "Device": 0,
+    "Invite": 0,
+    "AuditLog": 0,
+    "Automation": 0,
+    "Membership": 0,
+    "DeviceApiKey": 0,
+    "DevicePairingToken": 0
+  },
+  "constraints": [
+    {
+      "name": "AuditLog_action_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL action"
+    },
+    {
+      "name": "AuditLog_actorId_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL \"actorId\""
+    },
+    {
+      "name": "AuditLog_createdAt_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "AuditLog_id_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "AuditLog_pkey",
+      "type": "primary_key",
+      "table": "\"AuditLog\"",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "AuditLog_result_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL result"
+    },
+    {
+      "name": "AuditLog_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"AuditLog\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "AuditLog_teamId_not_null",
+      "type": "n",
+      "table": "\"AuditLog\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Automation_description_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL description"
+    },
+    {
+      "name": "Automation_id_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Automation_lastRun_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL \"lastRun\""
+    },
+    {
+      "name": "Automation_name_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL name"
+    },
+    {
+      "name": "Automation_pkey",
+      "type": "primary_key",
+      "table": "\"Automation\"",
+      "definition": "PRIMARY KEY (\"teamId\", id)"
+    },
+    {
+      "name": "Automation_runs_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL runs"
+    },
+    {
+      "name": "Automation_successRate_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL \"successRate\""
+    },
+    {
+      "name": "Automation_taskType_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL \"taskType\""
+    },
+    {
+      "name": "Automation_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Automation\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Automation_teamId_not_null",
+      "type": "n",
+      "table": "\"Automation\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Device_battery_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL battery"
+    },
+    {
+      "name": "Device_createdAt_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "Device_group_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL \"group\""
+    },
+    {
+      "name": "Device_id_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Device_model_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL model"
+    },
+    {
+      "name": "Device_name_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL name"
+    },
+    {
+      "name": "Device_osVersion_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL \"osVersion\""
+    },
+    {
+      "name": "Device_pkey",
+      "type": "primary_key",
+      "table": "\"Device\"",
+      "definition": "PRIMARY KEY (\"teamId\", id)"
+    },
+    {
+      "name": "Device_proxy_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL proxy"
+    },
+    {
+      "name": "Device_region_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL region"
+    },
+    {
+      "name": "Device_status_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL status"
+    },
+    {
+      "name": "Device_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Device\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Device_teamId_not_null",
+      "type": "n",
+      "table": "\"Device\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "DeviceApiKey_createdAt_not_null",
+      "type": "n",
+      "table": "\"DeviceApiKey\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "DeviceApiKey_deviceId_not_null",
+      "type": "n",
+      "table": "\"DeviceApiKey\"",
+      "definition": "NOT NULL \"deviceId\""
+    },
+    {
+      "name": "DeviceApiKey_id_not_null",
+      "type": "n",
+      "table": "\"DeviceApiKey\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "DeviceApiKey_keyHash_not_null",
+      "type": "n",
+      "table": "\"DeviceApiKey\"",
+      "definition": "NOT NULL \"keyHash\""
+    },
+    {
+      "name": "DeviceApiKey_pkey",
+      "type": "primary_key",
+      "table": "\"DeviceApiKey\"",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "DeviceApiKey_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"DeviceApiKey\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "DeviceApiKey_teamId_not_null",
+      "type": "n",
+      "table": "\"DeviceApiKey\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "DevicePairingToken_createdAt_not_null",
+      "type": "n",
+      "table": "\"DevicePairingToken\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "DevicePairingToken_expiresAt_not_null",
+      "type": "n",
+      "table": "\"DevicePairingToken\"",
+      "definition": "NOT NULL \"expiresAt\""
+    },
+    {
+      "name": "DevicePairingToken_pkey",
+      "type": "primary_key",
+      "table": "\"DevicePairingToken\"",
+      "definition": "PRIMARY KEY (token)"
+    },
+    {
+      "name": "DevicePairingToken_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"DevicePairingToken\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "DevicePairingToken_teamId_not_null",
+      "type": "n",
+      "table": "\"DevicePairingToken\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "DevicePairingToken_token_not_null",
+      "type": "n",
+      "table": "\"DevicePairingToken\"",
+      "definition": "NOT NULL token"
+    },
+    {
+      "name": "Invite_createdAt_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "Invite_email_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL email"
+    },
+    {
+      "name": "Invite_expiresAt_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL \"expiresAt\""
+    },
+    {
+      "name": "Invite_id_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Invite_invitedByUserId_fkey",
+      "type": "foreign_key",
+      "table": "\"Invite\"",
+      "definition": "FOREIGN KEY (\"invitedByUserId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE RESTRICT"
+    },
+    {
+      "name": "Invite_invitedByUserId_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL \"invitedByUserId\""
+    },
+    {
+      "name": "Invite_pkey",
+      "type": "primary_key",
+      "table": "\"Invite\"",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "Invite_role_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL role"
+    },
+    {
+      "name": "Invite_status_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL status"
+    },
+    {
+      "name": "Invite_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Invite\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Invite_teamId_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Invite_token_not_null",
+      "type": "n",
+      "table": "\"Invite\"",
+      "definition": "NOT NULL token"
+    },
+    {
+      "name": "Job_createdAt_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "Job_id_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Job_pkey",
+      "type": "primary_key",
+      "table": "\"Job\"",
+      "definition": "PRIMARY KEY (\"teamId\", id)"
+    },
+    {
+      "name": "Job_progress_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL progress"
+    },
+    {
+      "name": "Job_status_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL status"
+    },
+    {
+      "name": "Job_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Job\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Job_teamId_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Job_type_not_null",
+      "type": "n",
+      "table": "\"Job\"",
+      "definition": "NOT NULL type"
+    },
+    {
+      "name": "Membership_createdAt_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "Membership_id_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Membership_pkey",
+      "type": "primary_key",
+      "table": "\"Membership\"",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "Membership_role_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL role"
+    },
+    {
+      "name": "Membership_scopeType_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL \"scopeType\""
+    },
+    {
+      "name": "Membership_status_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL status"
+    },
+    {
+      "name": "Membership_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Membership\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Membership_teamId_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Membership_userId_fkey",
+      "type": "foreign_key",
+      "table": "\"Membership\"",
+      "definition": "FOREIGN KEY (\"userId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Membership_userId_not_null",
+      "type": "n",
+      "table": "\"Membership\"",
+      "definition": "NOT NULL \"userId\""
+    },
+    {
+      "name": "Proxy_ip_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL ip"
+    },
+    {
+      "name": "Proxy_lastCheck_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL \"lastCheck\""
+    },
+    {
+      "name": "Proxy_latency_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL latency"
+    },
+    {
+      "name": "Proxy_pkey",
+      "type": "primary_key",
+      "table": "\"Proxy\"",
+      "definition": "PRIMARY KEY (\"teamId\", ip)"
+    },
+    {
+      "name": "Proxy_provider_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL provider"
+    },
+    {
+      "name": "Proxy_region_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL region"
+    },
+    {
+      "name": "Proxy_status_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL status"
+    },
+    {
+      "name": "Proxy_teamId_fkey",
+      "type": "foreign_key",
+      "table": "\"Proxy\"",
+      "definition": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+    },
+    {
+      "name": "Proxy_teamId_not_null",
+      "type": "n",
+      "table": "\"Proxy\"",
+      "definition": "NOT NULL \"teamId\""
+    },
+    {
+      "name": "Team_createdAt_not_null",
+      "type": "n",
+      "table": "\"Team\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "Team_id_not_null",
+      "type": "n",
+      "table": "\"Team\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "Team_name_not_null",
+      "type": "n",
+      "table": "\"Team\"",
+      "definition": "NOT NULL name"
+    },
+    {
+      "name": "Team_pkey",
+      "type": "primary_key",
+      "table": "\"Team\"",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "name": "User_authProviderId_not_null",
+      "type": "n",
+      "table": "\"User\"",
+      "definition": "NOT NULL \"authProviderId\""
+    },
+    {
+      "name": "User_createdAt_not_null",
+      "type": "n",
+      "table": "\"User\"",
+      "definition": "NOT NULL \"createdAt\""
+    },
+    {
+      "name": "User_email_not_null",
+      "type": "n",
+      "table": "\"User\"",
+      "definition": "NOT NULL email"
+    },
+    {
+      "name": "User_id_not_null",
+      "type": "n",
+      "table": "\"User\"",
+      "definition": "NOT NULL id"
+    },
+    {
+      "name": "User_pkey",
+      "type": "primary_key",
+      "table": "\"User\"",
+      "definition": "PRIMARY KEY (id)"
+    }
+  ],
+  "table_owners": [
+    {
+      "owner": "postgres",
+      "table": "AuditLog"
+    },
+    {
+      "owner": "postgres",
+      "table": "Automation"
+    },
+    {
+      "owner": "postgres",
+      "table": "Device"
+    },
+    {
+      "owner": "postgres",
+      "table": "DeviceApiKey"
+    },
+    {
+      "owner": "postgres",
+      "table": "DevicePairingToken"
+    },
+    {
+      "owner": "postgres",
+      "table": "Invite"
+    },
+    {
+      "owner": "postgres",
+      "table": "Job"
+    },
+    {
+      "owner": "postgres",
+      "table": "Membership"
+    },
+    {
+      "owner": "postgres",
+      "table": "Proxy"
+    },
+    {
+      "owner": "postgres",
+      "table": "Team"
+    },
+    {
+      "owner": "postgres",
+      "table": "User"
+    }
+  ],
+  "other_objects": {
+    "views": [],
+    "materialized_views": [],
+    "non_system_schemas": [
+      "public"
+    ]
+  },
+  "prisma_migrations": {
+    "rows": null,
+    "exists": false
+  },
+  "unexpected_tables": [],
+  "missing_expected_tables": [
+    "AgentCommand",
+    "DeviceSession",
+    "MigrationRecord",
+    "TeamEmailSettings"
+  ],
+  "table_grants_by_grantee": [
+    {
+      "tables": 11,
+      "grantee": "mobfleet_inv_ro",
+      "privileges": "SELECT"
+    },
+    {
+      "tables": 77,
+      "grantee": "postgres",
+      "privileges": "DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE"
+    }
+  ]
+}
