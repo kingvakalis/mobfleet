@@ -39,11 +39,23 @@ export function renderHuman(report: InventoryReport): string {
   L.push(`TARGET SCHEMA  expected=${sc.expected.length} present=${sc.present.length} missing=${sc.missing.length} extra=${sc.extra.length}`)
   if (sc.missing.length) L.push(`  MISSING (blockers): ${sc.missing.join(', ')}`)
   if (sc.extra.length) L.push(`  extra (present but not read by the inventory): ${sc.extra.join(', ')}`)
+  const cc = report.targetColumns
+  L.push(`TARGET COLUMNS  inspected=${cc.inspected.length} present=${cc.present.length} missing=${cc.missing.length}`)
+  if (cc.missing.length) {
+    // Group missing read columns by table (blocker counts grouped by table and column).
+    const byTbl: Record<string, string[]> = {}
+    for (const m of cc.missing) (byTbl[m.table] ??= []).push(`${m.column} [${m.impacts.join('/')}]`)
+    for (const t of Object.keys(byTbl).sort()) L.push(`  MISSING (blockers) ${t} (${byTbl[t].length}): ${byTbl[t].sort().join(', ')}`)
+  }
   const p3 = report.phase3a
   const p3ok = p3.missing.length === 0
   L.push(`PHASE 3A SCHEMA  ${p3ok ? 'applied' : 'NOT fully applied'} ` +
     `[supabaseTeamId=${p3.supabaseTeamIdPresent} archivedAt=${p3.archivedAtPresent} inviteInvitedByNullable=${p3.inviteInvitedByNullable} MigrationRecord=${p3.migrationRecordPresent}]`)
   if (!p3ok) L.push(`  MISSING (blockers): ${p3.missing.join(', ')}  -> mapping/archival reported as "unavailable", not zero`)
+  const pr = report.provisional
+  L.push(`PROVISIONAL ANALYSIS  identity=${pr.identity} membershipParity=${pr.membershipParity} artifactClassification=${pr.artifactClassification}`)
+  for (const n of pr.notes) L.push(`  ~ ${n}`)
+  if (pr.membershipParity === 'unavailable') L.push('  (missing membership auth fields are reported as "unavailable" -- never coerced to active/empty/owner/null)')
   L.push('')
   L.push('PLAN (what a future --commit WOULD do; nothing is written now):')
   L.push(`  usersToCreate=${report.plan.usersToCreate}  teamsToCreate=${na(report.plan.teamsToCreate)}  teamsAlreadyMapped=${na(report.plan.teamsAlreadyMapped)}`)

@@ -39,7 +39,9 @@ const isOverrides = (v: unknown): boolean => {
   if (typeof v !== 'object' || Array.isArray(v)) return false
   return Object.values(v as Record<string, unknown>).every((x) => x === 'allow' || x === 'deny')
 }
-const scopeKey = (m: { scopeType: string; scopeGroups: unknown; scopePhones: unknown; overrides: unknown }): string =>
+// Only ever called once every membership scope column is confirmed present (canCompareMembership)
+// or on a source member; the ?? fallbacks normalize source nulls, never a drifted target column.
+const scopeKey = (m: { scopeType?: string; scopeGroups?: unknown; scopePhones?: unknown; overrides?: unknown }): string =>
   JSON.stringify([m.scopeType ?? 'workspace', m.scopeGroups ?? [], m.scopePhones ?? [], m.overrides ?? {}])
 
 export function analyze(source: SourceSnapshot, target: TargetSnapshot): InventoryReport {
@@ -51,6 +53,34 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     seen.add(key)
     findings.push({ code, severity: SEVERITY[code], entity, ref, detail, evidence })
   }
+
+  // ── Target read-column availability (legacy/drift tolerance) ──
+  // A column is treated as PRESENT unless the target reader explicitly reported it missing -- so
+  // pure fixtures (no `columns`) behave exactly as before, while a real run gates every check that
+  // depends on an absent column. Missing fields are NEVER coerced to a default; the dependent
+  // analysis is reported as unavailable instead.
+  const colMissing = (t: string, c: string): boolean => target.columns?.byTable[t]?.missing.includes(c) ?? false
+  const col = (t: string, c: string): boolean => !colMissing(t, c)
+  const missingCols = target.columns?.missing ?? []
+  const missingNamesFor = (impact: 'identity' | 'artifact' | 'parity'): string[] =>
+    missingCols.filter((m) => m.impacts.includes(impact)).map((m) => `${m.table}.${m.column}`)
+
+  // What each target-dependent analysis needs to run honestly:
+  const userIdOk = col('User', 'id')
+  const userAuthOk = col('User', 'authProviderId')
+  const userEmailOk = col('User', 'email')
+  const inviteTokenOk = col('Invite', 'token')
+  // Token-collision compares the target invite's team/email/status -- only run when all exist.
+  const canCheckInviteCollision = inviteTokenOk && col('Invite', 'teamId') && col('Invite', 'email') && col('Invite', 'status')
+  const teamNameOk = col('Team', 'name')
+  const teamCreatedOk = col('Team', 'createdAt')
+  const memRoleOk = col('Membership', 'role')
+  const canMapMembers = col('Membership', 'teamId') && col('Membership', 'userId')
+  // Membership parity (role/status/scope/overrides comparison against source):
+  const canCompareMembership =
+    canMapMembers && userIdOk && userAuthOk &&
+    col('Membership', 'role') && col('Membership', 'status') && col('Membership', 'scopeType') &&
+    col('Membership', 'scopeGroups') && col('Membership', 'scopePhones') && col('Membership', 'overrides')
 
   // ── Source indices ──
   const authById = new Map(source.authUsers.map((u) => [u.id, u]))
@@ -67,14 +97,16 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     ;(membersByUser.get(m.userId) ?? membersByUser.set(m.userId, []).get(m.userId)!).push(m)
   }
 
-  // ── Target indices ──
-  const tgtUserByAuthId = new Map(target.users.map((u) => [u.authProviderId, u]))
-  const tgtUserById = new Map(target.users.map((u) => [u.id, u]))
+  // ── Target indices (built only from columns that exist; an absent column -> no key, never a
+  //    fabricated/undefined key) ──
+  const tgtUserByAuthId = new Map<string, typeof target.users[number]>()
+  const tgtUserById = new Map<string, typeof target.users[number]>()
   const tgtUsersByEmail = new Map<string, typeof target.users>()
   for (const u of target.users) {
+    if (u.id !== undefined) tgtUserById.set(u.id, u)
+    if (u.authProviderId !== undefined) tgtUserByAuthId.set(u.authProviderId, u)
     const e = norm(u.email)
-    if (!e) continue
-    ;(tgtUsersByEmail.get(e) ?? tgtUsersByEmail.set(e, []).get(e)!).push(u)
+    if (e) (tgtUsersByEmail.get(e) ?? tgtUsersByEmail.set(e, []).get(e)!).push(u)
   }
   const tgtTeamBySupabaseId = new Map<string, typeof target.teams[number]>()
   const supaIdCount = new Map<string, number>()
@@ -85,49 +117,61 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     }
   }
   const tgtMembersByTeam = new Map<string, TgtMembership[]>()
-  for (const m of target.memberships) (tgtMembersByTeam.get(m.teamId) ?? tgtMembersByTeam.set(m.teamId, []).get(m.teamId)!).push(m)
-  const tgtInviteByToken = new Map(target.invites.map((i) => [i.token, i]))
+  if (canMapMembers) for (const m of target.memberships) {
+    if (m.teamId === undefined) continue
+    ;(tgtMembersByTeam.get(m.teamId) ?? tgtMembersByTeam.set(m.teamId, []).get(m.teamId)!).push(m)
+  }
+  const tgtInviteByToken = new Map<string, typeof target.invites[number]>()
+  if (inviteTokenOk) for (const i of target.invites) if (i.token !== undefined) tgtInviteByToken.set(i.token, i)
 
   // ── Identity: duplicate Supabase emails ──
   for (const [email, users] of authByEmail) {
     if (users.length > 1) add('IDENT_DUP_SUPABASE_EMAIL', 'user', maskEmail(email), `${users.length} Supabase auth users share this normalized email`, { uids: users.map((u) => u.id) })
   }
   // ── Identity: duplicate target authProviderId (defensive; @unique should prevent) ──
-  const tgtAuthIdCount = new Map<string, number>()
-  for (const u of target.users) tgtAuthIdCount.set(u.authProviderId, (tgtAuthIdCount.get(u.authProviderId) ?? 0) + 1)
-  for (const [aid, n] of tgtAuthIdCount) if (n > 1) add('IDENT_DUP_AUTH_PROVIDER_ID', 'user', aid, `authProviderId appears on ${n} Prisma users`)
+  // (needs User.authProviderId; skipped + reported unavailable when that column is absent)
+  if (userAuthOk) {
+    const tgtAuthIdCount = new Map<string, number>()
+    for (const u of target.users) if (u.authProviderId !== undefined) tgtAuthIdCount.set(u.authProviderId, (tgtAuthIdCount.get(u.authProviderId) ?? 0) + 1)
+    for (const [aid, n] of tgtAuthIdCount) if (n > 1) add('IDENT_DUP_AUTH_PROVIDER_ID', 'user', aid, `authProviderId appears on ${n} Prisma users`)
+  }
 
   // ── Identity: per-source-user checks ──
   for (const u of source.authUsers) {
     const srcEmail = norm(u.email)
-    // email changed between auth.users and any team_members snapshot for this uid
+    // email changed between auth.users and any team_members snapshot for this uid (source-only)
     const memberEmails = new Set((membersByUser.get(u.id) ?? []).map((m) => norm(m.email)).filter((e): e is string => !!e))
     if (srcEmail) memberEmails.add(srcEmail)
     if (memberEmails.size > 1) add('IDENT_EMAIL_CHANGED', 'user', u.id, 'auth.users email differs from a team_members email for this user (will use the current auth.users email)', { emails: [...memberEmails].map(maskEmail) })
 
-    const tgtByAuth = tgtUserByAuthId.get(u.id)
-    if (tgtByAuth && srcEmail && norm(tgtByAuth.email) !== srcEmail) {
-      add('IDENT_PRISMA_AUTHID_EMAIL_CONFLICT', 'user', u.id, 'existing Prisma user has the same authProviderId but a different email', { prisma: maskEmail(tgtByAuth.email), source: maskEmail(srcEmail) })
+    // The next two checks compare against the Prisma user's authProviderId/email -- only run when
+    // those columns exist (otherwise a missing email would falsely read as a mismatch).
+    const tgtByAuth = userAuthOk ? tgtUserByAuthId.get(u.id) : undefined
+    if (tgtByAuth && userEmailOk && srcEmail && norm(tgtByAuth.email) !== srcEmail) {
+      add('IDENT_PRISMA_AUTHID_EMAIL_CONFLICT', 'user', u.id, 'existing Prisma user has the same authProviderId but a different email', { prisma: maskEmail(tgtByAuth.email ?? null), source: maskEmail(srcEmail) })
     }
-    if (srcEmail) {
+    if (srcEmail && userEmailOk && userAuthOk) {
       const tgtByEmail = tgtUsersByEmail.get(srcEmail) ?? []
       for (const te of tgtByEmail) {
         if (te.authProviderId !== u.id) add('IDENT_PRISMA_EMAIL_DIFF_AUTHID', 'user', maskEmail(srcEmail), 'existing Prisma user has this email under a DIFFERENT authProviderId', { prismaAuthId: te.authProviderId, sourceAuthId: u.id })
       }
     }
   }
-  // ── Identity: Prisma email-uniqueness conflicts for users we would CREATE ──
-  const toCreateEmail = new Map<string, string[]>() // normEmail -> source uids to create
-  for (const u of source.authUsers) {
-    if (tgtUserByAuthId.has(u.id)) continue // already mapped by authProviderId -> update, not insert
-    const e = norm(u.email)
-    if (!e) continue
-    ;(toCreateEmail.get(e) ?? toCreateEmail.set(e, []).get(e)!).push(u.id)
-  }
-  for (const [email, uids] of toCreateEmail) {
-    const existingDiff = (tgtUsersByEmail.get(email) ?? []).filter((t) => !uids.includes(t.authProviderId))
-    if (uids.length > 1 || existingDiff.length > 0) {
-      add('IDENT_PRISMA_EMAIL_UNIQUE_CONFLICT', 'user', maskEmail(email), 'creating the migrated user(s) would violate Prisma User.email @unique', { newUids: uids, existingAuthIds: existingDiff.map((t) => t.authProviderId) })
+  // ── Identity: Prisma email-uniqueness conflicts for users we would CREATE (needs both the
+  //    authProviderId map -- to know who is already mapped -- and the email index) ──
+  if (userAuthOk && userEmailOk) {
+    const toCreateEmail = new Map<string, string[]>() // normEmail -> source uids to create
+    for (const u of source.authUsers) {
+      if (tgtUserByAuthId.has(u.id)) continue // already mapped by authProviderId -> update, not insert
+      const e = norm(u.email)
+      if (!e) continue
+      ;(toCreateEmail.get(e) ?? toCreateEmail.set(e, []).get(e)!).push(u.id)
+    }
+    for (const [email, uids] of toCreateEmail) {
+      const existingDiff = (tgtUsersByEmail.get(email) ?? []).filter((t) => t.authProviderId === undefined || !uids.includes(t.authProviderId))
+      if (uids.length > 1 || existingDiff.length > 0) {
+        add('IDENT_PRISMA_EMAIL_UNIQUE_CONFLICT', 'user', maskEmail(email), 'creating the migrated user(s) would violate Prisma User.email @unique', { newUids: uids, existingAuthIds: existingDiff.map((t) => t.authProviderId) })
+      }
     }
   }
 
@@ -163,12 +207,15 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     if (inv.invitedBy && !authById.has(inv.invitedBy)) add('IDENT_MISSING_INVITED_BY', 'invite', inv.id, 'invite.invited_by references a missing auth user (will map to null)')
     const recipients = authByEmail.get(norm(inv.email) ?? '') ?? []
     if (recipients.length > 1) add('IDENT_INVITE_RECIPIENT_AMBIGUOUS', 'invite', inv.id, 'invite email matches multiple Supabase auth users', { count: recipients.length })
-    // target token collision: same token, different team/email/status
-    const tgt = tgtInviteByToken.get(inv.token)
-    if (tgt) {
-      const sameTeam = tgtTeamBySupabaseId.get(inv.teamId)?.id === tgt.teamId
-      if (!sameTeam || norm(tgt.email) !== norm(inv.email) || tgt.status !== inv.status) {
-        add('TGT_INVITE_TOKEN_COLLISION', 'invite', tokenFingerprint(inv.token), 'invite token already exists in Prisma for a different team/email/status', { sourceTeamId: inv.teamId })
+    // target token collision: same token, different team/email/status (needs the target invite's
+    // token/team/email/status columns; skipped + reported unavailable when any is absent)
+    if (canCheckInviteCollision) {
+      const tgt = tgtInviteByToken.get(inv.token)
+      if (tgt) {
+        const sameTeam = tgtTeamBySupabaseId.get(inv.teamId)?.id === tgt.teamId
+        if (!sameTeam || norm(tgt.email) !== norm(inv.email) || tgt.status !== inv.status) {
+          add('TGT_INVITE_TOKEN_COLLISION', 'invite', tokenFingerprint(inv.token), 'invite token already exists in Prisma for a different team/email/status', { sourceTeamId: inv.teamId })
+        }
       }
     }
   }
@@ -177,6 +224,13 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
   //    mapping/archival conclusions become unavailable rather than wrong) ──
   for (const item of target.phase3a.missing) {
     add('TGT_PHASE3A_SCHEMA_MISSING', 'table', item, `required Phase 3A schema item "${item}" is absent (3A migration not deployed) -- not queried; mapping/archival analysis is unavailable until it is applied`)
+  }
+
+  // ── Read-column drift: each expected read column absent on a PRESENT table is a blocker (it was
+  //    never selected; the analysis it powers is reported unavailable, never computed from a
+  //    default). The impacts say exactly what becomes unavailable (count/identity/artifact/parity) ──
+  for (const m of missingCols) {
+    add('TGT_EXPECTED_COLUMN_MISSING', 'table', `${m.table}.${m.column}`, `expected target column "${m.table}.${m.column}" is absent (legacy/drift) -- not selected; makes [${m.impacts.join(', ')}] analysis unavailable`, { table: m.table, column: m.column, impacts: m.impacts })
   }
   // Mapping needs Team.supabaseTeamId; artifact/archival needs Team.archivedAt too. When absent,
   // these are UNAVAILABLE (null), never zero -- we must not pretend every team is unmapped/active.
@@ -191,11 +245,14 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
       const mapped = tgtTeamBySupabaseId.get(t.id)
       if (!mapped) continue
       teamsAlreadyMapped = (teamsAlreadyMapped ?? 0) + 1
+      // Parity comparison only runs when every membership field it reads exists; otherwise it is
+      // left UNAVAILABLE (see report.provisional.membershipParity) -- never compared against defaults.
+      if (!canCompareMembership || mapped.id === undefined) continue
       const tgtM = tgtMembersByTeam.get(mapped.id) ?? []
       const tgtMByUserAuth = new Map<string, TgtMembership>()
       for (const tm of tgtM) {
-        const au = tgtUserById.get(tm.userId)
-        if (au) tgtMByUserAuth.set(au.authProviderId, tm)
+        const au = tm.userId !== undefined ? tgtUserById.get(tm.userId) : undefined
+        if (au?.authProviderId !== undefined) tgtMByUserAuth.set(au.authProviderId, tm)
       }
       for (const sm of membersByTeam.get(t.id) ?? []) {
         const existing = tgtMByUserAuth.get(sm.userId)
@@ -213,11 +270,17 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
     add('TGT_EXPECTED_TABLE_MISSING', 'table', t, `expected target table "${t}" is missing (schema drift) -- skipped, not queried; resolve before Phase 3C`)
   }
 
-  // ── Artifact classification of unmapped, active Prisma teams (needs Team.supabaseTeamId +
-  //    archivedAt; when absent it is SKIPPED and left provisional/unavailable, never guessed) ──
+  // ── Artifact classification of unmapped, active Prisma teams. Needs the Phase 3A columns
+  //    (supabaseTeamId + archivedAt) AND the legacy read columns it inspects (Team.name/createdAt,
+  //    Membership.role + the member map, User.id/authProviderId). When ANY is absent it is SKIPPED
+  //    and left unavailable -- never guessed from a default. ──
+  const canClassifyArtifacts = mapOk && arcOk && col('Team', 'id') && canMapMembers && memRoleOk && teamNameOk && teamCreatedOk && userIdOk && userAuthOk
   const artifacts: ArtifactVerdict[] = []
-  if (mapOk && arcOk) for (const t of target.teams) {
+  if (canClassifyArtifacts) for (const t of target.teams) {
     if (t.supabaseTeamId !== null || t.archivedAt !== null) continue
+    // Guaranteed defined by canClassifyArtifacts, but narrow defensively (and skip a row that
+    // somehow lacks a value rather than fabricating one).
+    if (t.id === undefined || t.name === undefined || t.createdAt === undefined) continue
     const tm = tgtMembersByTeam.get(t.id) ?? []
     const owners = tm.filter((m) => m.role === 'owner')
     const childCounts = target.childCountsByTeam[t.id] ?? {}
@@ -227,8 +290,9 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
 
     let ownerIsMigrated = false
     let createdAfter: boolean | null = null
-    if (owners.length === 1) {
-      const ownerUser = tgtUserById.get(owners[0].userId)
+    const ownerUserId = owners.length === 1 ? owners[0].userId : undefined
+    if (ownerUserId !== undefined) {
+      const ownerUser = tgtUserById.get(ownerUserId)
       const srcUid = ownerUser?.authProviderId
       const srcMems = srcUid ? membersByUser.get(srcUid) ?? [] : []
       ownerIsMigrated = !!srcUid && authById.has(srcUid) && srcMems.length > 0
@@ -251,7 +315,21 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
   for (const t of source.teams) if (t.ownerUserId) referencedUids.add(t.ownerUserId)
   const usersToCreate = [...referencedUids].filter((uid) => authById.has(uid) && !tgtUserByAuthId.has(uid)).length
   const teamsToCreate = mapOk ? source.teams.filter((t) => !tgtTeamBySupabaseId.has(t.id)).length : null
-  const artifactsToArchive = mapOk && arcOk ? artifacts.filter((a) => a.classification === 'auto_provision_candidate').length : null
+  const artifactsToArchive = canClassifyArtifacts ? artifacts.filter((a) => a.classification === 'auto_provision_candidate').length : null
+
+  // ── Provisional/unavailable analysis: which sections were degraded by an absent read column (the
+  //    missing columns are also TGT_EXPECTED_COLUMN_MISSING blockers). Never silently computed. ──
+  const provisionalNotes: string[] = []
+  const identityDegraded = missingNamesFor('identity').length > 0
+  if (identityDegraded) provisionalNotes.push(`identity checks degraded: missing ${[...new Set(missingNamesFor('identity'))].join(', ') || '(target columns)'}`)
+  if (!canCompareMembership) provisionalNotes.push(`membership parity (TGT_MEMBERSHIP_CONFLICT) unavailable: missing ${[...new Set(missingNamesFor('parity'))].join(', ') || '(membership columns)'}`)
+  if (mapOk && arcOk && !canClassifyArtifacts) provisionalNotes.push(`artifact classification unavailable: missing ${[...new Set(missingNamesFor('artifact'))].join(', ') || '(legacy columns)'}`)
+  const provisional = {
+    identity: identityDegraded ? ('degraded' as const) : ('available' as const),
+    membershipParity: canCompareMembership ? ('available' as const) : ('unavailable' as const),
+    artifactClassification: canClassifyArtifacts ? ('available' as const) : ('unavailable' as const),
+    notes: provisionalNotes,
+  }
 
   // ── Counts + blockers ──
   const byCode: Record<string, number> = {}
@@ -279,7 +357,9 @@ export function analyze(source: SourceSnapshot, target: TargetSnapshot): Invento
       invites: target.invites.length,
     },
     targetSchema: target.schema,
+    targetColumns: target.columns ?? { inspected: [], present: [], missing: [], byTable: {} },
     phase3a: target.phase3a,
+    provisional,
     plan: { usersToCreate, teamsToCreate, teamsAlreadyMapped, membershipsToUpsert: source.members.length, invitesToMigrate: source.invites.length, artifactsToArchive },
     artifacts,
     findings,

@@ -235,6 +235,62 @@ test('inventory: tolerates a pre-3A target (3A columns/table absent) -> blockers
   assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
 })
 
+test('inventory: tolerates legacy target columns (read columns absent across Membership/Team/Invite) -> per-column blockers, no crash, readable data analyzed, unavailable not fabricated, unchanged', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+
+  // Simulate a pre-current-schema target: drop read columns across THREE tables (reversed in
+  // finally). DROP works with rows present; the inventory must never SELECT a dropped column.
+  await db.$executeRawUnsafe('ALTER TABLE "Membership" DROP COLUMN "overrides"')
+  await db.$executeRawUnsafe('ALTER TABLE "Membership" DROP COLUMN "scopeGroups"')
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "name"')
+  await db.$executeRawUnsafe('ALTER TABLE "Invite" DROP COLUMN "status"')
+  try {
+    const tgtBefore = await targetCounts(db)
+
+    const target = await readTargetSnapshot(db) // must NOT crash on the absent columns
+    // Missing read columns detected across all three tables.
+    assert.deepEqual(
+      target.columns?.missing.map((m) => `${m.table}.${m.column}`).sort(),
+      ['Invite.status', 'Membership.overrides', 'Membership.scopeGroups', 'Team.name'].sort(),
+    )
+    // Unavailable fields are NOT fabricated -- they are simply absent from the read rows.
+    assert.ok(target.memberships.every((m) => m.overrides === undefined && m.scopeGroups === undefined))
+    assert.ok(target.teams.every((t) => t.name === undefined))
+    // The columns that DO exist were still read.
+    assert.ok(target.memberships.every((m) => m.role !== undefined && m.status !== undefined))
+
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    const colMiss = report.findings.filter((f) => f.code === 'TGT_EXPECTED_COLUMN_MISSING')
+    assert.equal(colMiss.length, 4)
+    assert.ok(colMiss.every((f) => f.severity === 'blocker'))
+    assert.equal(report.hasBlockers, true)
+    // Degraded sections reported as unavailable, never computed from defaults.
+    assert.equal(report.provisional.membershipParity, 'unavailable')
+    assert.equal(report.provisional.artifactClassification, 'unavailable')
+    assert.equal(report.provisional.identity, 'degraded')
+    assert.deepEqual(report.artifacts, [])
+    assert.equal(report.plan.artifactsToArchive, null)
+    // Readable data is still analyzed.
+    assert.ok(report.target.users >= 1)
+    assert.ok(report.target.teams >= 1)
+    assert.equal(report.plan.teamsAlreadyMapped, 1) // s_acme still mapped to pt_acme
+
+    // The inventory changed nothing (read-only) -- compare counts before/after the read.
+    assert.deepEqual(await targetCounts(db), tgtBefore, 'target row counts unchanged by the read')
+  } finally {
+    // Restore the schema exactly (truncate first so the NOT NULL re-adds succeed on empty tables).
+    await resetDb(db)
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "name" TEXT NOT NULL')
+    await db.$executeRawUnsafe('ALTER TABLE "Membership" ADD COLUMN "scopeGroups" JSONB')
+    await db.$executeRawUnsafe('ALTER TABLE "Membership" ADD COLUMN "overrides" JSONB')
+    await db.$executeRawUnsafe('ALTER TABLE "Invite" ADD COLUMN "status" TEXT NOT NULL')
+  }
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+})
+
 // Offline mode needs NO Supabase source -> gated only on the target DB being available.
 test('inventory: OFFLINE snapshot mode (no Supabase connection) analyzes + leaves target unchanged + no token leak', { skip: process.env.TEST_DATABASE_URL ? false : 'set TEST_DATABASE_URL' }, async () => {
   const db = testDb()

@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyze } from './analyze'
 import type {
-  ConflictCode, RoleReadOnlyProof, SourceSnapshot, SrcAuthUser, SrcInvite, SrcMember, SrcTeam,
-  TargetSnapshot, TgtInvite, TgtMembership, TgtTeam, TgtUser,
+  ColumnDrift, ConflictCode, RoleReadOnlyProof, SourceSnapshot, SrcAuthUser, SrcInvite, SrcMember, SrcTeam,
+  TargetColumnReport, TargetSnapshot, TgtInvite, TgtMembership, TgtTeam, TgtUser,
 } from './types'
 
 // Pure tests (no DB) for the migration analyzer — exhaustive conflict-code matrix +
@@ -241,6 +241,80 @@ test('unmapped team with records across MULTIPLE relations is native + reports c
   const v = r.artifacts.find((a) => a.teamId === 'art1')!
   assert.equal(v.classification, 'native')
   assert.deepEqual(v.evidence.childCounts, { Membership: 1, Device: 3, Job: 5, AgentCommand: 2 })
+})
+
+// ── Target read-column drift (legacy/current columns absent on present tables) ──
+/** Build a TargetColumnReport from a list of MISSING read columns (present/inspected kept minimal;
+ *  the analyzer only reads `missing` + `byTable.*.missing`). */
+const colsMissing = (missing: ColumnDrift[]): TargetColumnReport => {
+  const byTable: Record<string, { present: string[]; missing: string[] }> = {}
+  for (const m of missing) (byTable[m.table] ??= { present: [], missing: [] }).missing.push(m.column)
+  return { inspected: missing.map((m) => ({ table: m.table, column: m.column })), present: [], missing, byTable }
+}
+
+test('multiple missing read columns across Membership/Team/Invite -> per-column blockers; no crash; readable data still analyzed; unavailable not fabricated', () => {
+  const missing: ColumnDrift[] = [
+    { table: 'Membership', column: 'overrides', impacts: ['parity'] },
+    { table: 'Membership', column: 'scopeGroups', impacts: ['parity'] },
+    { table: 'Team', column: 'name', impacts: ['artifact'] },
+    { table: 'Invite', column: 'status', impacts: ['identity'] },
+  ]
+  const r = analyze(
+    src({
+      authUsers: [au({ id: 'u1' })],
+      teams: [st({ id: 's1', ownerUserId: 'u1' })],
+      members: [sm({ teamId: 's1', userId: 'u1', role: 'owner' })],
+      invites: [si({ id: 'i1', teamId: 's1', email: 'new@x.com', token: 'SHARED' })],
+    }),
+    tgt({
+      users: [tu({ id: 'pu1', authProviderId: 'u1' })],
+      // mapped team (so a parity comparison WOULD run if it could) + an unmapped active team (would
+      // be artifact-classified if it could). The drifted columns make both unavailable.
+      teams: [tt({ id: 'pt1', supabaseTeamId: 's1', name: undefined }), tt({ id: 'pt_art', supabaseTeamId: null, archivedAt: null, name: undefined })],
+      // membership role DIFFERS from source: if parity ran it would (wrongly) fire a conflict.
+      memberships: [tm({ id: 'pm1', userId: 'pu1', teamId: 'pt1', role: 'admin', overrides: undefined, scopeGroups: undefined })],
+      // invite token collides but status is unavailable -> the collision check must not run.
+      invites: [ti({ id: 'pi1', teamId: 'pt_other', email: 'b@x.com', token: 'SHARED', status: undefined })],
+      columns: colsMissing(missing),
+    }),
+  )
+
+  // 1) A blocker per missing column, grouped by table+column.
+  const colMiss = r.findings.filter((f) => f.code === 'TGT_EXPECTED_COLUMN_MISSING')
+  assert.equal(colMiss.length, 4)
+  assert.ok(colMiss.every((f) => f.severity === 'blocker' && f.entity === 'table'))
+  assert.deepEqual(colMiss.map((f) => f.ref).sort(), ['Invite.status', 'Membership.overrides', 'Membership.scopeGroups', 'Team.name'].sort())
+  assert.equal(r.hasBlockers, true)
+  // impacts are carried as evidence
+  const ov = colMiss.find((f) => f.ref === 'Membership.overrides')!
+  assert.deepEqual(ov.evidence?.impacts, ['parity'])
+  // report carries the column report for human/JSON rendering
+  assert.equal(r.targetColumns.missing.length, 4)
+
+  // 2) Unavailable, not fabricated: degraded sections reported; no broken comparisons fired.
+  assert.equal(r.provisional.membershipParity, 'unavailable')
+  assert.equal(r.provisional.artifactClassification, 'unavailable')
+  assert.equal(r.provisional.identity, 'degraded')
+  assert.ok(!has(r.findings, 'TGT_MEMBERSHIP_CONFLICT'), 'parity must not run against a drifted membership')
+  assert.ok(!has(r.findings, 'TGT_INVITE_TOKEN_COLLISION'), 'collision check must not run without invite status')
+  assert.deepEqual(r.artifacts, [], 'no artifact guessed when Team.name is absent')
+  assert.equal(r.plan.artifactsToArchive, null)
+
+  // 3) Readable data is STILL analyzed (mapped count + source plan computed; user already mapped).
+  assert.equal(r.target.users, 1)
+  assert.equal(r.target.teams, 2)
+  assert.equal(r.plan.teamsAlreadyMapped, 1)
+  assert.equal(r.plan.membershipsToUpsert, 1)
+  assert.equal(r.plan.usersToCreate, 0)
+})
+
+test('a present membership parity column set -> membershipParity available again (drift gating is per-column)', () => {
+  const r = analyze(
+    src({ authUsers: [au({ id: 'u1' })], teams: [st({ id: 's1', ownerUserId: 'u1' })], members: [sm({ teamId: 's1', userId: 'u1', role: 'owner' })] }),
+    tgt({ users: [tu({ id: 'pu1', authProviderId: 'u1' })], teams: [tt({ id: 'pt1', supabaseTeamId: 's1' })], memberships: [tm({ id: 'pm1', userId: 'pu1', teamId: 'pt1', role: 'admin' })], columns: colsMissing([]) }),
+  )
+  assert.equal(r.provisional.membershipParity, 'available')
+  assert.ok(has(r.findings, 'TGT_MEMBERSHIP_CONFLICT'), 'with all columns present, the differing role IS detected')
 })
 
 // ── Determinism ──

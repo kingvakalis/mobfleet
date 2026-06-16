@@ -22,6 +22,7 @@ export type ConflictCode =
   | 'TGT_MEMBERSHIP_CONFLICT' // existing membership on the mapped team disagrees with source
   | 'TGT_INVITE_TOKEN_COLLISION' // a token already exists in Prisma for a different team/email/status
   | 'TGT_EXPECTED_TABLE_MISSING' // an expected target table is absent (schema drift) -- it is skipped, not queried
+  | 'TGT_EXPECTED_COLUMN_MISSING' // an expected read column is absent on a present table (legacy/drift) -- never selected
   | 'TGT_PHASE3A_SCHEMA_MISSING' // a required Phase 3A table/column is absent (migration not deployed) -- never queried
   | 'SRC_DUP_MEMBERSHIP' // duplicate (team_id,user_id) source membership rows
   | 'SRC_INVALID_ROLE' // source role not in the known set
@@ -47,6 +48,7 @@ export const SEVERITY: Record<ConflictCode, Severity> = {
   TGT_MEMBERSHIP_CONFLICT: 'blocker',
   TGT_INVITE_TOKEN_COLLISION: 'blocker',
   TGT_EXPECTED_TABLE_MISSING: 'blocker',
+  TGT_EXPECTED_COLUMN_MISSING: 'blocker',
   TGT_PHASE3A_SCHEMA_MISSING: 'blocker',
   SRC_DUP_MEMBERSHIP: 'blocker',
   SRC_INVALID_ROLE: 'blocker',
@@ -165,10 +167,31 @@ export interface SourceSnapshot {
 }
 
 // ── Target snapshot (read-only from Prisma) ──
-export interface TgtUser { id: string; authProviderId: string; email: string }
-export interface TgtTeam { id: string; name: string; supabaseTeamId: string | null; archivedAt: number | null; createdAt: number }
-export interface TgtMembership { id: string; userId: string; teamId: string; role: string; status: string; scopeType: string; scopeGroups: unknown; scopePhones: unknown; overrides: unknown }
-export interface TgtInvite { id: string; teamId: string; email: string; token: string; status: string }
+// Every read column is OPTIONAL: a field is `undefined` ONLY when its column is absent on the live
+// target (legacy/drift). The analyzer NEVER coerces a missing field to a default -- it consults the
+// column-drift report (below) and reports the dependent check as unavailable. supabaseTeamId/
+// archivedAt remain string|null / number|null (their presence is the Phase 3A report's concern).
+export interface TgtUser { id?: string; authProviderId?: string; email?: string }
+export interface TgtTeam { id?: string; name?: string; supabaseTeamId: string | null; archivedAt: number | null; createdAt?: number }
+export interface TgtMembership { id?: string; userId?: string; teamId?: string; role?: string; status?: string; scopeType?: string; scopeGroups?: unknown; scopePhones?: unknown; overrides?: unknown }
+export interface TgtInvite { id?: string; teamId?: string; email?: string; token?: string; status?: string }
+
+/** Which analysis a read column powers -- so a missing column reports exactly what becomes
+ *  unavailable: a child-row count, an identity check, artifact classification, or a parity check. */
+export type ReadImpact = 'count' | 'identity' | 'artifact' | 'parity'
+
+/** An expected read column that is absent on a PRESENT target table. */
+export interface ColumnDrift { table: string; column: string; impacts: ReadImpact[] }
+
+/** Target column-drift report: every (table,column) the inventory intended to read was inspected via
+ *  information_schema.columns BEFORE any query; `missing` columns are never selected. byTable carries
+ *  per-table present/missing names for the analyzer's availability gating and the human report. */
+export interface TargetColumnReport {
+  inspected: Array<{ table: string; column: string }>
+  present: Array<{ table: string; column: string }>
+  missing: ColumnDrift[]
+  byTable: Record<string, { present: string[]; missing: string[] }>
+}
 /** Target schema-drift report: expected = tables the inventory reads; present/missing = of those;
  *  extra = present public tables not read by the inventory (excludes internal `_*`). */
 export interface TargetSchemaReport {
@@ -190,7 +213,8 @@ export interface Phase3aSchemaReport {
   missing: string[]
 }
 
-/** childCountsByTeam[teamId][relationModel] = row count (every PRESENT Team relation, from DMMF). */
+/** childCountsByTeam[teamId][relationModel] = row count (every PRESENT Team relation whose FK column
+ *  also exists, from DMMF). */
 export interface TargetSnapshot {
   users: TgtUser[]
   teams: TgtTeam[]
@@ -200,6 +224,9 @@ export interface TargetSnapshot {
   auditCountByTeam: Record<string, number>
   schema: TargetSchemaReport
   phase3a: Phase3aSchemaReport
+  /** Column-drift report. Optional only so pure analyzer fixtures may omit it (then every read
+   *  column is treated as present); the live target reader ALWAYS populates it. */
+  columns?: TargetColumnReport
 }
 
 export type ArtifactClass = 'auto_provision_candidate' | 'native' | 'unknown'
@@ -236,7 +263,18 @@ export interface InventoryReport {
   // count depends on is absent) -- never silently 0.
   target: { users: number; teams: number; mappedTeams: number | null; unmappedActiveTeams: number | null; archivedTeams: number | null; memberships: number; invites: number }
   targetSchema: TargetSchemaReport
+  /** Read-column drift: which expected columns are present/missing on present tables. */
+  targetColumns: TargetColumnReport
   phase3a: Phase3aSchemaReport
+  /** Which analysis sections are degraded because a column they depend on is absent. A section is
+   *  'unavailable' rather than silently computed from a default/empty value. `notes` names the
+   *  missing columns behind each degradation. */
+  provisional: {
+    identity: 'available' | 'degraded'
+    membershipParity: 'available' | 'unavailable'
+    artifactClassification: 'available' | 'unavailable'
+    notes: string[]
+  }
   plan: {
     usersToCreate: number
     teamsToCreate: number | null // null = unavailable (mapping needs Team.supabaseTeamId)
