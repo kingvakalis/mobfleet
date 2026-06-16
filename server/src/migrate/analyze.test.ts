@@ -19,7 +19,7 @@ const ROLE_PROOF: RoleReadOnlyProof = {
 const T_JAN = '2024-01-01T00:00:00Z'
 const TS_JUN = Date.parse('2024-06-01T00:00:00Z')
 
-const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], proof: PROOF, roleProof: ROLE_PROOF, ...o })
+const src = (o: Partial<SourceSnapshot> = {}): SourceSnapshot => ({ authUsers: [], teams: [], members: [], invites: [], mode: 'live', proof: PROOF, roleProof: ROLE_PROOF, snapshotMeta: null, ...o })
 const PHASE3A_OK = { supabaseTeamIdPresent: true, archivedAtPresent: true, inviteInvitedByNullable: true, migrationRecordPresent: true, missing: [] as string[] }
 const tgt = (o: Partial<TargetSnapshot> = {}): TargetSnapshot => ({ users: [], teams: [], memberships: [], invites: [], childCountsByTeam: {}, auditCountByTeam: {}, schema: { expected: [], present: [], missing: [], extra: [] }, phase3a: PHASE3A_OK, ...o })
 

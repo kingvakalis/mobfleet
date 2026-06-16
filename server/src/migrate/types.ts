@@ -144,13 +144,24 @@ export interface RoleReadOnlyProof {
   defaultTransactionReadOnly: string
   violations: string[]
 }
+/** Offline-snapshot provenance: the exported file's declared version, its generation timestamp,
+ *  and a deterministic SHA-256 of the file bytes. */
+export interface SnapshotFileMeta {
+  version: number
+  generatedAt: string
+  sha256: string
+}
+
 export interface SourceSnapshot {
   authUsers: SrcAuthUser[]
   teams: SrcTeam[]
   members: SrcMember[]
   invites: SrcInvite[]
-  proof: SnapshotProof
-  roleProof: RoleReadOnlyProof
+  /** 'live' = read from Supabase over one RR READ ONLY tx; 'offline_snapshot' = loaded from a local file. */
+  mode: 'live' | 'offline_snapshot'
+  proof: SnapshotProof | null // live mode only
+  roleProof: RoleReadOnlyProof | null // live mode only
+  snapshotMeta: SnapshotFileMeta | null // offline mode only
 }
 
 // ── Target snapshot (read-only from Prisma) ──
@@ -212,7 +223,11 @@ export interface ArtifactVerdict {
 export interface InventoryReport {
   /** Set by the script after analyze() (pure code cannot read the clock). */
   generatedAt: string | null
-  /** Source role read-only proof (carried from the snapshot). */
+  /** 'live' or 'offline_snapshot'. */
+  sourceMode: 'live' | 'offline_snapshot'
+  /** Offline-snapshot provenance (version/generatedAt/sha256); null in live mode. */
+  sourceSnapshot: SnapshotFileMeta | null
+  /** Source role read-only proof (carried from the snapshot); null in offline mode. */
   sourceRole: RoleReadOnlyProof | null
   /** Set by the script after the target read-only pre-flight (analyze() leaves it null). */
   targetReadOnly: RoleReadOnlyProof | null

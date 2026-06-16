@@ -14,6 +14,11 @@ export function renderHuman(report: InventoryReport): string {
   const na = (v: number | null): string => (v === null ? 'unavailable' : String(v))
   L.push('========== Supabase -> Prisma migration inventory (DRY-RUN, read-only) ==========')
   L.push(report.generatedAt ? `generated: ${report.generatedAt}` : 'generated: (unstamped)')
+  L.push(
+    report.sourceSnapshot
+      ? `source mode: ${report.sourceMode} (snapshot v${report.sourceSnapshot.version}, generatedAt=${report.sourceSnapshot.generatedAt}, sha256=${report.sourceSnapshot.sha256})`
+      : `source mode: ${report.sourceMode}`,
+  )
   if (report.source.proof) {
     L.push(`source snapshot: isolation=${report.source.proof.isolation}, read_only=${report.source.proof.readOnly}, backend_pid=${report.source.proof.backendPid}`)
   }

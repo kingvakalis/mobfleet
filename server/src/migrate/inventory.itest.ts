@@ -1,10 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { Client } from 'pg'
 import { testDb, resetDb } from '../it-support'
 import { readSourceSnapshot } from './source'
+import { loadSourceSnapshot } from './snapshot'
 import { readTargetSnapshot } from './target'
 import { analyze } from './analyze'
+import { toJson } from './report'
 
 /**
  * End-to-end integration test for the read-only migration inventory against DISPOSABLE
@@ -99,9 +105,9 @@ test('inventory: end-to-end classification + plan + blockers against seeded sour
   await seedTarget(db)
 
   const source = await readSourceSnapshot(SRC_URL!)
-  // The snapshot is provably repeatable-read + read-only.
-  assert.equal(source.proof.isolation, 'repeatable read')
-  assert.equal(source.proof.readOnly, true)
+  // The snapshot is provably repeatable-read + read-only (live mode -> proof is non-null).
+  assert.equal(source.proof?.isolation, 'repeatable read')
+  assert.equal(source.proof?.readOnly, true)
   assert.equal(source.authUsers.length, 2)
   assert.equal(source.teams.length, 2)
   assert.equal(source.members.length, 2)
@@ -160,8 +166,8 @@ test('inventory: source role enforcement REJECTS a superuser source connection',
   await assert.rejects(readSourceSnapshot(SRC_URL!, { enforceReadOnlyRole: true }), /least-privilege read-only/)
   // Non-enforced (default) still returns a snapshot + the role proof for inspection.
   const snap = await readSourceSnapshot(SRC_URL!)
-  assert.ok(snap.roleProof.violations.length > 0)
-  assert.equal(snap.roleProof.isSuperuser, true)
+  assert.ok((snap.roleProof?.violations.length ?? 0) > 0)
+  assert.equal(snap.roleProof?.isSuperuser, true)
 })
 
 test('inventory: a missing target table is a blocker, does NOT crash, and changes neither DB', { skip }, async () => {
@@ -226,4 +232,43 @@ test('inventory: tolerates a pre-3A target (3A columns/table absent) -> blockers
     await db.$executeRawUnsafe('ALTER TABLE "MigrationRecord_bak" RENAME TO "MigrationRecord"')
   }
   assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+})
+
+// Offline mode needs NO Supabase source -> gated only on the target DB being available.
+test('inventory: OFFLINE snapshot mode (no Supabase connection) analyzes + leaves target unchanged + no token leak', { skip: process.env.TEST_DATABASE_URL ? false : 'set TEST_DATABASE_URL' }, async () => {
+  const db = testDb()
+  await resetDb(db)
+  await db.user.create({ data: { id: 'pu_bob', authProviderId: 'auth_bob', email: 'bob@x.com', createdAt: Date.now() } })
+  await db.team.create({ data: { id: 'pt_acme', name: 'Acme', createdAt: Date.now(), supabaseTeamId: 's_acme' } })
+  await db.membership.create({ data: { id: 'pm', userId: 'pu_bob', teamId: 'pt_acme', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: Date.now() } })
+  const tgtBefore = await targetCounts(db)
+
+  const snap = {
+    snapshotVersion: 1, source: 'supabase', generatedAt: '2026-06-16T00:00:00Z',
+    authUsers: [{ id: 'auth_bob', email: 'bob@x.com', emailConfirmedAt: '2024-01-01T00:00:00Z', fullName: 'Bob', createdAt: '2024-01-01T00:00:00Z' }],
+    teams: [{ id: 's_acme', name: 'Acme', ownerUserId: 'auth_bob', createdAt: '2024-01-01T00:00:00Z' }],
+    members: [{ id: 'sm1', teamId: 's_acme', userId: 'auth_bob', role: 'owner', status: 'active', email: 'bob@x.com', name: 'Bob', invitedBy: null, scopeType: 'workspace', scopeGroups: [], scopePhones: [], overrides: {}, joinedAt: '2024-01-01T00:00:00Z' }],
+    invites: [{ id: 'si1', teamId: 's_acme', email: 'new@x.com', role: 'operator', token: 'tok_SECRET_FULL_999', status: 'pending', invitedBy: null, createdAt: '2024-01-01T00:00:00Z', expiresAt: '2024-02-01T00:00:00Z', acceptedAt: null }],
+  }
+  const snapPath = join(tmpdir(), `mf-src-${randomUUID()}.json`)
+  writeFileSync(snapPath, JSON.stringify(snap))
+  try {
+    const source = loadSourceSnapshot(snapPath)
+    assert.equal(source.mode, 'offline_snapshot')
+    const report = analyze(source, await readTargetSnapshot(db))
+    assert.equal(report.sourceMode, 'offline_snapshot')
+    assert.equal(report.sourceSnapshot?.version, 1)
+    assert.match(report.sourceSnapshot?.sha256 ?? '', /^[0-9a-f]{64}$/)
+    // identity/team/member/invite analysis still works
+    assert.equal(report.source.authUsers, 1)
+    assert.equal(report.source.invites, 1)
+    assert.equal(report.plan.teamsAlreadyMapped, 1) // s_acme mapped to pt_acme; matching owner -> no conflict
+    assert.ok(!report.findings.some((f) => f.code === 'TGT_MEMBERSHIP_CONFLICT'))
+    // no full invite token anywhere in the emitted report
+    assert.ok(!toJson(report).includes('tok_SECRET_FULL_999'))
+    // target unchanged (read-only)
+    assert.deepEqual(await targetCounts(db), tgtBefore)
+  } finally {
+    rmSync(snapPath, { force: true })
+  }
 })

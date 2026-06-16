@@ -78,7 +78,7 @@ export async function readSourceSnapshot(connectionString: string, opts: { enfor
     // Read-only: roll back (there is nothing to commit) before releasing the connection.
     await client.query('ROLLBACK')
 
-    return { authUsers, teams, members, invites, proof: { isolation, readOnly, backendPid }, roleProof }
+    return { authUsers, teams, members, invites, mode: 'live', proof: { isolation, readOnly, backendPid }, roleProof, snapshotMeta: null }
   } finally {
     await client.end()
   }

@@ -61,6 +61,32 @@ npm run migrate:inventory
 unset SUPABASE_DB_URL DATABASE_URL
 ```
 
+## 2b. Alternative SOURCE: offline Supabase snapshot (recommended for hosted Supabase)
+Hosted Supabase does not allow granting USAGE on the managed `auth` schema to a custom read-only
+role, so a live least-privilege read of `auth.users` is not possible. Instead, export a snapshot and
+run the inventory **offline** (the TARGET is still read live + read-only):
+
+1. In the **Supabase SQL Editor** (as the dashboard admin), run the single read-only statement
+   [`export-supabase-inventory-snapshot.sql`](./export-supabase-inventory-snapshot.sql) and save the
+   returned `snapshot` value to a LOCAL file `migration-source-snapshot.json` (gitignored — **never
+   commit it**; it contains user ids + full invite tokens). The statement creates/alters nothing.
+2. Run the inventory in offline mode (Windows PowerShell). No Supabase connection is made; this mode
+   is mutually exclusive with `SUPABASE_DB_URL`:
+```powershell
+$env:DATABASE_URL="<TARGET_READONLY_URL>"
+
+cd C:\Users\user\Desktop\PHONE-FARM-MAIN\server
+npm run migrate:inventory -- --source-snapshot .\migration-source-snapshot.json
+
+Remove-Item Env:DATABASE_URL
+```
+The report records `source mode: offline_snapshot`, the snapshot version + `generatedAt`, a
+deterministic SHA-256 of the file, and the source row counts. The snapshot is strictly validated
+(version / structure / required fields + types / duplicate ids / malformed timestamps / malformed
+JSON) and the run **fails closed** on any problem. The target read-only pre-flight, schema-drift +
+Phase 3A blockers, all conflict analysis, and masking/token-fingerprinting apply exactly as in live
+mode. (Bash: `DATABASE_URL=… npm run migrate:inventory -- --source-snapshot ./migration-source-snapshot.json`.)
+
 ## 3. Clean up the temporary roles (administrator)
 - Source: [`source-cleanup.sql`](./source-cleanup.sql)
 - Target: [`target-cleanup.sql`](./target-cleanup.sql)
