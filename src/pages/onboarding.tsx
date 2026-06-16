@@ -6,8 +6,11 @@ import { EXPO_OUT } from '@/lib/motion'
 import { Spinner } from '@/components/ui/spinner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useAuthz } from '@/contexts/AuthzContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { useToastStore } from '@/state/toast-store'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { ApiError, createOnboardingTeam } from '@/services/me-client'
 import { ONBOARDING_PROGRESS_KEY as PROGRESS_KEY, clearOnboardingProgress } from '@/contexts/onboarding'
 
 /**
@@ -95,14 +98,19 @@ export function OnboardingPage() {
   const navigate = useNavigate()
   const { enabled, loading, session, user } = useAuth()
   const team = useTeamContext()
+  const authz = useAuthz()
   const addToast = useToastStore((s) => s.addToast)
 
   // The gate routes no-team users here; provision their first workspace (deliberate,
   // idempotent, server-enforced by RLS + the owner-bootstrap trigger) before the
   // survey. One attempt, retryable on failure — never an infinite re-create loop.
   const provisionAttempted = useRef(false)
+  // me-mode: a second, idempotent attempt creates the authoritative PRISMA team alongside
+  // the Supabase one (see the dual-write effect below). Tracked separately so each retries
+  // independently.
+  const prismaAttempted = useRef(false)
   const [provisionError, setProvisionError] = useState<string | null>(null)
-  const retryProvision = () => { provisionAttempted.current = false; setProvisionError(null) }
+  const retryProvision = () => { provisionAttempted.current = false; prismaAttempted.current = false; setProvisionError(null) }
 
   // Resume from localStorage via lazy initializers, so progress is correct from
   // the first render (no setState-in-effect hydration pass).
@@ -163,6 +171,34 @@ export function OnboardingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, loading, session, team.loading, team.team, team.suspended, team.provisionTeam])
 
+  // me-mode dual-write: once the user's OWN Supabase team exists (the data layer + the name
+  // source), mint the matching authoritative PRISMA team so `GET /v1/me` flips from
+  // onboardingRequired → ready. OWNERS ONLY — gated on the Supabase role so it can only ever
+  // create the caller's own first team, mirroring resolveAuthzDecision's owner-only branch. An
+  // existing NON-owner member (no Prisma team yet) must NOT mint a bogus owner team — the route
+  // guard below sends them to "/" → awaiting-migration (this route has no role gate, so a
+  // non-owner CAN reach here by direct navigation). Idempotent (the backend adopts an
+  // existing/concurrent team). The two team-id spaces stay separate: this never feeds a Supabase
+  // id to the backend or vice-versa.
+  useEffect(() => {
+    if (AUTH_SOURCE !== 'me' || !enabled || loading || !session) return
+    if (!team.team || team.role !== 'owner' || !authz.me?.onboardingRequired || prismaAttempted.current) return
+    prismaAttempted.current = true
+    void createOnboardingTeam(team.team.name)
+      .then(() => authz.refresh())
+      .catch((err: unknown) => {
+        prismaAttempted.current = false
+        const msg = err instanceof ApiError
+          ? (err.status === 409
+              ? 'You have a pending invitation — accept it from your email to join that workspace.'
+              : err.message)
+          : 'Could not finish creating your workspace.'
+        setProvisionError(msg)
+      })
+    // authz.refresh/createOnboardingTeam are stable enough; team identity + role drive this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, loading, session, team.team?.id, team.team?.name, team.role, authz.me?.onboardingRequired])
+
   // Guards (in order). Onboarding needs a real session. We ensure a workspace exists
   // BEFORE the survey and BEFORE the already-onboarded redirect — otherwise an
   // onboarded-but-teamless user would loop between "/" and "/onboarding". The
@@ -188,6 +224,21 @@ export function OnboardingPage() {
   }
   // First workspace still being created (the provision effect is in flight).
   if (!team.team && !done) {
+    return <div className="flex h-screen w-full items-center justify-center bg-canvas"><Spinner size={24} /></div>
+  }
+  // me-mode: ONLY a Supabase owner provisions/mints a first workspace here. An existing non-owner
+  // member who reaches /onboarding directly (this route has no role gate) has a Supabase team but
+  // no Prisma team yet — they must NOT mint a bogus owner team. Send them to "/", where the gate
+  // holds them in `awaiting-migration` until the Step 3 migration backfills their real Prisma
+  // membership. (Guard on a RESOLVED non-owner role only, so a freshly-provisioned owner — whose
+  // role briefly resolves after the team — is never bounced.)
+  if (AUTH_SOURCE === 'me' && !done && team.team && team.role && team.role !== 'owner') {
+    return <Navigate to="/" replace />
+  }
+  // me-mode: an already-onboarded owner whose authoritative PRISMA team is still being minted
+  // (the dual-write effect above is in flight) waits here. Bouncing to "/" now would loop back
+  // through the gate — which still sees onboardingRequired — until the mint completes.
+  if (AUTH_SOURCE === 'me' && !done && user?.user_metadata?.onboarded && authz.me?.onboardingRequired) {
     return <div className="flex h-screen w-full items-center justify-center bg-canvas"><Spinner size={24} /></div>
   }
   if (!done && user?.user_metadata?.onboarded) return <Navigate to="/" replace />

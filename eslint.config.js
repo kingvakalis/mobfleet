@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `phone-farm-app/` is a separate embedded repo (git submodule/gitlink) with its own
+  // tooling — it is not part of this app's lint surface.
+  globalIgnores(['dist', 'phone-farm-app']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
