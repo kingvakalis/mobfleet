@@ -33,6 +33,17 @@ export interface MeTeam {
   id: string
   name: string
 }
+/** One workspace the caller belongs to — projected from a membership for the team
+ *  switcher. `current` marks the selected team; `status` distinguishes active
+ *  (switchable) from suspended. Mirrors the backend `MeTeamSummary` exactly. */
+export interface MeTeamSummary {
+  teamId: string
+  name: string
+  role: string
+  status: string
+  membershipId: string
+  current: boolean
+}
 export interface MePendingInvite {
   id: string
   teamId: string
@@ -51,6 +62,12 @@ export interface MeResponse {
   permissions: string[]
   onboardingRequired: boolean
   suspended: boolean
+  /** The IdP account's email-verified flag — the invite-accept gate depends on it. */
+  emailVerified: boolean
+  /** The caller's full switchable-team roster (every team they belong to, with their
+   *  role + status there; `current` marks the selected one). Active-status entries are
+   *  the ones a deliberate switch will accept. */
+  teams: MeTeamSummary[]
   pendingInvite: MePendingInvite | null
 }
 
@@ -78,6 +95,13 @@ async function meApi<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const fetchMe = (): Promise<MeResponse> => meApi<MeResponse>('/v1/me')
+
+/** DELIBERATELY switch the active team. The server validates `teamId` against the
+ *  caller's own ACTIVE memberships and recomputes role + permissions — it REJECTS
+ *  (403) a foreign/suspended/removed team instead of silently falling back, so the
+ *  client is never switched somewhere it didn't ask for. Returns the fresh /v1/me. */
+export const switchTeam = (teamId: string): Promise<MeResponse> =>
+  meApi<MeResponse>('/v1/me/team', { method: 'POST', body: JSON.stringify({ teamId }) })
 
 /** Deliberately create this user's FIRST team (as owner) via the authoritative backend.
  *  Idempotent (adopts an existing/concurrent team). 409 = a pending Prisma invite. */

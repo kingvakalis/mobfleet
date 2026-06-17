@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useAuth } from '@/contexts/AuthContext'
 import { setActiveTeam } from '@/lib/provider/auth-token'
 import { AUTH_SOURCE } from '@/auth/auth-source'
-import { ApiError, fetchMe, type MeResponse } from '@/services/me-client'
+import { ApiError, fetchMe, switchTeam as switchTeamApi, type MeResponse, type MeTeamSummary } from '@/services/me-client'
 
 /**
  * Authoritative identity/team state from the backend `GET /v1/me` (Prisma). This is the
@@ -22,7 +22,13 @@ export interface AuthzValue {
   loading: boolean
   error: { status: number | null; message: string } | null
   me: MeResponse | null
+  /** The caller's switchable-team roster (from /v1/me). Empty in supabase-mode. */
+  teams: MeTeamSummary[]
   refresh: () => Promise<void>
+  /** Deliberately switch the active team via POST /v1/me/team and adopt the fresh
+   *  authoritative state. No-op in supabase-mode. Rejects (throws) on a foreign/
+   *  suspended team — the gate/caller surfaces it; never a silent wrong-team switch. */
+  switchTeam: (teamId: string) => Promise<void>
 }
 
 const AuthzContext = createContext<AuthzValue | null>(null)
@@ -76,7 +82,19 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
     if (active) setActiveTeam(me?.team?.id ?? null)
   }, [active, me?.team?.id])
 
-  const value: AuthzValue = { active, loading, error, me, refresh: () => load() }
+  // Deliberate team switch (me-mode only). Reuses the same authority as /v1/me: the
+  // server re-validates the requested team against the caller's ACTIVE memberships and
+  // recomputes role+permissions, so the new `me` is fully authoritative. A foreign/
+  // suspended team throws (ApiError 403) for the caller to surface.
+  const switchTeam = useCallback(async (teamId: string): Promise<void> => {
+    if (!active) return
+    const next = await switchTeamApi(teamId)
+    setMe(next)
+    setError(null)
+    setActiveTeam(next.team?.id ?? null)
+  }, [active])
+
+  const value: AuthzValue = { active, loading, error, me, teams: me?.teams ?? [], refresh: () => load(), switchTeam }
   return <AuthzContext.Provider value={value}>{children}</AuthzContext.Provider>
 }
 
