@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 // The classifier is a throwaway ops tool authored as ESM (.mjs); import the pure fn.
-import { classifyPhase3c } from '../ops/phase3c-classify.mjs'
+import { classifyPhase3c, classifyCombined, isVerifiedCounts } from '../ops/phase3c-classify.mjs'
 
 /**
  * Phase 3C cutover classifier — covers BOTH branches:
@@ -81,4 +81,48 @@ test('numeric strings are coerced; null/undefined snapshots are safe', () => {
   // null/undefined snapshot guard. The classifier's declared signature accepts both.
   assert.equal(classifyPhase3c({ Team: '0' }, null).decision, 'SAFE_NOOP')
   assert.equal(classifyPhase3c({ Team: '3' }, undefined).decision, 'BLOCK')
+})
+
+// ── isVerifiedCounts: distinguishes a real counts object from an unavailable marker ──
+test('isVerifiedCounts: counts objects (number|null) are verified; markers are not', () => {
+  assert.equal(isVerifiedCounts({ User: 0, Team: 3, Device: null }), true)
+  assert.equal(isVerifiedCounts({}), true) // explicit empty = nothing present
+  assert.equal(isVerifiedCounts({ unavailable: 'PRISMA_RO_URL not set' }), false)
+  assert.equal(isVerifiedCounts({ skipped: 'x' }), false)
+  assert.equal(isVerifiedCounts(undefined), false)
+  assert.equal(isVerifiedCounts(null), false)
+  assert.equal(isVerifiedCounts([1, 2]), false)
+})
+
+// ── classifyCombined: combined-shape interface + FAIL-CLOSED on an un-inventoried side ──
+test('classifyCombined: both sides inventoried + empty → SAFE_NOOP', () => {
+  const r = classifyCombined({ prisma: { User: 0, Team: 0 }, supabase: { teams: 0, jobs: null } })
+  assert.equal(r.decision, 'SAFE_NOOP')
+  assert.equal(r.safe, true)
+})
+
+test('classifyCombined: business records present → BLOCK (not safe)', () => {
+  const r = classifyCombined({ prisma: { Team: 2 }, supabase: { teams: 0 } })
+  assert.equal(r.decision, 'BLOCK')
+  assert.equal(r.safe, false)
+  assert.deepEqual(r.blocking, [{ store: 'prisma', table: 'Team', count: 2 }])
+})
+
+test('classifyCombined: an UNAVAILABLE side fails closed → BLOCK, never SAFE_NOOP', () => {
+  const r = classifyCombined({ prisma: { unavailable: 'PRISMA_RO_URL not set' }, supabase: { teams: 0 } })
+  assert.equal(r.safe, false)
+  assert.equal(r.decision, 'BLOCK')
+  assert.deepEqual(r.unverified, ['prisma'])
+  assert.match(r.message, /UNVERIFIED/)
+})
+
+test('classifyCombined: a MISSING side fails closed (cannot be read as empty/safe)', () => {
+  const r = classifyCombined({ prisma: { User: 0 } }) // supabase absent
+  assert.equal(r.safe, false)
+  assert.deepEqual(r.unverified, ['supabase'])
+})
+
+test('classifyCombined: no/invalid snapshot fails closed', () => {
+  assert.equal(classifyCombined(null).safe, false)
+  assert.equal(classifyCombined('nope').safe, false)
 })

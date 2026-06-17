@@ -13,6 +13,8 @@ export interface Phase3cResult {
   safe: boolean
   message: string
   blocking: Phase3cBlocker[]
+  /** Present (non-empty) ONLY on a fail-closed UNVERIFIED result from classifyCombined. */
+  unverified?: string[]
 }
 
 /** Deterministic, pure cutover classifier. See phase3c-classify.mjs for behavior. */
@@ -20,6 +22,14 @@ export function classifyPhase3c(
   prismaCounts: Record<string, unknown> | null | undefined,
   supabaseCounts: Record<string, unknown> | null | undefined,
 ): Phase3cResult
+
+/** True only when `side` is a counts object (values number|null) — not an
+ *  { unavailable } marker / missing / non-numeric. */
+export function isVerifiedCounts(side: unknown): boolean
+
+/** Fail-closed classifier over the COMBINED { prisma, supabase } inventory snapshot:
+ *  a missing/unavailable/invalid side yields UNVERIFIED (safe:false). */
+export function classifyCombined(combined: unknown): Phase3cResult
 
 export const PRISMA_BUSINESS_TABLES: string[]
 export const SUPABASE_BUSINESS_TABLES: string[]

@@ -8,17 +8,26 @@
 //   * ANY business records present              → "BLOCK auth cutover; mapping required",
 //                                                 listing exactly which tables/counts block it.
 //
-// It NEVER connects anywhere. Feed it JSON produced separately (by running the
-// read-only inventory SQL in server/ops/*.sql and capturing the counts), e.g.:
+// It NEVER connects anywhere. It consumes ONE unambiguous COMBINED snapshot — exactly
+// the JSON emitted by ops/prod-readiness-inventory.mjs — via stdin or --input <file>:
 //
-//   node server/ops/phase3c-classify.mjs --prisma prisma-counts.json --supabase supabase-counts.json
-//   cat both.json | node server/ops/phase3c-classify.mjs   # { "prisma": {...}, "supabase": {...} }
+//   node ops/prod-readiness-inventory.mjs > counts.json
+//   node ops/phase3c-classify.mjs --input counts.json     # or:  < counts.json
 //
-// Snapshot shape: a flat object of { "<table>": <count:number> }. Unknown keys are
-// allowed and treated as business records (fail safe — an unexpected populated table
-// blocks rather than being silently ignored).
+// Combined shape: { "prisma": <side>, "supabase": <side> }, where each <side> is either a
+// counts object { "<table>": number | null }  (null = table absent), OR an
+// { "unavailable": "<reason>" } marker when that side was not inventoried.
 //
-// The pure classifier (classifyPhase3c) is unit-tested in server/src/phase3c.test.ts.
+// DECISION:
+//   * BOTH sides inventoried AND empty of business records  -> SAFE_NOOP (exit 0).
+//   * ANY business records present                          -> BLOCK    (exit 1).
+//   * EITHER side missing / { unavailable } / not a counts object -> UNVERIFIED, FAIL
+//     CLOSED (exit 1) — an un-inventoried side can NEVER be read as "empty / safe".
+// Unknown populated tables are treated as business (fail safe). Bookkeeping tables in
+// IGNORED_TABLES never block.
+//
+// The pure classifier (classifyPhase3c) + the fail-closed wrapper (classifyCombined) are
+// unit-tested in server/src/phase3c.test.ts.
 
 import { readFileSync } from 'node:fs'
 
@@ -91,13 +100,52 @@ export function classifyPhase3c(prismaCounts, supabaseCounts) {
   }
 }
 
+/**
+ * A side is a VERIFIED counts object only when it is a non-null object whose every value
+ * is a number (a count) or null (table absent). An { unavailable }/{ skipped }/{ error }
+ * marker, a missing side, or any non-numeric value makes it UNVERIFIED. Pure.
+ * @param {unknown} side
+ * @returns {boolean}
+ */
+export function isVerifiedCounts(side) {
+  if (!side || typeof side !== 'object' || Array.isArray(side)) return false
+  const values = Object.values(side)
+  if (values.length === 0) return true // an explicit empty counts object = nothing present
+  return values.every((v) => v === null || typeof v === 'number')
+}
+
+/**
+ * Fail-closed classifier over the COMBINED snapshot. If either side was not inventoried
+ * (missing / { unavailable } / not a counts object) the result is UNVERIFIED and NOT safe
+ * — an un-inventoried side can never green-light the cutover. Otherwise delegates to the
+ * pure classifyPhase3c. Pure — no I/O.
+ * @param {unknown} combined
+ * @returns {{ decision: 'SAFE_NOOP'|'BLOCK', safe: boolean, message: string, blocking: {store:string,table:string,count:number}[], unverified?: string[] }}
+ */
+export function classifyCombined(combined) {
+  if (!combined || typeof combined !== 'object') {
+    return { decision: 'BLOCK', safe: false, message: 'UNVERIFIED: no/invalid snapshot (fail-closed — re-run the read-only inventory)', blocking: [], unverified: ['input'] }
+  }
+  const unverified = []
+  if (!isVerifiedCounts(combined.prisma)) unverified.push('prisma')
+  if (!isVerifiedCounts(combined.supabase)) unverified.push('supabase')
+  if (unverified.length > 0) {
+    return {
+      decision: 'BLOCK',
+      safe: false,
+      message: `UNVERIFIED: ${unverified.join(', ')} not inventoried (fail-closed — provide both sides via the read-only inventory before deciding)`,
+      blocking: [],
+      unverified,
+    }
+  }
+  return classifyPhase3c(combined.prisma, combined.supabase)
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
   const args = {}
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]
-    if (a === '--prisma') args.prisma = argv[++i]
-    else if (a === '--supabase') args.supabase = argv[++i]
+    if (argv[i] === '--input') args.input = argv[++i]
   }
   return args
 }
@@ -127,23 +175,15 @@ function isMain() {
 
 if (isMain()) {
   const args = parseArgs(process.argv.slice(2))
-  let prismaCounts = {}
-  let supabaseCounts = {}
-  if (args.prisma || args.supabase) {
-    if (args.prisma) prismaCounts = readJson(args.prisma)
-    if (args.supabase) supabaseCounts = readJson(args.supabase)
-  } else {
-    const combined = readStdin()
-    if (!combined || typeof combined !== 'object') {
-      console.error('phase3c: provide --prisma <file> --supabase <file>, or pipe { "prisma": {...}, "supabase": {...} } on stdin')
-      process.exit(2)
-    }
-    prismaCounts = combined.prisma ?? {}
-    supabaseCounts = combined.supabase ?? {}
+  // ONE unambiguous interface: the combined { prisma, supabase } snapshot from the
+  // inventory tool, via --input <file> or stdin.
+  const combined = args.input ? readJson(args.input) : readStdin()
+  if (!combined || typeof combined !== 'object') {
+    console.error('phase3c: pipe the inventory snapshot { "prisma": {...}, "supabase": {...} } on stdin, or pass --input <file>')
+    process.exit(2)
   }
-
-  const result = classifyPhase3c(prismaCounts, supabaseCounts)
+  const result = classifyCombined(combined)
   console.log(JSON.stringify(result, null, 2))
-  // Exit code is a gate signal: 0 = safe no-op, 1 = BLOCK. NEVER auto-flips anything.
+  // Exit code is a gate signal: 0 = safe no-op; 1 = BLOCK or UNVERIFIED. NEVER auto-flips.
   process.exit(result.safe ? 0 : 1)
 }
