@@ -18,6 +18,7 @@ import { defineConfig } from 'playwright/test'
 const argv = process.argv.join(' ')
 const onlyEngine = argv.includes('--project=engine')
 const onlyAuth = argv.includes('--project=e2e-auth')
+const onlyMe = argv.includes('--project=e2e-me')
 const skipServer = process.env.PW_SKIP_SERVER === '1' || onlyEngine
 
 // Authenticated profile: prefer an externally-supplied, already-running app
@@ -25,6 +26,8 @@ const skipServer = process.env.PW_SKIP_SERVER === '1' || onlyEngine
 // Supabase test vars are present, build a Supabase-configured preview locally.
 const E2E_BASE_URL = process.env.E2E_BASE_URL
 const authBuildConfigured = Boolean(process.env.E2E_SUPABASE_URL && process.env.E2E_SUPABASE_ANON_KEY)
+const E2E_ME_BASE_URL = process.env.E2E_ME_BASE_URL
+const meBuildConfigured = Boolean(process.env.E2E_ME_SUPABASE_URL && process.env.E2E_ME_SUPABASE_ANON_KEY && process.env.E2E_ME_API_URL)
 
 const LAUNCH = { args: ['--use-gl=swiftshader', '--no-sandbox', '--disable-dev-shm-usage'] }
 
@@ -57,13 +60,36 @@ const authServer = {
   timeout: 180_000,
 }
 
+// AUTHORITATIVE me-mode build: VITE_AUTH_SOURCE=me so the gate + role come from the
+// backend GET /v1/me (Prisma). Supabase still provides login. DEDICATED TEST project +
+// test backend only — NEVER production. Built only for --project=e2e-me with no external
+// E2E_ME_BASE_URL; absent config → no server, the spec skips.
+const meServer = {
+  command: 'npm run build && npm run preview -- --port 4373 --strictPort',
+  url: 'http://localhost:4373',
+  env: {
+    VITE_AUTH_SOURCE: 'me',
+    VITE_SUPABASE_URL: process.env.E2E_ME_SUPABASE_URL ?? '',
+    VITE_SUPABASE_ANON_KEY: process.env.E2E_ME_SUPABASE_ANON_KEY ?? '',
+    VITE_USE_BACKEND: '1',
+    VITE_API_URL: process.env.E2E_ME_API_URL ?? '',
+    VITE_WS_URL: process.env.E2E_ME_WS_URL ?? '',
+  },
+  reuseExistingServer: true,
+  timeout: 180_000,
+}
+
 const webServer = skipServer
   ? undefined
-  : onlyAuth
-    ? E2E_BASE_URL || !authBuildConfigured
+  : onlyMe
+    ? E2E_ME_BASE_URL || !meBuildConfigured
       ? undefined // external app, or unconfigured (spec skips) — build nothing
-      : authServer
-    : demoServer
+      : meServer
+    : onlyAuth
+      ? E2E_BASE_URL || !authBuildConfigured
+        ? undefined // external app, or unconfigured (spec skips) — build nothing
+        : authServer
+      : demoServer
 
 export default defineConfig({
   testDir: './tests',
@@ -75,7 +101,7 @@ export default defineConfig({
   projects: [
     // Pure-function unit tests (no browser, no server): the access engine, the
     // fleet physics solver, the auth/email routing + client builders.
-    { name: 'engine', testMatch: /(authz-engine|fleet-physics|email-engine|control-command|email-settings-client|auth-redirect|auth-route|authz-route|no-debug-ingest)\.spec\.ts/ },
+    { name: 'engine', testMatch: /(authz-engine|fleet-physics|email-engine|control-command|email-settings-client|auth-redirect|auth-route|authz-route|no-debug-ingest|selected-team|shift-overlay|secret-scan)\.spec\.ts/ },
     {
       // DEMO/mock profile — seeded-employee impersonation, Supabase unconfigured.
       name: 'e2e',
@@ -85,8 +111,15 @@ export default defineConfig({
     {
       // AUTHENTICATED profile — real Supabase login. Skips unless configured.
       name: 'e2e-auth',
-      testMatch: /authenticated-rbac\.spec\.ts/,
+      testMatch: /(authenticated-rbac|feature-coverage)\.spec\.ts/,
       use: { baseURL: E2E_BASE_URL || 'http://localhost:4273', headless: true, launchOptions: LAUNCH },
+    },
+    {
+      // AUTHORITATIVE me-mode profile — VITE_AUTH_SOURCE=me, gate+role from /v1/me.
+      // Skips unless E2E_ME_* configured (dedicated test project, never prod).
+      name: 'e2e-me',
+      testMatch: /authoritative-me-mode\.spec\.ts/,
+      use: { baseURL: E2E_ME_BASE_URL || 'http://localhost:4373', headless: true, launchOptions: LAUNCH },
     },
     {
       name: 'capture',

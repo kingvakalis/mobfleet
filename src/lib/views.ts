@@ -2,7 +2,7 @@ import type { PermissionKey } from '@/lib/authorization/permissions'
 
 export type ViewId =
   | 'fleet' | 'phones' | 'accounts' | 'groups' | 'team'
-  | 'automations' | 'jobs' | 'scale' | 'logs' | 'settings' | 'phone-control'
+  | 'automations' | 'jobs' | 'scale' | 'proxies' | 'logs' | 'settings' | 'phone-control'
 
 export type View = ViewId
 
@@ -18,6 +18,8 @@ export interface ViewMeta {
 export const VIEWS: ViewMeta[] = [
   { id: 'fleet',       label: 'Fleet',            icon: 'network',    requiredAny: ['fleet.view'] },
   { id: 'phones',      label: 'Phones',           icon: 'smartphone', requiredAny: ['phones.view'] },
+  { id: 'proxies',     label: 'Proxies',          icon: 'globe',      requiredAny: ['phones.view'] },
+  { id: 'scale',       label: 'Scale',            icon: 'gauge',      requiredAny: ['phones.provision', 'phones.retire'] },
   { id: 'accounts',    label: 'Account Database', icon: 'database',   requiredAny: ['accounts.view'] },
   { id: 'groups',      label: 'Groups',           icon: 'layers',     requiredAny: ['groups.view'] },
   { id: 'team',        label: 'Team',             icon: 'users',      requiredAny: ['team.view', 'roles.view'] },
@@ -38,6 +40,7 @@ export const VIEW_REQUIRED: Record<ViewId, PermissionKey[]> = {
   jobs: ['jobs.view'],
   logs: ['activity.view'],
   settings: ['settings.view'],
-  scale: ['phones.import'],
+  scale: ['phones.provision', 'phones.retire'],
+  proxies: ['phones.view'],
   'phone-control': ['phones.view'],
 }

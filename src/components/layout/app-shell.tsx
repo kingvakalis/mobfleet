@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings, Grid2x2,
+  Globe, Gauge,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
@@ -18,6 +19,8 @@ import { TeamSwitcher } from '@/components/team/team-switcher'
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
   smartphone: Smartphone,
+  globe:      Globe,
+  gauge:      Gauge,
   layers:     Layers,
   users:      Users,
   zap:        Zap,

@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 const migrationsDir = fileURLToPath(new URL('../../prisma/migrations', import.meta.url))
 const manifestPath = fileURLToPath(new URL('../../ops/migration-checksums.json', import.meta.url))
-const EXPECTED_ORDER = ['00000000000000_baseline', '20260616110000_reconcile_legacy_objects', '20260616120000_add_migration_mapping_and_audit_schema', '20260617120000_add_team_notification_prefs']
+const EXPECTED_ORDER = ['00000000000000_baseline', '20260616110000_reconcile_legacy_objects', '20260616120000_add_migration_mapping_and_audit_schema', '20260617120000_add_team_notification_prefs', '20260617130000_add_persistence_models']
 
 /** Deterministic, EOL-agnostic sha256 of a migration file: strip CR (0x0d) bytes so
  *  the digest is identical whether the file was checked out CRLF or LF. Byte-exact

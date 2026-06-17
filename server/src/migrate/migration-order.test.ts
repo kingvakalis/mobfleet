@@ -18,6 +18,7 @@ const ACTIVE_ORDER = [
   '20260616110000_reconcile_legacy_objects',
   '20260616120000_add_migration_mapping_and_audit_schema',
   '20260617120000_add_team_notification_prefs',
+  '20260617130000_add_persistence_models',
 ]
 const ARCHIVED = [
   '20260611155542_init',
@@ -65,6 +66,20 @@ test('reconcile migration: Postgres dialect, additive-only, stays in its lane', 
   // Stays in its lane -- Phase 3A objects must NOT appear in executable reconcile SQL.
   for (const phase3a of ['supabaseTeamId', 'archivedAt', 'MigrationRecord', 'DROP NOT NULL', 'SET NULL']) {
     assert.ok(!code.includes(phase3a), `Phase 3A object must NOT be in reconcile: ${phase3a}`)
+  }
+})
+
+test('persistence migration: additive-only, creates exactly the four new tables', () => {
+  const sql = readFileSync(`${migrationsDir}/20260617130000_add_persistence_models/migration.sql`, 'utf8')
+  const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+  for (const needle of [
+    'CREATE TABLE "Account"', 'CREATE TABLE "WorkspaceSettings"', 'CREATE TABLE "Shift"', 'CREATE TABLE "UserPreference"',
+    'CREATE UNIQUE INDEX "Account_teamId_username_key"', 'CREATE UNIQUE INDEX "UserPreference_teamId_userId_key"',
+    'ON DELETE CASCADE ON UPDATE CASCADE',
+  ]) assert.ok(code.includes(needle), `persistence migration must include: ${needle}`)
+  assert.ok(code.includes('DOUBLE PRECISION') && code.includes('JSONB'), 'uses Postgres types')
+  for (const forbidden of ['DROP TABLE', 'DROP COLUMN', 'DROP CONSTRAINT', 'TRUNCATE', 'DELETE FROM', 'ALTER COLUMN']) {
+    assert.ok(!code.toUpperCase().includes(forbidden.toUpperCase()), `persistence migration must NOT contain: ${forbidden}`)
   }
 })
 

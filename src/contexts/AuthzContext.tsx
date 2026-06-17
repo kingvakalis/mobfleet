@@ -3,6 +3,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { setActiveTeam } from '@/lib/provider/auth-token'
 import { AUTH_SOURCE } from '@/auth/auth-source'
 import { ApiError, fetchMe, switchTeam as switchTeamApi, type MeResponse, type MeTeamSummary } from '@/services/me-client'
+import { loadSelectedTeam, saveSelectedTeam, clearSelectedTeam } from '@/lib/selected-team'
+import { useToastStore } from '@/state/toast-store'
 
 /**
  * Authoritative identity/team state from the backend `GET /v1/me` (Prisma). This is the
@@ -52,6 +54,7 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async (isActive: () => boolean = () => true): Promise<void> => {
     if (!active || !userId) {
       if (isActive()) { setMe(null); setError(null); setLoading(false) }
+      clearSelectedTeam() // forget the persisted selection on sign-out
       return
     }
     if (isActive()) { setLoading(true); setError(null) }
@@ -59,6 +62,24 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
       const next = await fetchMe()
       if (!isActive()) return
       setMe(next); setError(null)
+      // Restore a deliberate team choice persisted across reloads, but ONLY if it is
+      // still an ACTIVE team in the authoritative roster. Stale/suspended/foreign
+      // selections are discarded with a clear message; we stay on the server's team.
+      const resolution = loadSelectedTeam(next)
+      if (resolution.action === 'restore') {
+        try {
+          const switched = await switchTeamApi(resolution.teamId)
+          if (!isActive()) return
+          setMe(switched)
+          setActiveTeam(switched.team?.id ?? null)
+          setTeamEpoch((n) => n + 1)
+        } catch {
+          clearSelectedTeam() // server rejected (raced removal) — drop the stale choice
+        }
+      } else if (resolution.action === 'discard') {
+        clearSelectedTeam()
+        useToastStore.getState().addToast(resolution.message, 'info')
+      }
     } catch (e) {
       if (!isActive()) return
       // NEVER fall back to a fake "no team" — a failure is a retryable error for the gate.
@@ -97,6 +118,7 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
     setMe(next)
     setError(null)
     setActiveTeam(next.team?.id ?? null)
+    if (next.team?.id) saveSelectedTeam(next.team.id) // persist the deliberate choice
     setTeamEpoch((n) => n + 1) // bump so team-scoped views drop stale data + refetch
   }, [active])
 

@@ -52,6 +52,10 @@ model Team {
   agentCommands  AgentCommand[]
   emailSettings  TeamEmailSettings?
   deviceSessions DeviceSession[]
+  accounts          Account[]
+  workspaceSettings WorkspaceSettings?
+  shifts            Shift[]
+  userPreferences   UserPreference[]
 }
 
 model User {
@@ -63,6 +67,8 @@ model User {
   createdAt      Float
   memberships    Membership[]
   sentInvites    Invite[]     @relation("InviteInvitedBy")
+  shifts          Shift[]
+  userPreferences UserPreference[]
 }
 
 model Membership {
@@ -330,4 +336,82 @@ model MigrationRecord {
 
   @@index([batchId])
   @@index([entity, prismaId])
+}
+
+// ─── Server-persistence (War-Room): team-scoped business data that replaces
+// frontend localStorage authority. All additive; String @id (typed prefix),
+// Float epoch-ms timestamps, Json? blobs, FK to Team/User onDelete: Cascade.
+
+model Account {
+  id            String  @id
+  teamId        String
+  handle        String
+  platform      String // 'Instagram' | 'TikTok' (validated app-side)
+  username      String
+  email         String
+  // SECURITY: plaintext (no reversible-encryption helper here; mirrors
+  // TeamEmailSettings.resendApiKey). NEVER returned in list/read (reduced to a
+  // boolean), never logged. Reveal is a separate audited endpoint. Nullable.
+  password      String?
+  phone         String?
+  assignedPhone String?
+  group         String  @default("Unassigned")
+  owner         String  @default("Unassigned")
+  twoFA         Boolean @default(false)
+  status        String  @default("warming") // active | flagged | banned | warming
+  tags          Json? // string[]
+  followers     Int     @default(0)
+  notes         String  @default("")
+  createdAt     Float
+  updatedAt     Float
+  team          Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, username])
+  @@index([teamId])
+  @@index([teamId, updatedAt])
+}
+
+model WorkspaceSettings {
+  id        String @id
+  teamId    String @unique // one settings row per team (true upsert)
+  settings  Json // normalized WorkspaceSettings blob; coerced complete on read
+  updatedAt Float
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+}
+
+model Shift {
+  id          String  @id
+  teamId      String
+  userId      String
+  startedAt   Float
+  endedAt     Float? // null = currently active
+  status      String  @default("active") // active | ended
+  correctedBy String? // manager id on a correction
+  correctedAt Float?
+  note        String?
+  createdAt   Float
+  updatedAt   Float
+  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([teamId, userId])
+  @@index([teamId, userId, status])
+  @@index([teamId, startedAt])
+}
+
+model UserPreference {
+  id          String @id
+  teamId      String
+  userId      String
+  preferences Json // opaque per-(team,user) blob, size-capped app-side
+  updatedAt   Float
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
 }

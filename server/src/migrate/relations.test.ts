@@ -10,8 +10,9 @@ import { CORE_READ_COLUMNS, readColumnDriftAgainstDmmf, teamRelations } from './
  *  Team FK SHOULD make this list grow AND must keep the DMMF-vs-implementation test below
  *  green automatically (the implementation derives from DMMF). */
 const KNOWN = [
-  'AgentCommand', 'AuditLog', 'Automation', 'Device', 'DeviceApiKey', 'DevicePairingToken',
-  'DeviceSession', 'Invite', 'Job', 'Membership', 'Proxy', 'TeamEmailSettings',
+  'Account', 'AgentCommand', 'AuditLog', 'Automation', 'Device', 'DeviceApiKey', 'DevicePairingToken',
+  'DeviceSession', 'Invite', 'Job', 'Membership', 'Proxy', 'Shift', 'TeamEmailSettings',
+  'UserPreference', 'WorkspaceSettings',
 ].sort()
 
 test('teamRelations() exactly matches the Team relations declared in the Prisma DMMF', () => {

@@ -21,6 +21,10 @@ import { registerEmailSettingsRoutes } from './routes/email-settings'
 import { registerActivityRoutes } from './routes/activity'
 import { registerOnboardingRoutes } from './routes/onboarding'
 import { registerMeRoutes } from './routes/me'
+import { registerAccountsRoutes } from './routes/accounts'
+import { registerWorkspaceSettingsRoutes } from './routes/workspace-settings'
+import { registerShiftsRoutes } from './routes/shifts'
+import { registerUserPreferencesRoutes } from './routes/user-preferences'
 import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../src/lib/authorization/permissions'
 import type { FleetStore } from './fleet-store'
@@ -353,4 +357,12 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // does NOT auto-provision. The UI derives routing + permissions from THIS (a no-team
   // user is onboarding-required, never "access restricted"), not from local state.
   registerMeRoutes(app)
+
+  // War-Room server-persistence (team-scoped, default 'team' auth):
+  // accounts vault (CRUD + idempotent import), per-team workspace settings,
+  // shift/time-tracking, and per-(team,user) preferences. All Prisma-authoritative.
+  registerAccountsRoutes(app)
+  registerWorkspaceSettingsRoutes(app)
+  registerShiftsRoutes(app)
+  registerUserPreferencesRoutes(app)
 }

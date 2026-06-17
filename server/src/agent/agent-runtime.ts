@@ -170,7 +170,7 @@ export class AgentRuntime {
   /** Re-check + recover WDA for every managed device. */
   async checkWdaOnce(): Promise<void> {
     for (const [udid, slot] of this.slots) {
-      let healthy = false
+      let healthy: boolean
       try {
         healthy = await this.adapter.isWdaHealthy(udid)
       } catch {
@@ -207,7 +207,7 @@ export class AgentRuntime {
   /** One poll pass: drain + execute the durable queue for every managed device. */
   async pollOnce(): Promise<void> {
     for (const [udid, slot] of this.slots) {
-      let frames: AgentCommandFrame[] = []
+      let frames: AgentCommandFrame[]
       try {
         frames = await slot.transport.pollCommands()
       } catch (err) {
