@@ -24,6 +24,10 @@ export interface AuthzValue {
   me: MeResponse | null
   /** The caller's switchable-team roster (from /v1/me). Empty in supabase-mode. */
   teams: MeTeamSummary[]
+  /** Increments on every successful deliberate team switch. Team-scoped views key
+   *  their fetches on it so a switch clears + reloads their cached data (the active-
+   *  team header is in-memory, so an in-SPA epoch is the correct cache-clear). */
+  teamEpoch: number
   refresh: () => Promise<void>
   /** Deliberately switch the active team via POST /v1/me/team and adopt the fresh
    *  authoritative state. No-op in supabase-mode. Rejects (throws) on a foreign/
@@ -43,6 +47,7 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(active)
   const [me, setMe] = useState<MeResponse | null>(null)
   const [error, setError] = useState<{ status: number | null; message: string } | null>(null)
+  const [teamEpoch, setTeamEpoch] = useState(0)
 
   const load = useCallback(async (isActive: () => boolean = () => true): Promise<void> => {
     if (!active || !userId) {
@@ -92,9 +97,10 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
     setMe(next)
     setError(null)
     setActiveTeam(next.team?.id ?? null)
+    setTeamEpoch((n) => n + 1) // bump so team-scoped views drop stale data + refetch
   }, [active])
 
-  const value: AuthzValue = { active, loading, error, me, teams: me?.teams ?? [], refresh: () => load(), switchTeam }
+  const value: AuthzValue = { active, loading, error, me, teams: me?.teams ?? [], teamEpoch, refresh: () => load(), switchTeam }
   return <AuthzContext.Provider value={value}>{children}</AuthzContext.Provider>
 }
 

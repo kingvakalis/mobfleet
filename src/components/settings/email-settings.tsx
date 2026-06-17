@@ -3,7 +3,6 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { Mail, Eye, Send, Lock } from 'lucide-react'
 import { EXPO_OUT, staggerContainer, fadeRise } from '@/lib/motion'
 import { Section, Field, Toggle } from '@/components/settings/settings-primitives'
-import { useEmailSettings } from '@/state/email-settings-store'
 import type { EmailPreferences } from '@/lib/email/preferences'
 import { renderPreview, type EmailPreviewType } from '@/lib/email/preview-templates'
 import {
@@ -11,6 +10,7 @@ import {
   buildEmailSettingsUpdate,
   fetchEmailSettings,
   saveEmailSettings,
+  saveEmailPreferences,
 } from '@/services/email-settings'
 
 /**
@@ -19,10 +19,14 @@ import {
  * which restricts access to Owner/Admin (see settings-view.tsx).
  */
 
+// Only preferences that change REAL backend behavior are exposed:
+//   • teamInvitesEnabled  → gates invite + resend sends (routes/team.ts)
+//   • welcomeEmailEnabled → gates the onboarding welcome send (routes/onboarding.ts)
+// Password-reset delivery is owned by Supabase (not toggled here), and there is no
+// operational-notification email flow yet — so neither is surfaced.
 const TRANSACTIONAL_TOGGLES: { key: keyof EmailPreferences; label: string; hint: string }[] = [
   { key: 'teamInvitesEnabled', label: 'Team Invites', hint: 'Send an email when an employee is invited to join the workspace.' },
-  { key: 'passwordResetEnabled', label: 'Password Reset', hint: 'Send password-reset instructions when a user requests account recovery.' },
-  { key: 'welcomeEmailEnabled', label: 'Welcome Email', hint: 'Send a welcome email after a new account completes signup.' },
+  { key: 'welcomeEmailEnabled', label: 'Welcome Email', hint: 'Send a welcome email when a new workspace is created.' },
 ]
 
 const PREVIEW_TABS: { id: EmailPreviewType; label: string }[] = [
@@ -37,23 +41,70 @@ const PREVIEW_TITLES: Record<EmailPreviewType, string> = {
   welcome: 'Welcome email preview',
 }
 
+/**
+ * Server-backed transactional email preferences (GET /v1/settings/email returns
+ * `preferences`; POST /v1/settings/email/preferences persists a patch). The toggles
+ * change REAL delivery: invites obey teamInvitesEnabled, the onboarding welcome obeys
+ * welcomeEmailEnabled. A team whose notificationPrefs column is NULL gets safe defaults
+ * (all enabled) from the server-normalized contract, so existing teams keep working.
+ * Optimistic with revert-on-failure; 403 surfaces a clear permission message.
+ */
 function TransactionalEmailSettings() {
-  // Subscribing to the whole store keeps each toggle in sync; updates persist
-  // immediately (no Save step), matching the BACKEND INTEGRATION POINT contract.
-  const prefs = useEmailSettings()
+  const [prefs, setPrefs] = useState<EmailPreferences | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true)
+    fetchEmailSettings()
+      .then((res) => { if (!cancelled) { setPrefs(res.preferences); setError(null) } })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e instanceof ApiError && e.status === 403
+          ? 'You do not have permission to view email preferences.'
+          : 'Could not load email preferences.')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggle = async (key: keyof EmailPreferences, value: boolean) => {
+    if (!prefs) return
+    const prev = prefs
+    setPrefs({ ...prefs, [key]: value }) // optimistic
+    setError(null)
+    try {
+      const res = await saveEmailPreferences({ [key]: value })
+      setPrefs(res.preferences) // adopt the server-normalized contract
+    } catch (e) {
+      setPrefs(prev) // revert on failure
+      setError(e instanceof ApiError && e.status === 403
+        ? 'You do not have permission to change email preferences.'
+        : 'Could not save email preferences.')
+    }
+  }
+
   return (
     <Section icon={Mail} title="Transactional Emails" desc="Choose which automated emails MOBFLEET sends to your team.">
-      {TRANSACTIONAL_TOGGLES.map((t) => (
-        <Field key={t.key} label={t.label} hint={t.hint}>
-          <Toggle on={prefs[t.key]} onChange={(v) => prefs.setPreference(t.key, v)} label={t.label} />
-        </Field>
-      ))}
-      {/* These toggles are local-only: there is no backend field for them yet, so
-          they do NOT change live email delivery. (Sender Config below is saved to
-          the server.) */}
-      <p className="border-t border-line pt-3 text-[10px] leading-relaxed text-white/25">
-        Saved in this browser only — these toggles don’t yet change live email delivery. Sender Config below is saved to the server.
-      </p>
+      {loading ? (
+        <p className="mono text-[11px] text-white/40">Loading…</p>
+      ) : !prefs ? (
+        <p role="alert" className="text-[11px] leading-relaxed text-status-error">{error ?? 'Email preferences are unavailable.'}</p>
+      ) : (
+        <>
+          {TRANSACTIONAL_TOGGLES.map((t) => (
+            <Field key={t.key} label={t.label} hint={t.hint}>
+              <Toggle on={prefs[t.key]} onChange={(v) => void toggle(t.key, v)} label={t.label} />
+            </Field>
+          ))}
+          {error && <p role="alert" className="text-[11px] leading-relaxed text-status-error">{error}</p>}
+          <p className="border-t border-line pt-3 text-[10px] leading-relaxed text-white/25">
+            Saved to your workspace. Password-reset emails are delivered by Supabase and aren’t toggled here.
+          </p>
+        </>
+      )}
     </Section>
   )
 }
