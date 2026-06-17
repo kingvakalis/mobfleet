@@ -2,6 +2,7 @@ import { chooseMailSender, loadTeamEmailSettings, type TeamEmailSettingsRow } fr
 import {
   buildInviteEmail,
   buildResetEmail,
+  buildTestEmail,
   buildWelcomeEmail,
   type ResetEmailData,
   type WelcomeEmailData,
@@ -42,6 +43,13 @@ export interface ResetEmail extends ResetEmailData {
 
 export interface WelcomeEmail extends WelcomeEmailData {
   to: string
+  teamId?: string
+}
+
+export interface TestEmail {
+  to: string
+  /** Names the workspace in the body; selects that team's Resend config when set. */
+  teamName?: string
   teamId?: string
 }
 
@@ -139,4 +147,16 @@ export async function sendResetEmail(e: ResetEmail): Promise<void> {
 export async function sendWelcomeEmail(e: WelcomeEmail): Promise<void> {
   const { subject, text, html } = buildWelcomeEmail({ name: e.name, dashboardUrl: e.dashboardUrl })
   await sendEmail({ teamId: e.teamId, mailType: 'welcome', to: e.to, subject, text, html, consoleHint: e.dashboardUrl })
+}
+
+/**
+ * Deliver a "send test email" verification from Email Settings. Uses the team's
+ * own Resend sender config when present (e.teamId), else the environment config —
+ * so an operator can prove their configuration actually delivers. Throws on
+ * provider rejection (the route maps that to a 502), and inherits the no-secret
+ * logging + sender resolution of the shared sendEmail.
+ */
+export async function sendTestEmail(e: TestEmail): Promise<void> {
+  const { subject, text, html } = buildTestEmail({ workspaceName: e.teamName ?? 'your workspace', recipientEmail: e.to })
+  await sendEmail({ teamId: e.teamId, mailType: 'test', to: e.to, subject, text, html })
 }

@@ -5,6 +5,7 @@ import {
   buildResetEmail,
   buildWelcomeEmail,
   buildSupabaseResetEmail,
+  buildTestEmail,
   assertSafeUrl,
   esc,
   SUPABASE_CONFIRMATION_URL,
@@ -19,6 +20,7 @@ import {
 const INVITE = { inviterName: 'Alex Morgan', workspaceName: 'MOBFLEET Operations', role: 'Operator', inviteUrl: 'https://mobfleet.co/invite?token=abc123' }
 const RESET = { resetUrl: 'https://mobfleet.co/reset-password#token=xyz', expiresIn: '30 minutes' }
 const WELCOME = { name: 'Alex', dashboardUrl: 'https://mobfleet.co/' }
+const TEST = { workspaceName: 'MOBFLEET Operations', recipientEmail: 'ops@acme.com' }
 
 // ── Shared layout (applies to every template) ────────────────────────────────
 for (const [label, render] of [
@@ -26,6 +28,7 @@ for (const [label, render] of [
   ['reset', () => buildResetEmail(RESET)],
   ['welcome', () => buildWelcomeEmail(WELCOME)],
   ['supabase-reset', () => buildSupabaseResetEmail()],
+  ['test', () => buildTestEmail(TEST)],
 ] as const) {
   test(`[${label}] returns a complete, self-contained HTML document`, () => {
     const { html } = render()
@@ -133,6 +136,26 @@ test('welcome: escapes the recipient name', () => {
   const { html } = buildWelcomeEmail({ name: '<b>x</b>', dashboardUrl: 'https://mobfleet.co/' })
   assert.ok(!html.includes('<b>x</b>'))
   assert.ok(html.includes('&lt;b&gt;x&lt;/b&gt;'))
+})
+
+// ── Test email (delivery verification) ────────────────────────────────────────
+test('test email: subject names the workspace, body confirms delivery + echoes the recipient', () => {
+  const { subject, html, text } = buildTestEmail(TEST)
+  assert.ok(subject.includes('MOBFLEET Operations'))
+  assert.match(html, /delivery is working/i)
+  assert.ok(html.includes('ops@acme.com'), 'recipient echoed')
+  assert.ok(text.includes('ops@acme.com'))
+})
+
+test('test email: has NO actionable link (nothing to click, never needs a URL)', () => {
+  const { html } = buildTestEmail(TEST)
+  assert.ok(!/href="https?:/i.test(html), 'no http(s) anchor href')
+})
+
+test('test email: escapes dynamic values (no injection via workspace/recipient)', () => {
+  const { html } = buildTestEmail({ workspaceName: 'A & <b>B</b>', recipientEmail: '"x"@y.com' })
+  assert.ok(!html.includes('<b>B</b>'))
+  assert.ok(html.includes('A &amp; &lt;b&gt;B&lt;/b&gt;'))
 })
 
 // ── URL validation helper ─────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 const migrationsDir = fileURLToPath(new URL('../../prisma/migrations', import.meta.url))
 const manifestPath = fileURLToPath(new URL('../../ops/migration-checksums.json', import.meta.url))
-const EXPECTED_ORDER = ['00000000000000_baseline', '20260616110000_reconcile_legacy_objects', '20260616120000_add_migration_mapping_and_audit_schema']
+const EXPECTED_ORDER = ['00000000000000_baseline', '20260616110000_reconcile_legacy_objects', '20260616120000_add_migration_mapping_and_audit_schema', '20260617120000_add_team_notification_prefs']
 
 test('migration-checksums.json lists exactly the active migrations, in order', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { migrations: Record<string, string> }

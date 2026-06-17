@@ -19,6 +19,7 @@ import { rateLimit } from './rate-limit'
 import { HttpError, forbidden, notFound, unauthorized } from './http-error'
 import { registerTeamRoutes } from './routes/team'
 import { registerEmailSettingsRoutes } from './routes/email-settings'
+import { registerActivityRoutes } from './routes/activity'
 import { registerOnboardingRoutes } from './routes/onboarding'
 import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../src/lib/authorization/permissions'
@@ -337,6 +338,10 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
 
   // per-team transactional email sender settings (GET/POST /v1/settings/email)
   registerEmailSettingsRoutes(app)
+
+  // team-scoped activity / security-audit read API (GET /v1/activity) — paginated,
+  // gated by activity.view_security, scoped to the authenticated team.
+  registerActivityRoutes(app)
 
   // first-team onboarding (POST /v1/onboarding/team) — identity-only, no team required
   registerOnboardingRoutes(app)

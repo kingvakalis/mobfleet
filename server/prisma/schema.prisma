@@ -33,6 +33,13 @@ model Team {
   // (epoch ms) rather than deleted at cutover; membership resolution ignores
   // archived teams. Null = active.
   archivedAt    Float?
+  // Team-wide transactional email preferences — which emails the workspace sends
+  // (the shared EmailPreferences contract in src/lib/email/preferences.ts:
+  // teamInvitesEnabled / passwordResetEnabled / welcomeEmailEnabled). Null = every
+  // transactional email enabled (the defaults). Stored on Team (not on
+  // TeamEmailSettings) so preferences work even when a team has no custom Resend
+  // sender row and falls back to the env mailer config. NEVER store secrets here.
+  notificationPrefs Json?
   memberships   Membership[]
   invites       Invite[]
   devices       Device[]

@@ -17,6 +17,7 @@ const ACTIVE_ORDER = [
   '00000000000000_baseline',
   '20260616110000_reconcile_legacy_objects',
   '20260616120000_add_migration_mapping_and_audit_schema',
+  '20260617120000_add_team_notification_prefs',
 ]
 const ARCHIVED = [
   '20260611155542_init',

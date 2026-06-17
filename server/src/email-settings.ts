@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from './db'
+import {
+  type EmailPreferences,
+  normalizeEmailPreferences,
+} from '../../src/lib/email/preferences'
 
 /**
  * Per-team transactional email sender configuration (Resend).
@@ -145,4 +150,42 @@ export function upsertTeamEmailSettings(
     create: { id: `emailcfg_${randomUUID()}`, teamId, ...data, updatedAt: now },
     update: { senderEmail: data.senderEmail, senderName: data.senderName, resendApiKey: data.resendApiKey, updatedAt: now },
   })
+}
+
+// ── Transactional email preferences (team-wide) ─────────────────────────────────
+// Which transactional emails the workspace sends — the shared, portable
+// EmailPreferences contract (src/lib/email/preferences.ts) that the Email Settings
+// UI also consumes. Persisted as a JSON blob on Team.notificationPrefs (NOT on
+// TeamEmailSettings) so a team that uses the env Resend fallback — and therefore
+// has no TeamEmailSettings row — can still set preferences. NULL column = all
+// defaults (every transactional email enabled). normalizeEmailPreferences coerces
+// any missing/corrupt field back to its default, so a partial or stale blob is safe.
+
+/** Alias of the shared EmailPreferences contract, for route/import readability. */
+export type TransactionalEmailPreferences = EmailPreferences
+
+/** Coerce arbitrary client/persisted input into a complete, valid preferences object. */
+export function normalizeTransactionalPreferences(raw: unknown): EmailPreferences {
+  return normalizeEmailPreferences(raw)
+}
+
+/** A team's transactional email preferences (defaults when unset/missing). */
+export async function loadTransactionalEmailPreferences(teamId: string): Promise<EmailPreferences> {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { notificationPrefs: true } })
+  return normalizeEmailPreferences(team?.notificationPrefs ?? null)
+}
+
+/** Persist a team's transactional email preferences (full object, normalized). */
+export async function saveTransactionalEmailPreferences(
+  teamId: string,
+  prefs: EmailPreferences,
+): Promise<EmailPreferences> {
+  const normalized = normalizeEmailPreferences(prefs)
+  // EmailPreferences is a fixed-key interface; Prisma's Json input wants an indexable
+  // value, so cast through the Prisma JSON input type (the value is plain booleans).
+  await prisma.team.update({
+    where: { id: teamId },
+    data: { notificationPrefs: normalized as unknown as Prisma.InputJsonValue },
+  })
+  return normalized
 }
