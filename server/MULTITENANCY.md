@@ -130,7 +130,8 @@ existing dev `dev.db` must be reset:
 cd server
 npx prisma generate                 # regenerate the client
 npx prisma migrate reset            # dev: drop + recreate (or: prisma db push)
-# prod uses: npm run start:prod  →  prisma db push --schema=prisma/schema.postgres.prisma
+# prod: Railway pre-deploy runs `npm run migrate:deploy` (prisma migrate deploy); app
+# startup is server-only (node dist/index.js). See server/ops/PRODUCTION_MIGRATION_RUNBOOK.md
 ```
 
 First login with no membership auto-creates a personal team (owner) when

@@ -17,8 +17,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "build": "prisma generate --schema=prisma/schema.postgres.prisma && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --sourcemap --outfile=dist/index.js",
-    "db:push:prod": "prisma db push --schema=prisma/schema.postgres.prisma --skip-generate --accept-data-loss",
-    "start:prod": "( timeout -k 10 120 prisma db push --schema=prisma/schema.postgres.prisma --skip-generate --accept-data-loss || echo '[start:prod] schema push failed/timed out — server is starting anyway. Verify DATABASE_URL is a DIRECT (non-pooled) Postgres URL, then run `npm run db:push:prod` (or redeploy) to apply the schema.' ) & exec node dist/index.js"
+    "start:prod": "node dist/index.js",
+    "migrate:deploy": "node scripts/migrate-deploy.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",

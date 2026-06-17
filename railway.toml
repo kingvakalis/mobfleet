@@ -4,15 +4,33 @@
 # Dockerfile's build context needs BOTH server/ and the shared src/ the server
 # bundles. dockerfilePath points at the Dockerfile inside server/.
 #
-# The container start command (apply schema, then run the compiled server) comes
-# from the Dockerfile CMD (npm run start:prod) — not duplicated here.
+# DEPLOY MODEL (Schema Reconciliation Checkpoint 3):
+#   * preDeployCommand runs ONCE per deployment (not per replica), BEFORE the new
+#     version starts. It runs the dedicated migration runner, which applies only
+#     `prisma migrate deploy`. If it fails (non-zero), Railway ABORTS the release and
+#     the server never starts -- the previous deployment keeps serving.
+#   * startCommand is SERVER-ONLY (`node dist/index.js`). Startup NEVER mutates the
+#     schema (no db push / migrate / resolve).
+#   * The pre-deploy step requires MIGRATION_DATABASE_URL (a dedicated least-privilege
+#     migration role) to be set as a Railway service variable. The runtime app keeps
+#     using DATABASE_URL. See server/ops/PRODUCTION_MIGRATION_RUNBOOK.md.
+#   * One-time baseline registration (`prisma migrate resolve --applied
+#     00000000000000_baseline`) is a MANUAL bootstrap step -- it is intentionally NOT
+#     part of preDeployCommand.
+#
+# The "workDir" for these commands is the image WORKDIR (/app/server), so the npm
+# scripts and prisma/ schema resolve correctly.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "server/Dockerfile"
 
 [deploy]
-# /healthz is unauthenticated and DB-free (server/src/routes.ts) — proves the
+# Runs once before the new version goes live; a non-zero exit aborts the release.
+preDeployCommand = "npm run migrate:deploy"
+# Server-only startup -- no schema mutation.
+startCommand = "node dist/index.js"
+# /healthz is unauthenticated and DB-free (server/src/routes.ts) -- proves the
 # process is up without depending on the database or a valid session.
 healthcheckPath = "/healthz"
 healthcheckTimeout = 120

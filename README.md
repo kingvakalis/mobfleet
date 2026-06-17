@@ -102,11 +102,16 @@ On Railway:
    health check.
 2. Add a **PostgreSQL** plugin — Railway provides `DATABASE_URL`.
 3. Set the service variables: `SUPABASE_JWT_SECRET`, `AUTH_PROVIDER=supabase`,
-   `PUBLIC_SERVER_URL=https://<your-service>.up.railway.app`, and
-   `ALLOWED_ORIGIN=https://<your-frontend-domain>`. (`PORT` is set by Railway.)
-   Set secrets in the Railway dashboard — never in the repo.
-4. Deploy. The container runs `npm run start:prod` → `prisma db push` (applies the
-   schema) → `node dist/index.js`. Railway routes traffic once `/healthz` returns 200.
+   `PUBLIC_SERVER_URL=https://<your-service>.up.railway.app`,
+   `ALLOWED_ORIGIN=https://<your-frontend-domain>`, and `MIGRATION_DATABASE_URL`
+   (a dedicated least-privilege migration role — see
+   [`server/ops/PRODUCTION_MIGRATION_RUNBOOK.md`](server/ops/PRODUCTION_MIGRATION_RUNBOOK.md)).
+   (`PORT` is set by Railway.) Set secrets in the Railway dashboard — never in the repo.
+4. Deploy. Railway runs the **pre-deploy** command `npm run migrate:deploy` (=
+   `prisma migrate deploy`, once per release; a failure aborts the deploy), then the
+   **server-only** start command `node dist/index.js` (startup never mutates the
+   schema). Railway routes traffic once `/healthz` returns 200. First-ever cutover:
+   follow the runbook (one-time `prisma migrate resolve --applied 00000000000000_baseline`).
 
 Point the Vercel frontend at it with `VITE_USE_BACKEND=1`,
 `VITE_API_URL=https://<service>.up.railway.app`, and
