@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityOf } from '../auth/context'
-import { ensureFirstTeam } from '../auth/db'
+import { ensureFirstTeam, logAudit } from '../auth/db'
 
 // Only the workspace name is accepted. `.strict()` rejects any client-supplied
 // userId / role / teamId — the acting user and the owner role are derived from the
@@ -20,6 +20,20 @@ export function registerOnboardingRoutes(app: FastifyInstance) {
       return reply.code(409).send({
         error: 'you have a pending invitation — accept it instead of creating a workspace',
         pendingInvite: result.invite,
+      })
+    }
+    // Audit hook for Subagent 2: emit a durable workspace-created event ONLY when a
+    // team was genuinely created (result.created) — an idempotent retry that adopts an
+    // existing/concurrent team must NOT re-log. The new owner is both actor and target.
+    // logAudit is best-effort (never blocks/throws), so it can't fail the onboarding.
+    if (result.created) {
+      await logAudit({
+        teamId: result.team.id,
+        actorId: user.id,
+        action: 'workspace.create',
+        target: result.team.id,
+        result: 'allowed',
+        detail: `name=${result.team.name}`,
       })
     }
     // 200 whether newly created or an existing/concurrent membership was adopted (idempotent).

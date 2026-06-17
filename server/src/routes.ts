@@ -4,7 +4,7 @@ import {
   type AgentCommandAction, type CommandResultBody,
 } from '../../src/shared/schemas'
 import type { EngineRegistry, TeamEngine } from './tenancy/engine-registry'
-import { actor, authenticate, authenticateIdentity, ctx, identityOf, requirePermission, tokenFromRequest, type AuthMode } from './auth/context'
+import { actor, authenticate, authenticateIdentity, ctx, requirePermission, tokenFromRequest, type AuthMode } from './auth/context'
 import { claimDevice, createPairingToken, publicServerUrl, resolveDeviceKey } from './provisioning'
 import { markDelivered, queueCommand, takePendingForDevice, toFrame } from './agent-commands'
 import { pushToDevice } from './device-hub'
@@ -13,13 +13,13 @@ import { acknowledgeCommandResult } from './command-completion'
 import { formatCommandLog, commandTypeForAction } from '../../src/shared/control-command'
 import { listDeviceSessions, toDeviceSessionRecord } from './device-sessions'
 import { prisma } from './db'
-import { logAudit, resolveMeState } from './auth/db'
-import { buildMeResponse } from './auth/me'
+import { logAudit } from './auth/db'
 import { rateLimit } from './rate-limit'
 import { HttpError, forbidden, notFound, unauthorized } from './http-error'
 import { registerTeamRoutes } from './routes/team'
 import { registerEmailSettingsRoutes } from './routes/email-settings'
 import { registerOnboardingRoutes } from './routes/onboarding'
+import { registerMeRoutes } from './routes/me'
 import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../src/lib/authorization/permissions'
 import type { FleetStore } from './fleet-store'
@@ -341,15 +341,11 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // first-team onboarding (POST /v1/onboarding/team) — identity-only, no team required
   registerOnboardingRoutes(app)
 
-  // whoami — the AUTHORITATIVE post-login state. Identity-only auth, so it works
-  // before the user has a team: it reports onboardingRequired / suspended /
-  // pendingInvite plus the server-computed permission set, and does NOT
-  // auto-provision. The UI derives routing + permissions from THIS (a no-team user
-  // is onboarding-required, never "access restricted"), not from local state.
-  app.get('/v1/me', { config: { auth: 'identity' } }, async (req) => {
-    const { identity, user } = identityOf(req)
-    const requestedTeamId = (req.headers['x-team-id'] as string | undefined)?.trim() || undefined
-    const { classification, pendingInvite } = await resolveMeState(user, requestedTeamId)
-    return buildMeResponse({ identity, user, classification, pendingInvite })
-  })
+  // whoami (GET /v1/me) + deliberate team switch (POST /v1/me/team) — identity-only
+  // auth, so they work before the user has a team. /v1/me is the AUTHORITATIVE
+  // post-login state (onboardingRequired / suspended / pendingInvite + the selected
+  // team's server-computed role & permissions + the full switchable-team roster); it
+  // does NOT auto-provision. The UI derives routing + permissions from THIS (a no-team
+  // user is onboarding-required, never "access restricted"), not from local state.
+  registerMeRoutes(app)
 }
