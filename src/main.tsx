@@ -27,10 +27,6 @@ import '@fontsource/jetbrains-mono/400.css'
 
 import './index.css'
 
-// #region agent log
-fetch('http://127.0.0.1:7627/ingest/1b257ea2-3233-4b89-b6f7-a1d72b0f2da3',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a33ba4'},body:JSON.stringify({sessionId:'a33ba4',runId:'pre-fix',hypothesisId:'BOOT',location:'main.tsx:27',message:'app boot — instrumented bundle loaded',data:{href:typeof location!=='undefined'?location.href:null,supabaseConfigured:Boolean(import.meta.env.VITE_SUPABASE_URL&&import.meta.env.VITE_SUPABASE_ANON_KEY)},timestamp:Date.now()})}).catch(()=>{});
-// #endregion
-
 // Apply the persisted theme BEFORE the first render so there is no flash of
 // the default theme, and keep the document in sync with every settings change.
 applyAppearance(useSettings.getState())

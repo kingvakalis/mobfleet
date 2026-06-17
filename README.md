@@ -96,10 +96,13 @@ docker run -p 8787:8787 \
 
 On Railway:
 
-1. Create a service from this repo and set its **Root Directory to the repo
-   root** (`phone-farm-app`). Railway reads [`railway.toml`](railway.toml), which
-   selects the Dockerfile builder (`server/Dockerfile`) and the `/healthz`
-   health check.
+1. Create a service from this repo and set its **Root Directory to the
+   repository root** — the directory that contains
+   [`railway.toml`](railway.toml), NOT the embedded `phone-farm-app/` legacy
+   copy. It must be the repo root (not `server/`) because the Docker build
+   context needs both `server/` and the shared `src/` the server bundles.
+   Railway reads `railway.toml`, which selects the Dockerfile builder
+   (`server/Dockerfile`) and the `/healthz` health check.
 2. Add a **PostgreSQL** plugin — Railway provides `DATABASE_URL`.
 3. Set the service variables: `SUPABASE_JWT_SECRET`, `AUTH_PROVIDER=supabase`,
    `PUBLIC_SERVER_URL=https://<your-service>.up.railway.app`,
