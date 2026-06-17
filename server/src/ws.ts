@@ -45,7 +45,7 @@ export function registerWs(app: FastifyInstance, registry: EngineRegistry, allow
   const originOk = (origin?: string) =>
     allowedOrigin === '*' || (!!origin && allowedOrigin.split(',').includes(origin))
 
-  app.get('/ws', { websocket: true }, async (socket: WebSocket, req) => {
+  app.get('/ws', { websocket: true, config: { auth: 'public' } }, async (socket: WebSocket, req) => {
     if (!originOk(req.headers.origin)) {
       socket.close(1008, 'origin not allowed')
       return

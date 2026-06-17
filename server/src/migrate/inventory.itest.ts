@@ -1,0 +1,376 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { Client } from 'pg'
+import { testDb, resetDb } from '../it-support'
+import { readSourceSnapshot } from './source'
+import { loadSourceSnapshot } from './snapshot'
+import { readTargetSnapshot } from './target'
+import { analyze } from './analyze'
+import { toJson } from './report'
+
+/**
+ * End-to-end integration test for the read-only migration inventory against DISPOSABLE
+ * seeded source + target Postgres databases. Proves: the REPEATABLE READ READ ONLY source
+ * snapshot, DMMF-driven child counting, artifact classification, blocker detection, and that
+ * BOTH databases are logically unchanged by the dry run.
+ *
+ * Run via `npm run test:it` with:
+ *   TEST_DATABASE_URL    disposable Prisma target (post-3A schema applied)
+ *   TEST_SOURCE_DB_URL   disposable Supabase-shaped source
+ * Skips cleanly when either is unset.
+ */
+const SRC_URL = process.env.TEST_SOURCE_DB_URL
+const skip: false | string = process.env.TEST_DATABASE_URL && SRC_URL ? false : 'set TEST_DATABASE_URL and TEST_SOURCE_DB_URL'
+
+const J0 = '2024-01-01T00:00:00Z' // source join time (early)
+const TLATE = Date.parse('2024-06-01T00:00:00Z') // artifact team createdAt (later)
+
+async function seedSource(url: string): Promise<void> {
+  const c = new Client({ connectionString: url })
+  await c.connect()
+  try {
+    await c.query('DROP SCHEMA IF EXISTS auth CASCADE')
+    await c.query('CREATE SCHEMA auth')
+    await c.query('CREATE TABLE auth.users (id text primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb, created_at timestamptz)')
+    await c.query('DROP TABLE IF EXISTS public.team_invites, public.team_members, public.teams CASCADE')
+    await c.query('CREATE TABLE public.teams (id text primary key, name text not null, owner_user_id text, created_at timestamptz)')
+    await c.query('CREATE TABLE public.team_members (id text primary key, team_id text, user_id text, role text, status text, email text, name text, invited_by text, scope_type text, scope_groups jsonb, scope_phones jsonb, overrides jsonb, joined_at timestamptz)')
+    await c.query('CREATE TABLE public.team_invites (id text primary key, team_id text, email text, role text, token text, status text, invited_by text, created_at timestamptz, expires_at timestamptz, accepted_at timestamptz)')
+    await c.query(`INSERT INTO auth.users (id,email,email_confirmed_at,raw_user_meta_data,created_at) VALUES
+      ('auth_bob','bob@x.com', now(), '{"full_name":"Bob"}', $1),
+      ('auth_alice','alice@x.com', now(), '{"name":"Alice"}', $1)`, [J0])
+    await c.query(`INSERT INTO public.teams (id,name,owner_user_id,created_at) VALUES
+      ('s_acme','Acme','auth_bob',$1), ('s_beta','Beta','auth_alice',$1)`, [J0])
+    await c.query(`INSERT INTO public.team_members (id,team_id,user_id,role,status,email,name,invited_by,scope_type,scope_groups,scope_phones,overrides,joined_at) VALUES
+      ('m1','s_acme','auth_bob','owner','active','bob@x.com','Bob',null,'workspace','[]','[]','{}',$1),
+      ('m2','s_beta','auth_alice','owner','active','alice@x.com','Alice',null,'workspace','[]','[]','{}',$1)`, [J0])
+    await c.query(`INSERT INTO public.team_invites (id,team_id,email,role,token,status,invited_by,created_at,expires_at,accepted_at) VALUES
+      ('i1','s_acme','newhire@x.com','operator','tok_abcdef123456','pending',null,$1,$1,null)`, [J0])
+  } finally {
+    await c.end()
+  }
+}
+
+/** Deterministic per-table content checksums (proves logical content is unchanged). */
+async function sourceChecksums(url: string): Promise<Record<string, string>> {
+  const c = new Client({ connectionString: url })
+  await c.connect()
+  try {
+    const sums: Record<string, string> = {}
+    for (const [k, tbl] of [['authUsers', 'auth.users'], ['teams', 'public.teams'], ['members', 'public.team_members'], ['invites', 'public.team_invites']] as const) {
+      const row = (await c.query<{ sum: string }>(`SELECT coalesce(md5(string_agg(r::text, ',' ORDER BY r::text)), 'empty') AS sum FROM ${tbl} r`)).rows[0]
+      sums[k] = row.sum
+    }
+    return sums
+  } finally {
+    await c.end()
+  }
+}
+
+async function seedTarget(db: ReturnType<typeof testDb>): Promise<void> {
+  await resetDb(db)
+  await db.user.create({ data: { id: 'pu_bob', authProviderId: 'auth_bob', email: 'bob@x.com', createdAt: Date.now() } })
+  await db.user.create({ data: { id: 'pu_alice', authProviderId: 'auth_alice', email: 'alice@x.com', createdAt: Date.now() } })
+  await db.user.create({ data: { id: 'pu_ghost', authProviderId: 'ghost_not_in_source', email: 'ghost@x.com', createdAt: Date.now() } })
+  // already-mapped team (idempotent), matching membership
+  await db.team.create({ data: { id: 'pt_acme', name: 'Acme', createdAt: Date.now(), supabaseTeamId: 's_acme' } })
+  await db.membership.create({ data: { id: 'pm_acme', userId: 'pu_bob', teamId: 'pt_acme', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: Date.now() } })
+  // artifact candidate (unmapped, owner migrated, name pattern, no children, created later)
+  await db.team.create({ data: { id: 'pt_art', name: "bob's Workspace", createdAt: TLATE } })
+  await db.membership.create({ data: { id: 'pm_art', userId: 'pu_bob', teamId: 'pt_art', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: TLATE } })
+  // native (unmapped but has a child record -> never archive)
+  await db.team.create({ data: { id: 'pt_native', name: "alice's Workspace", createdAt: TLATE } })
+  await db.membership.create({ data: { id: 'pm_native', userId: 'pu_alice', teamId: 'pt_native', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: TLATE } })
+  await db.deviceSession.create({ data: { id: 'ds1', teamId: 'pt_native', deviceId: 'd1', startedAt: Date.now() } })
+  // unknown origin (unmapped, owner NOT migrated) -> blocker, never auto-archived
+  await db.team.create({ data: { id: 'pt_unknown', name: 'Mystery', createdAt: TLATE } })
+  await db.membership.create({ data: { id: 'pm_unknown', userId: 'pu_ghost', teamId: 'pt_unknown', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: TLATE } })
+}
+
+async function targetCounts(db: ReturnType<typeof testDb>): Promise<Record<string, number>> {
+  return {
+    users: await db.user.count(), teams: await db.team.count(), memberships: await db.membership.count(),
+    invites: await db.invite.count(), deviceSessions: await db.deviceSession.count(),
+    migrationRecords: await db.migrationRecord.count(),
+  }
+}
+
+test('inventory: end-to-end classification + plan + blockers against seeded source/target', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+
+  const source = await readSourceSnapshot(SRC_URL!)
+  // The snapshot is provably repeatable-read + read-only (live mode -> proof is non-null).
+  assert.equal(source.proof?.isolation, 'repeatable read')
+  assert.equal(source.proof?.readOnly, true)
+  assert.equal(source.authUsers.length, 2)
+  assert.equal(source.teams.length, 2)
+  assert.equal(source.members.length, 2)
+  assert.equal(source.invites.length, 1)
+
+  const target = await readTargetSnapshot(db)
+  const report = analyze(source, target)
+
+  // Plan
+  assert.equal(report.plan.teamsAlreadyMapped, 1) // s_acme
+  assert.equal(report.plan.teamsToCreate, 1) // s_beta
+  assert.equal(report.plan.usersToCreate, 0) // bob + alice already in target
+  assert.equal(report.plan.artifactsToArchive, 1) // pt_art
+
+  // Artifact classification
+  const cls = Object.fromEntries(report.artifacts.map((a) => [a.teamId, a.classification]))
+  assert.equal(cls['pt_art'], 'auto_provision_candidate')
+  assert.equal(cls['pt_native'], 'native')
+  assert.equal(cls['pt_unknown'], 'unknown')
+  assert.equal(target.childCountsByTeam['pt_native']['DeviceSession'], 1) // DMMF-driven child count
+
+  // Blockers: the unknown-origin team blocks Phase 3C
+  assert.equal(report.hasBlockers, true)
+  assert.ok(report.blockers.some((f) => f.code === 'ARTIFACT_UNKNOWN_ORIGIN'))
+  // Mapped membership matched -> no conflict; null inviter -> no missing-inviter finding
+  assert.ok(!report.findings.some((f) => f.code === 'TGT_MEMBERSHIP_CONFLICT'))
+  assert.ok(!report.findings.some((f) => f.code === 'IDENT_MISSING_INVITED_BY'))
+})
+
+test('inventory: dry run leaves SOURCE logically unchanged and TARGET row counts unchanged', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+
+  const srcBefore = await sourceChecksums(SRC_URL!)
+  const tgtBefore = await targetCounts(db)
+
+  // Run the read-only pipeline twice (idempotent re-inspection).
+  const r1 = analyze(await readSourceSnapshot(SRC_URL!), await readTargetSnapshot(db))
+  const r2 = analyze(await readSourceSnapshot(SRC_URL!), await readTargetSnapshot(db))
+
+  const srcAfter = await sourceChecksums(SRC_URL!)
+  const tgtAfter = await targetCounts(db)
+
+  assert.deepEqual(srcAfter, srcBefore, 'source content must be byte-for-byte logically unchanged')
+  assert.deepEqual(tgtAfter, tgtBefore, 'target row counts must be unchanged (no writes)')
+  assert.equal(tgtAfter.migrationRecords, 0, 'no MigrationRecord rows are created during 3B')
+  // Deterministic re-inspection
+  assert.deepEqual(r1.counts, r2.counts)
+  assert.deepEqual(r1.plan, r2.plan)
+})
+
+test('inventory: source role enforcement REJECTS a superuser source connection', { skip }, async () => {
+  await seedSource(SRC_URL!)
+  // The disposable source connects as a superuser -> enforcing read-only must abort.
+  await assert.rejects(readSourceSnapshot(SRC_URL!, { enforceReadOnlyRole: true }), /least-privilege read-only/)
+  // Non-enforced (default) still returns a snapshot + the role proof for inspection.
+  const snap = await readSourceSnapshot(SRC_URL!)
+  assert.ok((snap.roleProof?.violations.length ?? 0) > 0)
+  assert.equal(snap.roleProof?.isSuperuser, true)
+})
+
+test('inventory: a missing target table is a blocker, does NOT crash, and changes neither DB', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+  const tgtBefore = await targetCounts(db)
+
+  // Simulate target schema drift by renaming an expected table out of the way (reversible:
+  // RENAME preserves all rows/indexes/FKs, so the shared test schema is fully restored after).
+  await db.$executeRawUnsafe('ALTER TABLE "DeviceSession" RENAME TO "DeviceSession_bak"')
+  try {
+    const target = await readTargetSnapshot(db) // must NOT crash on the absent table
+    assert.ok(target.schema.missing.includes('DeviceSession'))
+    for (const counts of Object.values(target.childCountsByTeam)) assert.ok(!('DeviceSession' in counts))
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    assert.ok(report.findings.some((f) => f.code === 'TGT_EXPECTED_TABLE_MISSING' && f.ref === 'DeviceSession' && f.severity === 'blocker'))
+    assert.equal(report.hasBlockers, true)
+    assert.ok(report.target.teams >= 1) // present tables were still analyzed
+  } finally {
+    await db.$executeRawUnsafe('ALTER TABLE "DeviceSession_bak" RENAME TO "DeviceSession"')
+  }
+
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+  assert.deepEqual(await targetCounts(db), tgtBefore, 'target unchanged (table restored)')
+})
+
+test('inventory: tolerates a pre-3A target (3A columns/table absent) -> blockers, no crash, legacy analyzed, unchanged', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+  const coreCounts = async () => ({ users: await db.user.count(), teams: await db.team.count(), memberships: await db.membership.count(), invites: await db.invite.count() })
+
+  // Simulate Phase 3A NOT deployed (reversed in finally; DROP COLUMN also drops its unique index).
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "supabaseTeamId"')
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "archivedAt"')
+  await db.$executeRawUnsafe('ALTER TABLE "MigrationRecord" RENAME TO "MigrationRecord_bak"')
+  try {
+    const coreBefore = await coreCounts()
+    const target = await readTargetSnapshot(db) // must NOT crash despite the absent 3A columns/table
+    assert.equal(target.phase3a.supabaseTeamIdPresent, false)
+    assert.equal(target.phase3a.archivedAtPresent, false)
+    assert.equal(target.phase3a.migrationRecordPresent, false)
+    assert.ok(target.phase3a.missing.includes('Team.supabaseTeamId'))
+
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    assert.ok(report.findings.filter((f) => f.code === 'TGT_PHASE3A_SCHEMA_MISSING').length >= 3)
+    assert.equal(report.hasBlockers, true)
+    assert.equal(report.target.mappedTeams, null) // unavailable, not zero
+    assert.equal(report.plan.teamsToCreate, null)
+    assert.deepEqual(report.artifacts, [])
+    assert.ok(report.target.teams >= 1) // legacy data still analyzed
+    assert.ok(report.target.users >= 1)
+
+    assert.deepEqual(await coreCounts(), coreBefore, 'inventory changed nothing in the pre-3A target')
+  } finally {
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "supabaseTeamId" TEXT')
+    await db.$executeRawUnsafe('CREATE UNIQUE INDEX "Team_supabaseTeamId_key" ON "Team"("supabaseTeamId")')
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "archivedAt" DOUBLE PRECISION')
+    await db.$executeRawUnsafe('ALTER TABLE "MigrationRecord_bak" RENAME TO "MigrationRecord"')
+  }
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+})
+
+test('inventory: tolerates legacy target columns (read columns absent across Membership/Team/Invite) -> per-column blockers, no crash, readable data analyzed, unavailable not fabricated, unchanged', { skip }, async () => {
+  const db = testDb()
+  await seedSource(SRC_URL!)
+  await seedTarget(db)
+  const srcBefore = await sourceChecksums(SRC_URL!)
+
+  // Simulate a pre-current-schema target: drop read columns across THREE tables (reversed in
+  // finally). DROP works with rows present; the inventory must never SELECT a dropped column.
+  await db.$executeRawUnsafe('ALTER TABLE "Membership" DROP COLUMN "overrides"')
+  await db.$executeRawUnsafe('ALTER TABLE "Membership" DROP COLUMN "scopeGroups"')
+  await db.$executeRawUnsafe('ALTER TABLE "Team" DROP COLUMN "name"')
+  await db.$executeRawUnsafe('ALTER TABLE "Invite" DROP COLUMN "status"')
+  try {
+    const tgtBefore = await targetCounts(db)
+
+    const target = await readTargetSnapshot(db) // must NOT crash on the absent columns
+    // Missing read columns detected across all three tables.
+    assert.deepEqual(
+      target.columns?.missing.map((m) => `${m.table}.${m.column}`).sort(),
+      ['Invite.status', 'Membership.overrides', 'Membership.scopeGroups', 'Team.name'].sort(),
+    )
+    // Unavailable fields are NOT fabricated -- they are simply absent from the read rows.
+    assert.ok(target.memberships.every((m) => m.overrides === undefined && m.scopeGroups === undefined))
+    assert.ok(target.teams.every((t) => t.name === undefined))
+    // The columns that DO exist were still read.
+    assert.ok(target.memberships.every((m) => m.role !== undefined && m.status !== undefined))
+
+    const report = analyze(await readSourceSnapshot(SRC_URL!), target)
+    const colMiss = report.findings.filter((f) => f.code === 'TGT_EXPECTED_COLUMN_MISSING')
+    assert.equal(colMiss.length, 4)
+    assert.ok(colMiss.every((f) => f.severity === 'blocker'))
+    assert.equal(report.hasBlockers, true)
+    // Degraded sections reported as unavailable, never computed from defaults.
+    assert.equal(report.provisional.membershipParity, 'unavailable')
+    assert.equal(report.provisional.artifactClassification, 'unavailable')
+    assert.equal(report.provisional.identity, 'degraded')
+    assert.deepEqual(report.artifacts, [])
+    assert.equal(report.plan.artifactsToArchive, null)
+    // Readable data is still analyzed.
+    assert.ok(report.target.users >= 1)
+    assert.ok(report.target.teams >= 1)
+    assert.equal(report.plan.teamsAlreadyMapped, 1) // s_acme still mapped to pt_acme
+
+    // The inventory changed nothing (read-only) -- compare counts before/after the read.
+    assert.deepEqual(await targetCounts(db), tgtBefore, 'target row counts unchanged by the read')
+  } finally {
+    // Restore the schema exactly (truncate first so the NOT NULL re-adds succeed on empty tables).
+    await resetDb(db)
+    await db.$executeRawUnsafe('ALTER TABLE "Team" ADD COLUMN "name" TEXT NOT NULL')
+    await db.$executeRawUnsafe('ALTER TABLE "Membership" ADD COLUMN "scopeGroups" JSONB')
+    await db.$executeRawUnsafe('ALTER TABLE "Membership" ADD COLUMN "overrides" JSONB')
+    await db.$executeRawUnsafe('ALTER TABLE "Invite" ADD COLUMN "status" TEXT NOT NULL')
+  }
+  assert.deepEqual(await sourceChecksums(SRC_URL!), srcBefore, 'source unchanged')
+})
+
+// Offline mode needs NO Supabase source -> gated only on the target DB being available.
+test('inventory: OFFLINE snapshot mode (no Supabase connection) analyzes + leaves target unchanged + no token leak', { skip: process.env.TEST_DATABASE_URL ? false : 'set TEST_DATABASE_URL' }, async () => {
+  const db = testDb()
+  await resetDb(db)
+  await db.user.create({ data: { id: 'pu_bob', authProviderId: 'auth_bob', email: 'bob@x.com', createdAt: Date.now() } })
+  await db.team.create({ data: { id: 'pt_acme', name: 'Acme', createdAt: Date.now(), supabaseTeamId: 's_acme' } })
+  await db.membership.create({ data: { id: 'pm', userId: 'pu_bob', teamId: 'pt_acme', role: 'owner', status: 'active', scopeType: 'workspace', createdAt: Date.now() } })
+  const tgtBefore = await targetCounts(db)
+
+  const snap = {
+    snapshotVersion: 1, source: 'supabase', generatedAt: '2026-06-16T00:00:00Z',
+    authUsers: [{ id: 'auth_bob', email: 'bob@x.com', emailConfirmedAt: '2024-01-01T00:00:00Z', fullName: 'Bob', createdAt: '2024-01-01T00:00:00Z' }],
+    teams: [{ id: 's_acme', name: 'Acme', ownerUserId: 'auth_bob', createdAt: '2024-01-01T00:00:00Z' }],
+    members: [{ id: 'sm1', teamId: 's_acme', userId: 'auth_bob', role: 'owner', status: 'active', email: 'bob@x.com', name: 'Bob', invitedBy: null, scopeType: 'workspace', scopeGroups: [], scopePhones: [], overrides: {}, joinedAt: '2024-01-01T00:00:00Z' }],
+    invites: [{ id: 'si1', teamId: 's_acme', email: 'new@x.com', role: 'operator', token: 'tok_SECRET_FULL_999', status: 'pending', invitedBy: null, createdAt: '2024-01-01T00:00:00Z', expiresAt: '2024-02-01T00:00:00Z', acceptedAt: null }],
+  }
+  const snapPath = join(tmpdir(), `mf-src-${randomUUID()}.json`)
+  writeFileSync(snapPath, JSON.stringify(snap))
+  try {
+    const source = loadSourceSnapshot(snapPath)
+    assert.equal(source.mode, 'offline_snapshot')
+    const report = analyze(source, await readTargetSnapshot(db))
+    assert.equal(report.sourceMode, 'offline_snapshot')
+    assert.equal(report.sourceSnapshot?.version, 1)
+    assert.match(report.sourceSnapshot?.sha256 ?? '', /^[0-9a-f]{64}$/)
+    // identity/team/member/invite analysis still works
+    assert.equal(report.source.authUsers, 1)
+    assert.equal(report.source.invites, 1)
+    assert.equal(report.plan.teamsAlreadyMapped, 1) // s_acme mapped to pt_acme; matching owner -> no conflict
+    assert.ok(!report.findings.some((f) => f.code === 'TGT_MEMBERSHIP_CONFLICT'))
+    // no full invite token anywhere in the emitted report
+    assert.ok(!toJson(report).includes('tok_SECRET_FULL_999'))
+    // target unchanged (read-only)
+    assert.deepEqual(await targetCounts(db), tgtBefore)
+  } finally {
+    rmSync(snapPath, { force: true })
+  }
+})
+
+// The export SQL itself: run it against a disposable Supabase-shaped source and verify the
+// authUsers closure (data minimization) + deterministic ordering. Needs only the source DB.
+test('export SQL: authUsers minimized to the relevant closure; ordering deterministic', { skip: SRC_URL ? false : 'set TEST_SOURCE_DB_URL' }, async () => {
+  const c = new Client({ connectionString: SRC_URL! })
+  await c.connect()
+  try {
+    await c.query('DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA auth')
+    await c.query('CREATE TABLE auth.users (id text primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb, created_at timestamptz)')
+    await c.query('DROP TABLE IF EXISTS public.team_invites, public.team_members, public.teams CASCADE')
+    await c.query('CREATE TABLE public.teams (id text primary key, name text, owner_user_id text, created_at timestamptz)')
+    await c.query('CREATE TABLE public.team_members (id text primary key, team_id text, user_id text, role text, status text, email text, name text, invited_by text, scope_type text, scope_groups jsonb, scope_phones jsonb, overrides jsonb, joined_at timestamptz)')
+    await c.query('CREATE TABLE public.team_invites (id text primary key, team_id text, email text, role text, token text, status text, invited_by text, created_at timestamptz, expires_at timestamptz, accepted_at timestamptz)')
+    await c.query(`INSERT INTO auth.users (id,email,email_confirmed_at,raw_user_meta_data,created_at) VALUES
+      ('u_member','member@x.com',now(),'{}'::jsonb,now()),
+      ('u_owner','owner@x.com',now(),'{}'::jsonb,now()),
+      ('u_inviter','inviter@x.com',now(),'{}'::jsonb,now()),
+      ('u_emailmatch','invitee@x.com',now(),'{}'::jsonb,now()),
+      ('u_unrelated','nobody@x.com',now(),'{}'::jsonb,now())`)
+    await c.query(`INSERT INTO public.teams (id,name,owner_user_id,created_at) VALUES ('team1','Acme','u_owner',now())`)
+    await c.query(`INSERT INTO public.team_members (id,team_id,user_id,role,status,scope_type,scope_groups,scope_phones,overrides,joined_at) VALUES
+      ('m1','team1','u_member','operator','active','workspace','[]'::jsonb,'[]'::jsonb,'{}'::jsonb,now())`)
+    // inv1: inviter ref + email (UPPER + spaces) matches u_emailmatch; inv2: NULL inviter + duplicate normalized email
+    await c.query(`INSERT INTO public.team_invites (id,team_id,email,role,token,status,invited_by,created_at,expires_at) VALUES
+      ('inv1','team1','INVITEE@x.com  ','operator','tok1','pending','u_inviter',now(),now()),
+      ('inv2','team1','  invitee@x.com','operator','tok2','pending',NULL,now(),now())`)
+
+    const sqlPath = fileURLToPath(new URL('../../ops/export-supabase-inventory-snapshot.sql', import.meta.url))
+    const sql = readFileSync(sqlPath, 'utf8')
+    const run = async () => (await c.query<{ snapshot: { authUsers: Array<{ id: string }> } }>(sql)).rows[0].snapshot
+    const snap1 = await run()
+    const ids = snap1.authUsers.map((u) => u.id)
+
+    for (const id of ['u_member', 'u_owner', 'u_inviter', 'u_emailmatch']) assert.ok(ids.includes(id), `expected ${id} in closure`)
+    assert.ok(!ids.includes('u_unrelated'), 'unrelated auth user must be excluded')
+    assert.equal(ids.filter((id) => id === 'u_emailmatch').length, 1, 'duplicate normalized invite emails must not duplicate the user')
+    assert.ok(!ids.includes(null as unknown as string), 'null references must not produce a null user')
+    assert.equal(ids.length, 4)
+    // deterministic order: a second run is byte-for-byte the same order, and sorted by id
+    assert.deepEqual((await run()).authUsers.map((u) => u.id), ids)
+    assert.deepEqual([...ids].sort(), ids)
+  } finally {
+    await c.end()
+  }
+})

@@ -2,7 +2,9 @@ import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/contexts/AuthContext'
+import { useAuthz } from '@/contexts/AuthzContext'
 import { useTeamContext } from '@/contexts/TeamContext'
+import { AUTH_SOURCE } from '@/auth/auth-source'
 import { roleRank, type RoleId } from '@/lib/authorization/roles'
 
 const LoadingScreen = () => (
@@ -25,6 +27,7 @@ const LoadingScreen = () => (
 export function ProtectedRoute({ children, requiredRole }: { children: ReactNode; requiredRole?: RoleId }) {
   const { enabled, loading, session } = useAuth()
   const team = useTeamContext()
+  const authz = useAuthz()
   const location = useLocation()
 
   if (!enabled) return <>{children}</>
@@ -37,9 +40,13 @@ export function ProtectedRoute({ children, requiredRole }: { children: ReactNode
   }
 
   if (requiredRole) {
-    // Wait for the role to resolve before judging access (avoid a false 403 flash).
-    if (team.loading) return <LoadingScreen />
-    if (!team.role || roleRank(team.role) < roleRank(requiredRole)) {
+    // The role is read from the authoritative source for the active mode: `/v1/me` (Prisma)
+    // in `me`-mode, the Supabase membership otherwise. Wait for it to resolve before judging
+    // access (avoid a false 403 flash).
+    const roleLoading = AUTH_SOURCE === 'me' ? authz.loading : team.loading
+    const role = (AUTH_SOURCE === 'me' ? (authz.me?.role as RoleId | null | undefined) : team.role) ?? null
+    if (roleLoading) return <LoadingScreen />
+    if (!role || roleRank(role) < roleRank(requiredRole)) {
       return <Navigate to="/forbidden" replace />
     }
   }

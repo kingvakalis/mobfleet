@@ -18,10 +18,15 @@ deploy `server/` to an always-on host (Railway) and point the SPA at it.
    |---|---|
    | `PROVIDER` | `simulated` (or `corellium` once wired) |
    | `ALLOWED_ORIGIN` | `https://phone-farm-app.vercel.app` |
-   | `DATABASE_URL` | (auto from the Postgres plugin) |
-5. Deploy. Build runs `npm run build` (generates the Postgres Prisma client);
-   start runs `npm run start:prod` (`prisma db push` to create tables, then the
-   server). Note the public URL, e.g. `https://phone-farm-server.up.railway.app`.
+   | `DATABASE_URL` | (auto from the Postgres plugin) — runtime app role |
+   | `MIGRATION_DATABASE_URL` | dedicated migration role (pre-deploy only); see the runbook |
+5. Deploy. Build runs `npm run build` (generates the Postgres Prisma client). The
+   **pre-deploy** command `npm run migrate:deploy` applies versioned migrations
+   (`prisma migrate deploy`) once per release — a failure aborts the deploy. The
+   **start** command is server-only (`node dist/index.js`) and never mutates the
+   schema. See [`server/ops/PRODUCTION_MIGRATION_RUNBOOK.md`](server/ops/PRODUCTION_MIGRATION_RUNBOOK.md)
+   for the one-time baseline bootstrap. Note the public URL, e.g.
+   `https://phone-farm-server.up.railway.app`.
 
 ## 2 · Frontend → Vercel
 

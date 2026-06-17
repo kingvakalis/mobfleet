@@ -4,7 +4,7 @@ import {
   type AgentCommandAction, type CommandResultBody,
 } from '../../src/shared/schemas'
 import type { EngineRegistry, TeamEngine } from './tenancy/engine-registry'
-import { actor, authenticate, ctx, requirePermission, tokenFromRequest } from './auth/context'
+import { actor, authenticate, authenticateIdentity, ctx, identityOf, requirePermission, tokenFromRequest, type AuthMode } from './auth/context'
 import { claimDevice, createPairingToken, publicServerUrl, resolveDeviceKey } from './provisioning'
 import { markDelivered, queueCommand, takePendingForDevice, toFrame } from './agent-commands'
 import { pushToDevice } from './device-hub'
@@ -13,11 +13,13 @@ import { acknowledgeCommandResult } from './command-completion'
 import { formatCommandLog, commandTypeForAction } from '../../src/shared/control-command'
 import { listDeviceSessions, toDeviceSessionRecord } from './device-sessions'
 import { prisma } from './db'
-import { logAudit } from './auth/db'
+import { logAudit, resolveMeState } from './auth/db'
+import { buildMeResponse } from './auth/me'
 import { rateLimit } from './rate-limit'
 import { HttpError, forbidden, notFound, unauthorized } from './http-error'
 import { registerTeamRoutes } from './routes/team'
 import { registerEmailSettingsRoutes } from './routes/email-settings'
+import { registerOnboardingRoutes } from './routes/onboarding'
 import { can, canActOnPhone, scopePhones } from '../../src/lib/authorization/effective-access'
 import type { PermissionKey } from '../../src/lib/authorization/permissions'
 import type { FleetStore } from './fleet-store'
@@ -74,21 +76,20 @@ function deviceForAction(req: FastifyRequest, store: FleetStore, id: string, key
  * permission. Only /v1/health is public.
  */
 export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
-  // Authenticate everything except health + the WS upgrade (which authenticates
-  // itself in the upgrade handler).
+  // Authenticate by the MATCHED ROUTE's static `config.auth` (Fastify resolves the
+  // route before onRequest, so req.routeOptions.config is the registered route's
+  // config — query strings, trailing-slash/case variants, and registration order
+  // cannot change it; an unmatched URL 404s before any handler). Unset → 'team', so
+  // a new/unflagged route is fully authenticated by default (fail-closed). This
+  // replaces the prior raw-URL string matching.
+  //   public   → no user gate (health, device claim; /ws self-auths in its handler)
+  //   device   → agent poll/ack — self-authenticate via the per-device API key
+  //   identity → verified JWT + ensured profile only (no team / no auto-provision)
+  //   team     → full tenant context resolved onto req.auth (every business route)
   app.addHook('onRequest', async (req, reply) => {
-    // Match the exact parsed pathname (not a raw-URL prefix) so a future route
-    // under a /ws* path can never be silently left unauthenticated.
-    const path = req.url.split('?')[0]
-    // Public: health checks, the WS upgrade (self-auths), and device claim (the
-    // pairing token in the body IS the credential — a device has no user session).
-    if (path === '/healthz' || path === '/v1/health' || path === '/ws' || path === '/v1/devices/claim') return
-    // Agent command poll/ack self-authenticate via the per-device API key (Bearer)
-    // inside the handler (authDeviceKey), NOT a user JWT — skip the user gate for
-    // them. NOTE: POST /v1/agent/command (no /queue/ segment, no /ack suffix) is
-    // NOT matched here, so it still requires a user session + permission.
-    if (path.startsWith('/v1/agent/command/queue/')) return
-    if (path.startsWith('/v1/agent/command/') && path.endsWith('/ack')) return
+    const mode = (req.routeOptions?.config as { auth?: AuthMode } | undefined)?.auth ?? 'team'
+    if (mode === 'public' || mode === 'device') return
+    if (mode === 'identity') return authenticateIdentity(req)
     await authenticate(req, reply)
   })
 
@@ -96,9 +97,9 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
 
   // Platform health check (Railway). Intentionally tiny: no auth, no DB, no
   // tenant context — just proves the process is up and serving HTTP.
-  app.get('/healthz', async (_req, reply) => reply.code(200).send({ status: 'ok' }))
+  app.get('/healthz', { config: { auth: 'public' } }, async (_req, reply) => reply.code(200).send({ status: 'ok' }))
 
-  app.get('/v1/health', async () => ({ ok: true, provider: process.env.PROVIDER ?? 'simulated' }))
+  app.get('/v1/health', { config: { auth: 'public' } }, async () => ({ ok: true, provider: process.env.PROVIDER ?? 'simulated' }))
 
   app.get('/v1/snapshot', async (req) => {
     requirePermission(req, 'fleet.view')
@@ -191,7 +192,7 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // is the credential). Creates the device in its team + returns an API key.
   // Rate-limited per source IP as a coarse DoS backstop (front with an edge
   // limiter in production; req.ip is the proxy peer behind a reverse proxy).
-  app.post('/v1/devices/claim', async (req) => {
+  app.post('/v1/devices/claim', { config: { auth: 'public' } }, async (req) => {
     if (!rateLimit(`claim:${req.ip}`, 60, 60_000)) throw new HttpError(429, 'too many claim attempts, slow down')
     const body = claimDeviceBody.parse(req.body)
     return claimDevice(registry, body, Date.now())
@@ -294,7 +295,7 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // The agent polls its own queue (device-key auth). Returns undelivered commands
   // and atomically marks them delivered. own-rows-only: the key must resolve to
   // the :agentId being polled (mirrors the WS heartbeat's own-device check).
-  app.get('/v1/agent/command/queue/:agentId', async (req) => {
+  app.get('/v1/agent/command/queue/:agentId', { config: { auth: 'device' } }, async (req) => {
     const { teamId, deviceId } = await authDeviceKey(req)
     const agentId = (req.params as { agentId: string }).agentId
     if (agentId !== deviceId) throw forbidden('device key does not match the requested queue')
@@ -304,7 +305,7 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   })
 
   // The agent reports a command's result (device-key auth; own-rows-only).
-  app.post('/v1/agent/command/:commandId/ack', async (req) => {
+  app.post('/v1/agent/command/:commandId/ack', { config: { auth: 'device' } }, async (req) => {
     const { teamId, deviceId } = await authDeviceKey(req)
     const commandId = (req.params as { commandId: string }).commandId
     const body = agentCommandAckBody.parse(req.body)
@@ -337,11 +338,18 @@ export function registerRoutes(app: FastifyInstance, registry: EngineRegistry) {
   // per-team transactional email sender settings (GET/POST /v1/settings/email)
   registerEmailSettingsRoutes(app)
 
-  // whoami — the client uses this to learn its team + role + scope (the server
-  // is the source of truth; the UI must derive permissions from this, not from
-  // local state). A suspended member never reaches here (resolveAuthContext 403s).
-  app.get('/v1/me', async (req) => {
-    const c = ctx(req)
-    return { userId: c.userId, email: c.email, name: c.name, teamId: c.teamId, teamName: c.teamName, role: c.role, scope: c.scope }
+  // first-team onboarding (POST /v1/onboarding/team) — identity-only, no team required
+  registerOnboardingRoutes(app)
+
+  // whoami — the AUTHORITATIVE post-login state. Identity-only auth, so it works
+  // before the user has a team: it reports onboardingRequired / suspended /
+  // pendingInvite plus the server-computed permission set, and does NOT
+  // auto-provision. The UI derives routing + permissions from THIS (a no-team user
+  // is onboarding-required, never "access restricted"), not from local state.
+  app.get('/v1/me', { config: { auth: 'identity' } }, async (req) => {
+    const { identity, user } = identityOf(req)
+    const requestedTeamId = (req.headers['x-team-id'] as string | undefined)?.trim() || undefined
+    const { classification, pendingInvite } = await resolveMeState(user, requestedTeamId)
+    return buildMeResponse({ identity, user, classification, pendingInvite })
   })
 }

@@ -1,7 +1,8 @@
-// v1 dev persistence: SQLite (zero external infra, restart-persistent).
-// PROD: schema.postgres.prisma is the migration-compatible Postgres mirror
-// (see server/.env.example). Timestamps are stored as Float (epoch ms fits
-// exactly in a double) to keep JSON serialization clean.
+// The MobFleet server requires PostgreSQL for dev, test, AND prod — the datasource
+// below is `postgresql` (SQLite is no longer supported; first-team provisioning
+// uses a pg_advisory_xact_lock). schema.postgres.prisma is the prod build mirror.
+// Timestamps are stored as Float (epoch ms fits exactly in a double) to keep JSON
+// serialization clean.
 //
 // MULTI-TENANCY: every tenant is a Team. Users authenticate via an external
 // identity provider (Clerk / Supabase — see src/auth) and join teams through
@@ -23,6 +24,15 @@ model Team {
   id            String               @id
   name          String
   createdAt     Float
+  // Provenance for the Supabase→Prisma migration (Step 3): the source Supabase
+  // teams.id (a bare uuid). Set ONLY on migrated teams — null for native/auto-
+  // provisioned teams. Unique so a Supabase team maps to exactly one Prisma team
+  // and the migration is idempotent (the disjoint id spaces never cross-key).
+  supabaseTeamId String?             @unique
+  // Reversible artifact archival: migrated-away auto-provision artifacts are marked
+  // (epoch ms) rather than deleted at cutover; membership resolution ignores
+  // archived teams. Null = active.
+  archivedAt    Float?
   memberships   Membership[]
   invites       Invite[]
   devices       Device[]
@@ -96,12 +106,15 @@ model Invite {
   role            String
   token           String  @unique
   status          String // pending | accepted | revoked | expired
-  invitedByUserId String
+  // Nullable: migrated Supabase invites may have a null `invited_by` (the inviter
+  // was deleted / never recorded). Map those to null rather than a wrong user — no
+  // false audit attribution. App-created invites always set it.
+  invitedByUserId String?
   createdAt       Float
   expiresAt       Float
   acceptedAt      Float?
   team            Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedBy       User    @relation("InviteInvitedBy", fields: [invitedByUserId], references: [id])
+  invitedBy       User?   @relation("InviteInvitedBy", fields: [invitedByUserId], references: [id])
 
   @@index([teamId])
   @@index([email])
@@ -282,4 +295,32 @@ model DeviceSession {
 
   @@index([deviceId, startedAt])
   @@index([teamId, startedAt])
+}
+
+// ─── Migration audit (Supabase→Prisma data migration, Step 3) ────────────────
+// One row per entity the migration creates / updates / archives / deletes, with the
+// full before+after row state so any batch can be reverse-exported or rolled back
+// deterministically. Deliberately NOT a Team relation: `prismaId` is a plain string
+// so a record can reference any entity (incl. one later deleted) without a FK that
+// would block cleanup. NEVER store secrets in before/after.
+//
+// NOTE (post-cutover, Step 3E guardrail): this table covers the MIGRATION's writes.
+// Normal Prisma-authoritative app mutations (role/scope/status/invite changes) must
+// emit their OWN durable before/after audit (the existing AuditLog, extended) — this
+// table is not coverage for application writes.
+model MigrationRecord {
+  id         String  @id
+  batchId    String
+  entity     String // user | team | membership | invite
+  action     String // create | update | delete | archive
+  supabaseId String? // source uuid (when applicable)
+  prismaId   String? // target Prisma id (when applicable)
+  before     Json? // full row state before the action (null for create)
+  after      Json? // full row state after the action (null for delete)
+  status     String  @default("ok") // ok | error
+  error      String? // failure detail (NO secrets)
+  createdAt  Float
+
+  @@index([batchId])
+  @@index([entity, prismaId])
 }

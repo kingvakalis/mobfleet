@@ -41,15 +41,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 WORKDIR /app/server
 ENV NODE_ENV=production
 
-# node_modules carries the generated Prisma client + the prisma CLI used by
-# start:prod to apply the schema. dist is the compiled bundle.
+# node_modules carries the generated Prisma client + the prisma CLI. prisma/ holds the schema +
+# the versioned migration chain. scripts/ holds the dedicated pre-deploy migration runner
+# (migrate-deploy.mjs), used by Railway's PRE-DEPLOY step -- NOT by container startup.
 COPY --from=build /app/server/node_modules ./node_modules
 COPY --from=build /app/server/dist ./dist
 COPY --from=build /app/server/prisma ./prisma
+COPY --from=build /app/server/scripts ./scripts
 COPY --from=build /app/server/package.json ./package.json
 
 # PORT is injected by Railway at runtime; 8787 is the local fallback default.
 EXPOSE 8787
 
-# Apply the schema to the database, then run the compiled server.
-CMD ["npm", "run", "start:prod"]
+# Startup is SERVER-ONLY: it never mutates the schema. Schema changes are applied once per release
+# by the Railway pre-deploy command (`npm run migrate:deploy` -> `prisma migrate deploy`), which
+# must succeed before this start command runs. (railway.toml sets startCommand + preDeployCommand.)
+CMD ["node", "dist/index.js"]

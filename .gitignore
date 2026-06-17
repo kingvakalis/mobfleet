@@ -38,3 +38,10 @@ playwright-report
 .env
 *.db
 *.db-journal
+
+# Local migration inventory/conflict reports + offline source snapshots (Phase 3B) — may contain
+# private user/team ids (and the snapshot, full invite tokens); keep local, never commit.
+migration-inventory*.json
+**/migration-inventory*.json
+migration-source-snapshot*.json
+**/migration-source-snapshot*.json

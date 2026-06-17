@@ -1,4 +1,5 @@
 import { randomUUID, randomBytes } from 'node:crypto'
+import type { PrismaClient } from '@prisma/client'
 import { prisma } from '../db'
 import { env } from '../env'
 import { forbidden } from '../http-error'
@@ -89,55 +90,136 @@ export async function ensureUser(identity: Identity) {
   })
 }
 
-/** Create a workspace owned by the user (first-login onboarding). Uses the
- *  signup-supplied name when present, else a personal default. */
-export async function createPersonalTeam(userId: string, displayName: string, preferredName?: string) {
-  const teamId = id('team')
-  const now = Date.now()
-  const name = preferredName?.trim() || `${displayName}'s Workspace`
-  const team = await prisma.team.create({ data: { id: teamId, name, createdAt: now } })
-  const membership = await prisma.membership.create({
-    data: { id: id('mem'), userId, teamId, role: 'owner', createdAt: now },
+/** Advisory-lock namespace for first-team provisioning (see ensureFirstTeam). */
+const ONBOARD_LOCK_NS = 0x4d46 // 'MF'
+
+/** Name for a first team: the signup-supplied name, else a personal default. Pure. */
+export function resolveTeamName(preferred: string | undefined, name: string | null, email: string): string {
+  const trimmed = preferred?.trim()
+  if (trimmed) return trimmed
+  const base = (name?.trim() || email.split('@')[0] || 'My').trim() || 'My'
+  return `${base}'s Workspace`
+}
+
+export type MembershipClassification<M> =
+  | { status: 'onboarding' }
+  | { status: 'suspended' }
+  | { status: 'ready'; chosen: M }
+
+/**
+ * Select the membership a request acts on, PREFERRING an active one. A suspended
+ * membership in one team never blocks a valid active membership in another:
+ * 'suspended' is returned only when memberships exist but NONE are active. An
+ * explicit (forge-resistant) requestedTeamId is honoured only if the user has an
+ * ACTIVE membership in it. Input is expected pre-ordered by createdAt (first active
+ * wins). Pure — DB-free, unit-tested.
+ */
+export function classifyMembership<M extends { teamId: string; status: string }>(
+  memberships: M[],
+  requestedTeamId?: string,
+): MembershipClassification<M> {
+  if (memberships.length === 0) return { status: 'onboarding' }
+  const requested = requestedTeamId ? memberships.find((m) => m.teamId === requestedTeamId) : undefined
+  if (requested && requested.status === 'active') return { status: 'ready', chosen: requested }
+  const active = memberships.find((m) => m.status === 'active')
+  if (active) return { status: 'ready', chosen: active }
+  return { status: 'suspended' }
+}
+
+export interface FirstTeamUser { id: string; email: string; name: string | null }
+
+export type ProvisionResult =
+  | { ok: true; created: boolean; team: { id: string; name: string }; membership: { id: string; teamId: string; role: string; status: string } }
+  | { ok: false; reason: 'pending_invite'; invite: { id: string; teamId: string; teamName: string; role: string } }
+
+/**
+ * Create the user's FIRST team (as owner), idempotently and RACE-SAFELY. A
+ * PostgreSQL transaction-scoped advisory lock keyed on the user serializes ALL
+ * concurrent first-team creation for that user (deliberate onboarding AND legacy
+ * auto-provision): the winner creates the team and commits (releasing the lock); a
+ * loser blocks, then its post-lock re-check sees the committed membership and ADOPTS
+ * it (created:false) — so at most one first team can ever exist (`@@unique[userId,
+ * teamId]` alone can't prevent two DIFFERENT teams). The lock is transaction-scoped
+ * → auto-released and held on this interactive tx's single connection (pooler-safe).
+ *
+ * opts.rejectPendingInvite=true (deliberate /v1/onboarding/team): a pending invite
+ * for the email blocks personal-team creation (invite precedence → caller returns
+ * 409). false (legacy auto-provision in resolveAuthContext): provision regardless of
+ * invites, preserving current behavior. `db` is injectable for integration tests.
+ */
+export async function ensureFirstTeam(
+  user: FirstTeamUser,
+  name?: string,
+  opts: { rejectPendingInvite?: boolean } = {},
+  db: PrismaClient = prisma,
+): Promise<ProvisionResult> {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ONBOARD_LOCK_NS}::int4, hashtext(${user.id}))`
+    const active = await tx.membership.findFirst({ where: { userId: user.id, status: 'active' }, include: { team: true } })
+    if (active) {
+      return { ok: true, created: false, team: { id: active.team.id, name: active.team.name }, membership: { id: active.id, teamId: active.teamId, role: active.role, status: active.status } }
+    }
+    if (opts.rejectPendingInvite) {
+      const invite = await tx.invite.findFirst({ where: { email: user.email.toLowerCase(), status: 'pending' }, include: { team: true } })
+      if (invite && invite.expiresAt >= Date.now()) {
+        return { ok: false, reason: 'pending_invite', invite: { id: invite.id, teamId: invite.teamId, teamName: invite.team.name, role: invite.role } }
+      }
+    }
+    const now = Date.now()
+    const team = await tx.team.create({ data: { id: id('team'), name: resolveTeamName(name, user.name, user.email), createdAt: now } })
+    const membership = await tx.membership.create({ data: { id: id('mem'), userId: user.id, teamId: team.id, role: 'owner', status: 'active', createdAt: now } })
+    return { ok: true, created: true, team: { id: team.id, name: team.name }, membership: { id: membership.id, teamId: membership.teamId, role: membership.role, status: membership.status } }
   })
-  return { team, membership }
+}
+
+/** A pending, non-expired invite for an email (the caller's own, by JWT email), as
+ *  a safe summary for /v1/me. Returns null when none. */
+export async function findPendingInviteForEmail(email: string, db: PrismaClient = prisma) {
+  const inv = await db.invite.findFirst({
+    where: { email: email.toLowerCase(), status: 'pending' },
+    include: { team: true },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!inv || inv.expiresAt < Date.now()) return null
+  return { id: inv.id, teamId: inv.teamId, teamName: inv.team.name, role: inv.role }
+}
+
+/** Resolve the authoritative /v1/me state for an already-ensured user WITHOUT
+ *  auto-provisioning — so a no-team user is reported as onboarding-required. A DB
+ *  error propagates (the caller returns 500); it is NEVER reported as onboarding. */
+export async function resolveMeState(user: FirstTeamUser, requestedTeamId?: string, db: PrismaClient = prisma) {
+  const memberships = await db.membership.findMany({ where: { userId: user.id }, include: { team: true }, orderBy: { createdAt: 'asc' } })
+  const classification = classifyMembership(memberships, requestedTeamId)
+  const pendingInvite = await findPendingInviteForEmail(user.email, db)
+  return { classification, pendingInvite }
 }
 
 /**
- * Resolve which team this request acts on. Honours an explicit teamId (only if
- * the user is a member of it — never trust a client-supplied tenant id blindly),
- * else the user's first membership. With no membership, optionally onboards a
- * personal team.
+ * Resolve the tenant context for an authenticated request (the legacy 'team' auth
+ * path used by every business route). Honours an explicit teamId only if the user
+ * has an ACTIVE membership in it; otherwise selects their first ACTIVE membership
+ * (a suspended membership no longer blocks a valid active one). With no membership,
+ * auto-provisions a personal team when enabled — now via the race-safe ensureFirstTeam
+ * (rejectPendingInvite:false → provision regardless of invites, exactly as before).
  */
 export async function resolveAuthContext(identity: Identity, requestedTeamId?: string, preferredTeamName?: string): Promise<AuthContext> {
   const user = await ensureUser(identity)
-  let memberships = await prisma.membership.findMany({
-    where: { userId: user.id },
-    include: { team: true },
-    orderBy: { createdAt: 'asc' },
-  })
+  let memberships = await prisma.membership.findMany({ where: { userId: user.id }, include: { team: true }, orderBy: { createdAt: 'asc' } })
+  let cls = classifyMembership(memberships, requestedTeamId)
 
-  if (memberships.length === 0) {
+  if (cls.status === 'onboarding') {
     if (!env.autoProvisionTeam) throw new Error('no team membership — you must be invited to a workspace')
-    const created = await createPersonalTeam(user.id, user.name ?? user.email.split('@')[0], preferredTeamName)
-    memberships = await prisma.membership.findMany({
-      where: { id: created.membership.id },
-      include: { team: true },
-    })
+    await ensureFirstTeam({ id: user.id, email: user.email, name: user.name }, preferredTeamName, { rejectPendingInvite: false })
+    memberships = await prisma.membership.findMany({ where: { userId: user.id }, include: { team: true }, orderBy: { createdAt: 'asc' } })
+    cls = classifyMembership(memberships, requestedTeamId)
   }
 
-  // SECURITY: an explicit teamId is honoured ONLY if the user truly belongs to
-  // it. Otherwise fall back to their first membership — a forged x-team-id can
-  // never grant access to a team the user isn't a member of.
-  const chosen = (requestedTeamId && memberships.find((m) => m.teamId === requestedTeamId)) || memberships[0]
-
-  // SECURITY: a SUSPENDED member gets NO authorization context, so every
-  // authenticated route (and the WS upgrade) rejects them — even with a still
-  // -valid JWT. This is read fresh from the DB on every request, so suspension
-  // (like any role change) takes effect immediately, never waiting for the JWT
-  // to expire. 403, not 401: they are authenticated but not permitted.
-  if (chosen.status === 'suspended') {
-    throw forbidden('your workspace membership is suspended')
-  }
+  // SECURITY: a SUSPENDED member (no active membership anywhere) gets NO context, so
+  // every authenticated route + the WS upgrade rejects them — read fresh from the DB
+  // on every request, so suspension takes effect immediately. 403, not 401.
+  if (cls.status === 'suspended') throw forbidden('your workspace membership is suspended')
+  if (cls.status !== 'ready') throw new Error('failed to resolve a workspace') // unreachable after provisioning
+  const chosen = cls.chosen
 
   return {
     userId: user.id,
