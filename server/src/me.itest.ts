@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { PrismaClient } from '@prisma/client'
-import { resolveMeState } from './auth/db'
+import { resolveMeState, selectTeamStrict } from './auth/db'
 import { itSkip, testDb, resetDb, seedUser, seedMembership } from './it-support'
 
 // PostgreSQL integration tests for resolveMeState (the DB side of /v1/me). Run via
@@ -44,6 +44,34 @@ test('resolveMeState: suspended in one team + active in another → ready (activ
   const { classification } = await resolveMeState(u, undefined, db)
   assert.equal(classification.status, 'ready')
   if (classification.status === 'ready') assert.equal(classification.chosen.teamId, team.id)
+})
+
+test('resolveMeState: multi-team → returns the full roster (createdAt asc); strict switch honours the requested team', { skip: itSkip }, async () => {
+  const db = testDb(); await resetDb(db)
+  const u = await seedUser(db)
+  const first = await seedMembership(db, u.id, { teamName: 'Alpha', role: 'owner', status: 'active' })
+  const second = await seedMembership(db, u.id, { teamName: 'Beta', role: 'admin', status: 'active' })
+  const { memberships, classification } = await resolveMeState(u, undefined, db)
+  // both memberships are returned, oldest first
+  assert.deepEqual(memberships.map((m) => m.teamId), [first.team.id, second.team.id])
+  // no requested team → lenient classification picks the FIRST active (Alpha)
+  if (classification.status === 'ready') assert.equal(classification.chosen.teamId, first.team.id)
+  else assert.fail('expected ready')
+  // a deliberate strict switch to Beta is honoured (and never falls back to Alpha)
+  const sel = selectTeamStrict(memberships, second.team.id)
+  assert.equal(sel.status, 'ready')
+  if (sel.status === 'ready') assert.equal(sel.chosen.role, 'admin')
+})
+
+test('selectTeamStrict over DB rows: a team the user is NOT a member of → not_member (cross-tenant rejection)', { skip: itSkip }, async () => {
+  const db = testDb(); await resetDb(db)
+  const me = await seedUser(db)
+  await seedMembership(db, me.id, { teamName: 'Mine', status: 'active' })
+  // a DIFFERENT user's team — the caller has no membership in it
+  const other = await seedUser(db)
+  const otherTeam = await seedMembership(db, other.id, { teamName: 'Theirs', status: 'active' })
+  const { memberships } = await resolveMeState(me, otherTeam.team.id, db)
+  assert.equal(selectTeamStrict(memberships, otherTeam.team.id).status, 'not_member')
 })
 
 test('resolveMeState: a Prisma/DB error propagates (never a fake onboarding/success)', { skip: itSkip }, async () => {
