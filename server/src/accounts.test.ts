@@ -15,23 +15,22 @@ import {
 
 const row = (over: Partial<AccountRow> = {}): AccountRow => ({
   id: 'acct_1', teamId: 'team-1', handle: '@acme', platform: 'Instagram', username: 'acme',
-  email: 'a@b.com', password: 'super-secret', phone: null, assignedPhone: null,
+  email: 'a@b.com', phone: null, assignedPhone: null,
   group: 'Unassigned', owner: 'Unassigned', twoFA: false, status: 'warming', tags: ['x'],
   followers: 0, notes: '', createdAt: 1, updatedAt: 1, ...over,
 })
 
-// ── toSafeAccount: never leaks the password ──────────────────────────────────
-test('toSafeAccount reduces password to a boolean and never serializes it', () => {
-  const safe = toSafeAccount(row({ password: 're_super_secret_pw' }))
-  assert.equal(safe.hasPassword, true)
+// ── toSafeAccount: no secret fields exist (password removed for the cutover) ──
+test('toSafeAccount carries NO password/hasPassword field and keeps tags', () => {
+  const safe = toSafeAccount(row({ tags: ['x'] }))
   assert.equal('password' in safe, false)
-  assert.equal(JSON.stringify(safe).includes('re_super_secret_pw'), false)
+  assert.equal('hasPassword' in safe, false)
+  assert.equal(JSON.stringify(safe).includes('password'), false)
   assert.deepEqual(safe.tags, ['x'])
 })
 
-test('toSafeAccount: null password → hasPassword false; non-array tags → []', () => {
-  const safe = toSafeAccount(row({ password: null, tags: 'oops' as unknown as string[] }))
-  assert.equal(safe.hasPassword, false)
+test('toSafeAccount: non-array tags → []', () => {
+  const safe = toSafeAccount(row({ tags: 'oops' as unknown as string[] }))
   assert.deepEqual(safe.tags, [])
 })
 
@@ -46,7 +45,7 @@ test('buildAccountCreateData applies the documented defaults', () => {
   assert.equal(data.twoFA, false)
   assert.equal(data.followers, 0)
   assert.equal(data.notes, '')
-  assert.equal(data.password, null)
+  assert.equal('password' in data, false)
   assert.deepEqual(data.tags, [])
   assert.equal(data.createdAt, 1234)
   assert.equal(data.updatedAt, 1234)

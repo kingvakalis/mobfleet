@@ -6,6 +6,6 @@
     "20260616110000_reconcile_legacy_objects": "5049a138d3615a456715b4faa7f939a8e570dcf0be1a43d8af456257aad4b3ae",
     "20260616120000_add_migration_mapping_and_audit_schema": "48050da9a5ab08373fad9cd34eb8bdbd125342eb82bad4a2bcb7727e7db64aae",
     "20260617120000_add_team_notification_prefs": "69cb7af7c203d5b877a841e0ddcb7c63d5b32a6eb2a217666b7aa76b9c0564ef",
-    "20260617130000_add_persistence_models": "9f746157a4c77e1547fad64144c3d9a6b5d058da5d9105bde499717b7a51231f"
+    "20260617130000_add_persistence_models": "fa8a01e6351b46a74356732850aa36feda604e6741168e26827a6a292e1a24c6"
   }
 }

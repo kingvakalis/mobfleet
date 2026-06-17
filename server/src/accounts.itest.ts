@@ -52,7 +52,7 @@ test('accounts: create / read / update / delete are team-scoped', async (t) => {
   const { team } = await seedMembership(db, u.id)
   const other = await seedMembership(db, (await seedUser(db)).id)
 
-  const created = await createAccount(team.id, { handle: '@a', platform: 'Instagram', username: 'acme', email: 'a@x.com', password: 'secret' }, Date.now(), port())
+  const created = await createAccount(team.id, { handle: '@a', platform: 'Instagram', username: 'acme', email: 'a@x.com' }, Date.now(), port())
   assert.equal(created.teamId, team.id)
 
   const read = await getAccount(team.id, created.id, port())

@@ -9,11 +9,12 @@ import { prisma } from './db'
  * - Every query is anchored on a server-resolved teamId; per-id access is a
  *   findFirst({ where: { id, teamId } }) so one team can never read/mutate another's
  *   rows (a forged id in another team simply 404s).
- * - `password` is stored as a PLAIN string — this codebase has no reversible-
- *   encryption helper (only one-way SHA-256 for device keys), mirroring
- *   TeamEmailSettings.resendApiKey. It is NEVER returned by a list/read, never
- *   logged, never put in an error. Reveal is a separate, audited endpoint gated by
- *   `accounts.reveal_password`.
+ * - ACCOUNT PASSWORDS ARE NOT PERSISTED in this release. Plaintext credential
+ *   storage is prohibited and this codebase has no reversible-encryption helper, so
+ *   the `password` column/field was REMOVED for the production cutover (the Account
+ *   table is new — no data to migrate). Re-introduce it later only as authenticated-
+ *   encrypted storage with a dedicated server-side key. The vault stores ONLY
+ *   non-secret account metadata (handle, platform, username, email, status, tags, …).
  *
  * The Prisma `Account` model does NOT exist yet (see SCHEMA-PROPOSAL / PROPOSALS.md).
  * Until the lead adds it + regenerates the client, this module compiles against a
@@ -38,7 +39,6 @@ export interface AccountRow {
   platform: string
   username: string
   email: string
-  password: string | null
   phone: string | null
   assignedPhone: string | null
   group: string
@@ -59,7 +59,6 @@ export interface SafeAccount {
   platform: string
   username: string
   email: string
-  hasPassword: boolean
   phone: string | null
   assignedPhone: string | null
   group: string
@@ -76,7 +75,7 @@ export interface SafeAccount {
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 
-/** Map a row to the safe shape — the password is reduced to a boolean. NEVER leaks it. */
+/** Map a row to the safe shape. No secret fields exist on Account (password removed). */
 export function toSafeAccount(row: AccountRow): SafeAccount {
   return {
     id: row.id,
@@ -84,7 +83,6 @@ export function toSafeAccount(row: AccountRow): SafeAccount {
     platform: row.platform,
     username: row.username,
     email: row.email,
-    hasPassword: Boolean(row.password),
     phone: row.phone ?? null,
     assignedPhone: row.assignedPhone ?? null,
     group: row.group,
@@ -106,7 +104,6 @@ export const createAccountBody = z.object({
   platform: z.enum(ACCOUNT_PLATFORMS),
   username: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
-  password: z.string().min(1).max(512).optional(),
   phone: z.string().trim().max(64).optional(),
   assignedPhone: z.string().trim().max(200).optional(),
   group: z.string().trim().max(120).optional(),
@@ -151,8 +148,7 @@ const id = () => `acct_${randomUUID()}`
 
 // ── Data access (team-scoped) ────────────────────────────────────────────────────
 
-/** List a team's accounts, newest-updated first. NEVER includes the password (mapped
- *  through toSafeAccount by the route). */
+/** List a team's accounts, newest-updated first. Metadata-only (no secret fields). */
 export async function listAccounts(teamId: string, db: AccountsDb = prismaAccountsDb()): Promise<AccountRow[]> {
   return db.account.findMany({ where: { teamId }, orderBy: { updatedAt: 'desc' } })
 }
@@ -171,7 +167,6 @@ export function buildAccountCreateData(teamId: string, body: CreateAccountBody, 
     platform: body.platform,
     username: body.username,
     email: body.email,
-    password: body.password ?? null,
     phone: body.phone ?? null,
     assignedPhone: body.assignedPhone ?? null,
     group: body.group ?? 'Unassigned',
@@ -197,7 +192,6 @@ export function buildAccountUpdateData(body: UpdateAccountBody, now: number): Re
   if (body.platform !== undefined) data.platform = body.platform
   if (body.username !== undefined) data.username = body.username
   if (body.email !== undefined) data.email = body.email
-  if (body.password !== undefined) data.password = body.password
   if (body.phone !== undefined) data.phone = body.phone
   if (body.assignedPhone !== undefined) data.assignedPhone = body.assignedPhone
   if (body.group !== undefined) data.group = body.group

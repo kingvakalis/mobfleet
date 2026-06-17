@@ -1,3 +1,6 @@
+# Multi-tool agent coordination scratch (Codex/Claude Code/Composer) — never committed
+AGENT_WORKSPACE/
+
 # Logs
 logs
 *.log

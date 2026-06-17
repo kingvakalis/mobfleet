@@ -349,10 +349,9 @@ model Account {
   platform      String // 'Instagram' | 'TikTok' (validated app-side)
   username      String
   email         String
-  // SECURITY: plaintext (no reversible-encryption helper here; mirrors
-  // TeamEmailSettings.resendApiKey). NEVER returned in list/read (reduced to a
-  // boolean), never logged. Reveal is a separate audited endpoint. Nullable.
-  password      String?
+  // SECURITY: account passwords are NOT persisted — plaintext credential storage is
+  // prohibited and there is no reversible-encryption helper. Re-introduce only as
+  // authenticated-encrypted storage with a dedicated key. Metadata-only vault.
   phone         String?
   assignedPhone String?
   group         String  @default("Unassigned")

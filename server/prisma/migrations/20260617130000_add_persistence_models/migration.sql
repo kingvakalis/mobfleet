@@ -14,7 +14,6 @@ CREATE TABLE "Account" (
     "platform" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "password" TEXT,
     "phone" TEXT,
     "assignedPhone" TEXT,
     "group" TEXT NOT NULL DEFAULT 'Unassigned',

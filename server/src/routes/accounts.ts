@@ -21,9 +21,8 @@ import {
  * AUTH: every route requires the matching `accounts.*` permission. The acting team is
  * the AUTHENTICATED team (ctx().teamId) — a client never passes a teamId, so cross-team
  * read/write is impossible. Per-id reads/writes are team-scoped via findFirst({id,teamId})
- * so a foreign id 404s (conceals cross-tenant existence). The account PASSWORD is never
- * returned by these routes (toSafeAccount reduces it to a boolean); reveal is a separate,
- * audited endpoint gated by accounts.reveal_password (not implemented here).
+ * so a foreign id 404s (conceals cross-tenant existence). Account passwords are NOT
+ * persisted (plaintext credential storage is prohibited) — the vault is metadata-only.
  *
  *   GET    /v1/accounts            -> { accounts: SafeAccount[] }              (accounts.view)
  *   GET    /v1/accounts/:id        -> { account: SafeAccount }                (accounts.view)
