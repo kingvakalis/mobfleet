@@ -1,5 +1,6 @@
 import { getActiveTeam, getAuthToken } from '@/lib/provider/auth-token'
 import { buildEmailSettingsUpdate, type UpdateTeamEmailSettingsRequest } from '@/services/email-settings-request'
+import type { EmailPreferences } from '@/lib/email/preferences'
 
 // Re-export the pure request-builder (defined import-free for engine tests).
 export { buildEmailSettingsUpdate }
@@ -27,10 +28,18 @@ export interface SafeEmailSettings {
 export interface TeamEmailSettingsResponse {
   settings: SafeEmailSettings | null
   defaults?: { senderEmail: string; senderName: string }
+  /** Team-wide transactional email preferences (server-normalized; defaults when
+   *  the team's notificationPrefs column is NULL). */
+  preferences: EmailPreferences
 }
 
 export interface UpdateTeamEmailSettingsResponse {
   settings: SafeEmailSettings
+  preferences?: EmailPreferences
+}
+
+export interface EmailPreferencesResponse {
+  preferences: EmailPreferences
 }
 
 /** Error that carries the HTTP status so the UI can distinguish 403 (permission)
@@ -67,3 +76,10 @@ export const fetchEmailSettings = (): Promise<TeamEmailSettingsResponse> =>
 
 export const saveEmailSettings = (body: UpdateTeamEmailSettingsRequest): Promise<UpdateTeamEmailSettingsResponse> =>
   emailApi<UpdateTeamEmailSettingsResponse>('/v1/settings/email', { method: 'POST', body: JSON.stringify(body) })
+
+/** Persist a transactional email-preference patch (no sender-config change).
+ *  Works even when the team has no sender row (prefs live on Team). Server returns
+ *  the full normalized preferences. Only invite + welcome are surfaced by the UI;
+ *  password-reset delivery is owned by Supabase and is not toggled here. */
+export const saveEmailPreferences = (patch: Partial<EmailPreferences>): Promise<EmailPreferencesResponse> =>
+  emailApi<EmailPreferencesResponse>('/v1/settings/email/preferences', { method: 'POST', body: JSON.stringify(patch) })

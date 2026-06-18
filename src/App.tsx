@@ -28,21 +28,20 @@ const ActivityView    = lazy(() => import('@/components/logs/logs-view').then(m 
 const AccountsView    = lazy(() => import('@/components/accounts/accounts-view').then(m => ({ default: m.AccountsView })))
 const TeamView        = lazy(() => import('@/components/team/team-view').then(m => ({ default: m.TeamView })))
 const SettingsView    = lazy(() => import('@/components/settings/settings-view').then(m => ({ default: m.SettingsView })))
-
-function Soon({ label }: { label: string }) {
-  return <div className="flex h-full items-center justify-center text-white/20 text-sm">{label}</div>
-}
+const ScaleView       = lazy(() => import('@/components/scale/scale-view').then(m => ({ default: m.ScaleView })))
+const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').then(m => ({ default: m.ProxiesView })))
 
 const VIEW_MAP: Record<ViewId, ComponentType> = {
   'phone-control': PhoneControlPage,
   fleet:       FleetView,
   phones:      PhonesRoute,
+  proxies:     ProxiesView,
   accounts:    AccountsView,
   groups:      GroupsView,
   team:        TeamView,
   automations: AutomationsView,
   jobs:        JobsRoute,
-  scale:       () => <Soon label="Scale — coming soon" />,
+  scale:       ScaleView,
 
   logs:        ActivityView,
   settings:    SettingsView,

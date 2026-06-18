@@ -113,6 +113,11 @@ export type MembershipClassification<M> =
  * explicit (forge-resistant) requestedTeamId is honoured only if the user has an
  * ACTIVE membership in it. Input is expected pre-ordered by createdAt (first active
  * wins). Pure — DB-free, unit-tested.
+ *
+ * This is the LENIENT selection for /v1/me + every business route: an unknown or
+ * stale requestedTeamId silently falls back to a valid active team, so a removed/
+ * deleted/no-longer-existing selected team never wedges the session. The DELIBERATE
+ * team-switch endpoint uses selectTeamStrict, which REJECTS rather than falling back.
  */
 export function classifyMembership<M extends { teamId: string; status: string }>(
   memberships: M[],
@@ -124,6 +129,31 @@ export function classifyMembership<M extends { teamId: string; status: string }>
   const active = memberships.find((m) => m.status === 'active')
   if (active) return { status: 'ready', chosen: active }
   return { status: 'suspended' }
+}
+
+/** Outcome of a DELIBERATE team switch (POST /v1/me/team). Unlike classifyMembership
+ *  this NEVER falls back to another team — an unauthorized/suspended selection is an
+ *  explicit rejection the route maps to 403, so the client can't be silently switched
+ *  to a team it never asked for. */
+export type StrictSelection<M> =
+  | { status: 'ready'; chosen: M }
+  | { status: 'not_member' } // no membership in that team (or it no longer exists) — concealed as not-a-member
+  | { status: 'suspended' }  // a membership exists but is suspended there
+
+/**
+ * Validate a deliberately-requested team: the caller must have an ACTIVE membership
+ * in EXACTLY that team. No fallback — a forged/foreign/removed/deleted team is
+ * 'not_member' (which conceals whether the team exists at all from a non-member) and
+ * a suspended membership there is 'suspended'. Pure — DB-free, unit-tested.
+ */
+export function selectTeamStrict<M extends { teamId: string; status: string }>(
+  memberships: M[],
+  requestedTeamId: string,
+): StrictSelection<M> {
+  const m = memberships.find((x) => x.teamId === requestedTeamId)
+  if (!m) return { status: 'not_member' }
+  if (m.status !== 'active') return { status: 'suspended' }
+  return { status: 'ready', chosen: m }
 }
 
 export interface FirstTeamUser { id: string; email: string; name: string | null }
@@ -186,12 +216,15 @@ export async function findPendingInviteForEmail(email: string, db: PrismaClient 
 
 /** Resolve the authoritative /v1/me state for an already-ensured user WITHOUT
  *  auto-provisioning — so a no-team user is reported as onboarding-required. A DB
- *  error propagates (the caller returns 500); it is NEVER reported as onboarding. */
+ *  error propagates (the caller returns 500); it is NEVER reported as onboarding.
+ *  Returns the full membership roster too (createdAt asc) so the caller can build the
+ *  switchable-team list AND apply a strict selection (deliberate switch) without a
+ *  second query. */
 export async function resolveMeState(user: FirstTeamUser, requestedTeamId?: string, db: PrismaClient = prisma) {
   const memberships = await db.membership.findMany({ where: { userId: user.id }, include: { team: true }, orderBy: { createdAt: 'asc' } })
   const classification = classifyMembership(memberships, requestedTeamId)
   const pendingInvite = await findPendingInviteForEmail(user.email, db)
-  return { classification, pendingInvite }
+  return { memberships, classification, pendingInvite }
 }
 
 /**

@@ -33,6 +33,13 @@ model Team {
   // (epoch ms) rather than deleted at cutover; membership resolution ignores
   // archived teams. Null = active.
   archivedAt    Float?
+  // Team-wide transactional email preferences — which emails the workspace sends
+  // (the shared EmailPreferences contract in src/lib/email/preferences.ts:
+  // teamInvitesEnabled / passwordResetEnabled / welcomeEmailEnabled). Null = every
+  // transactional email enabled (the defaults). Stored on Team (not on
+  // TeamEmailSettings) so preferences work even when a team has no custom Resend
+  // sender row and falls back to the env mailer config. NEVER store secrets here.
+  notificationPrefs Json?
   memberships   Membership[]
   invites       Invite[]
   devices       Device[]
@@ -45,6 +52,10 @@ model Team {
   agentCommands  AgentCommand[]
   emailSettings  TeamEmailSettings?
   deviceSessions DeviceSession[]
+  accounts          Account[]
+  workspaceSettings WorkspaceSettings?
+  shifts            Shift[]
+  userPreferences   UserPreference[]
 }
 
 model User {
@@ -56,6 +67,8 @@ model User {
   createdAt      Float
   memberships    Membership[]
   sentInvites    Invite[]     @relation("InviteInvitedBy")
+  shifts          Shift[]
+  userPreferences UserPreference[]
 }
 
 model Membership {
@@ -323,4 +336,81 @@ model MigrationRecord {
 
   @@index([batchId])
   @@index([entity, prismaId])
+}
+
+// ─── Server-persistence (War-Room): team-scoped business data that replaces
+// frontend localStorage authority. All additive; String @id (typed prefix),
+// Float epoch-ms timestamps, Json? blobs, FK to Team/User onDelete: Cascade.
+
+model Account {
+  id            String  @id
+  teamId        String
+  handle        String
+  platform      String // 'Instagram' | 'TikTok' (validated app-side)
+  username      String
+  email         String
+  // SECURITY: account passwords are NOT persisted — plaintext credential storage is
+  // prohibited and there is no reversible-encryption helper. Re-introduce only as
+  // authenticated-encrypted storage with a dedicated key. Metadata-only vault.
+  phone         String?
+  assignedPhone String?
+  group         String  @default("Unassigned")
+  owner         String  @default("Unassigned")
+  twoFA         Boolean @default(false)
+  status        String  @default("warming") // active | flagged | banned | warming
+  tags          Json? // string[]
+  followers     Int     @default(0)
+  notes         String  @default("")
+  createdAt     Float
+  updatedAt     Float
+  team          Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, username])
+  @@index([teamId])
+  @@index([teamId, updatedAt])
+}
+
+model WorkspaceSettings {
+  id        String @id
+  teamId    String @unique // one settings row per team (true upsert)
+  settings  Json // normalized WorkspaceSettings blob; coerced complete on read
+  updatedAt Float
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+}
+
+model Shift {
+  id          String  @id
+  teamId      String
+  userId      String
+  startedAt   Float
+  endedAt     Float? // null = currently active
+  status      String  @default("active") // active | ended
+  correctedBy String? // manager id on a correction
+  correctedAt Float?
+  note        String?
+  createdAt   Float
+  updatedAt   Float
+  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([teamId, userId])
+  @@index([teamId, userId, status])
+  @@index([teamId, startedAt])
+}
+
+model UserPreference {
+  id          String @id
+  teamId      String
+  userId      String
+  preferences Json // opaque per-(team,user) blob, size-capped app-side
+  updatedAt   Float
+  team        Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
 }

@@ -29,6 +29,13 @@ export interface WelcomeEmailData {
   dashboardUrl: string
 }
 
+export interface TestEmailData {
+  /** The workspace whose sender configuration is being verified. */
+  workspaceName: string
+  /** The address this test was sent to (echoed back so the operator can confirm). */
+  recipientEmail: string
+}
+
 export interface RenderedEmail {
   subject: string
   html: string
@@ -261,6 +268,29 @@ export function buildWelcomeEmail(d: WelcomeEmailData): RenderedEmail {
     `Welcome to MOBFLEET, ${d.name}!\n\n` +
     `Your account is ready. Open your dashboard:\n${d.dashboardUrl}\n\n` +
     `Need help? Reply to this email.`
+  return { subject, html: wrapDocument(subject, preheader, body), text }
+}
+
+/**
+ * "Send test email" verification message — fired from Email Settings to prove a
+ * team's Resend sender configuration (or the env fallback) actually delivers.
+ * Deliberately has NO CTA / link (nothing actionable to click), so it never needs
+ * an external URL and can't fail assertSafeUrl. All dynamic values are escaped.
+ */
+export function buildTestEmail(d: TestEmailData): RenderedEmail {
+  const subject = `MOBFLEET test email — ${d.workspaceName}`
+  const preheader = `Your MOBFLEET email delivery is working for ${d.workspaceName}.`
+  const body =
+    heading('Email delivery is working') +
+    lead(
+      `This is a test email from ${strong(d.workspaceName)} on MOBFLEET. If you received it, your transactional email configuration is delivering correctly.`,
+    ) +
+    callout('Verified', `Delivered to ${esc(d.recipientEmail)}. No action is required — you can safely ignore this message.`) +
+    note('Sent because an administrator triggered a test from Email Settings.')
+  const text =
+    `MOBFLEET test email — ${d.workspaceName}\n\n` +
+    `This is a test email. If you received it, your transactional email configuration is delivering correctly.\n\n` +
+    `Delivered to ${d.recipientEmail}. No action is required.`
   return { subject, html: wrapDocument(subject, preheader, body), text }
 }
 

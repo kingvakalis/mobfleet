@@ -13,7 +13,11 @@
     "preview": "vite preview",
     "test": "playwright test",
     "test:engine": "playwright test --project=engine",
-    "test:e2e": "playwright test --project=e2e"
+    "test:e2e": "playwright test --project=e2e",
+    "test:e2e:demo": "playwright test --project=e2e",
+    "test:e2e:auth": "playwright test --project=e2e-auth",
+    "test:e2e:me": "playwright test --project=e2e-me",
+    "secret-scan": "node scripts/secret-scan.mjs"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",

@@ -2,7 +2,9 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useAuth } from '@/contexts/AuthContext'
 import { setActiveTeam } from '@/lib/provider/auth-token'
 import { AUTH_SOURCE } from '@/auth/auth-source'
-import { ApiError, fetchMe, type MeResponse } from '@/services/me-client'
+import { ApiError, fetchMe, switchTeam as switchTeamApi, type MeResponse, type MeTeamSummary } from '@/services/me-client'
+import { loadSelectedTeam, saveSelectedTeam, clearSelectedTeam } from '@/lib/selected-team'
+import { useToastStore } from '@/state/toast-store'
 
 /**
  * Authoritative identity/team state from the backend `GET /v1/me` (Prisma). This is the
@@ -22,7 +24,17 @@ export interface AuthzValue {
   loading: boolean
   error: { status: number | null; message: string } | null
   me: MeResponse | null
+  /** The caller's switchable-team roster (from /v1/me). Empty in supabase-mode. */
+  teams: MeTeamSummary[]
+  /** Increments on every successful deliberate team switch. Team-scoped views key
+   *  their fetches on it so a switch clears + reloads their cached data (the active-
+   *  team header is in-memory, so an in-SPA epoch is the correct cache-clear). */
+  teamEpoch: number
   refresh: () => Promise<void>
+  /** Deliberately switch the active team via POST /v1/me/team and adopt the fresh
+   *  authoritative state. No-op in supabase-mode. Rejects (throws) on a foreign/
+   *  suspended team — the gate/caller surfaces it; never a silent wrong-team switch. */
+  switchTeam: (teamId: string) => Promise<void>
 }
 
 const AuthzContext = createContext<AuthzValue | null>(null)
@@ -37,10 +49,12 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(active)
   const [me, setMe] = useState<MeResponse | null>(null)
   const [error, setError] = useState<{ status: number | null; message: string } | null>(null)
+  const [teamEpoch, setTeamEpoch] = useState(0)
 
   const load = useCallback(async (isActive: () => boolean = () => true): Promise<void> => {
     if (!active || !userId) {
       if (isActive()) { setMe(null); setError(null); setLoading(false) }
+      clearSelectedTeam() // forget the persisted selection on sign-out
       return
     }
     if (isActive()) { setLoading(true); setError(null) }
@@ -48,6 +62,24 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
       const next = await fetchMe()
       if (!isActive()) return
       setMe(next); setError(null)
+      // Restore a deliberate team choice persisted across reloads, but ONLY if it is
+      // still an ACTIVE team in the authoritative roster. Stale/suspended/foreign
+      // selections are discarded with a clear message; we stay on the server's team.
+      const resolution = loadSelectedTeam(next)
+      if (resolution.action === 'restore') {
+        try {
+          const switched = await switchTeamApi(resolution.teamId)
+          if (!isActive()) return
+          setMe(switched)
+          setActiveTeam(switched.team?.id ?? null)
+          setTeamEpoch((n) => n + 1)
+        } catch {
+          clearSelectedTeam() // server rejected (raced removal) — drop the stale choice
+        }
+      } else if (resolution.action === 'discard') {
+        clearSelectedTeam()
+        useToastStore.getState().addToast(resolution.message, 'info')
+      }
     } catch (e) {
       if (!isActive()) return
       // NEVER fall back to a fake "no team" — a failure is a retryable error for the gate.
@@ -76,7 +108,21 @@ export function AuthzProvider({ children }: { children: ReactNode }) {
     if (active) setActiveTeam(me?.team?.id ?? null)
   }, [active, me?.team?.id])
 
-  const value: AuthzValue = { active, loading, error, me, refresh: () => load() }
+  // Deliberate team switch (me-mode only). Reuses the same authority as /v1/me: the
+  // server re-validates the requested team against the caller's ACTIVE memberships and
+  // recomputes role+permissions, so the new `me` is fully authoritative. A foreign/
+  // suspended team throws (ApiError 403) for the caller to surface.
+  const switchTeam = useCallback(async (teamId: string): Promise<void> => {
+    if (!active) return
+    const next = await switchTeamApi(teamId)
+    setMe(next)
+    setError(null)
+    setActiveTeam(next.team?.id ?? null)
+    if (next.team?.id) saveSelectedTeam(next.team.id) // persist the deliberate choice
+    setTeamEpoch((n) => n + 1) // bump so team-scoped views drop stale data + refetch
+  }, [active])
+
+  const value: AuthzValue = { active, loading, error, me, teams: me?.teams ?? [], teamEpoch, refresh: () => load(), switchTeam }
   return <AuthzContext.Provider value={value}>{children}</AuthzContext.Provider>
 }
 

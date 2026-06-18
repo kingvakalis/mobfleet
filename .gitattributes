@@ -1,0 +1,5 @@
+# Prisma migration SQL is content-hashed by the checksum manifest + drift gate, so
+# its bytes must be identical on every platform. Force LF (never CRLF) regardless of
+# core.autocrlf so a Windows checkout hashes the same as Linux/CI. The checksum logic
+# is also EOL-agnostic (strips CR) as a belt-and-braces guard.
+*.sql text eol=lf

@@ -4,8 +4,11 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useAuthz } from '@/contexts/AuthzContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { clearPendingInvite } from '@/contexts/onboarding'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { ApiError, acceptInvite, inspectInvite } from '@/services/invites'
 import { AuthError, AuthShell } from './auth-shell'
 
 type State =
@@ -25,6 +28,7 @@ type State =
 export function InvitePage() {
   const { enabled, loading, session } = useAuth()
   const { team, refresh } = useTeamContext()
+  const authz = useAuthz()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
@@ -39,6 +43,28 @@ export function InvitePage() {
     ran.current = true
     priorTeamId.current = team?.id ?? null
     const accept = async () => {
+      // Authoritative ("me") path: inspect + redeem against the Prisma backend — no
+      // Supabase accept_invite RPC for business state. Membership is written into the
+      // SAME Prisma team the invite was issued for.
+      if (AUTH_SOURCE === 'me') {
+        try {
+          const preview = await inspectInvite(token)
+          if (!preview.valid) {
+            setState({ kind: 'error', message: 'This invitation is no longer valid. Ask an admin to send a new one.' })
+            return
+          }
+          const res = await acceptInvite(token)
+          clearPendingInvite()
+          await supabase!.auth.updateUser({ data: { onboarded: true } }).catch(() => undefined)
+          await authz.refresh() // /v1/me now lists the joined team (use the switcher to enter it)
+          const switched = Boolean(authz.me?.team?.id) && authz.me?.team?.id !== res.teamId
+          setState({ kind: 'done', teamName: res.teamName, role: res.role, switched })
+        } catch (e) {
+          setState({ kind: 'error', message: humanizeInviteError(e) })
+        }
+        return
+      }
+      // Legacy supabase-mode: redeem via the Supabase definer-rights RPC.
       const { data, error } = await supabase!.rpc('accept_invite', { p_token: token })
       if (error) {
         // Keep the stash on failure so the invitee can retry and never
@@ -56,7 +82,7 @@ export function InvitePage() {
       setState({ kind: 'done', teamName: res?.team_name, role: res?.role, switched })
     }
     void accept()
-  }, [enabled, loading, session, token, team, refresh])
+  }, [enabled, loading, session, token, team, refresh, authz])
 
   // Standalone build (no Supabase) — invitations require the backend.
   if (!enabled) {
@@ -127,6 +153,18 @@ export function InvitePage() {
       </Button>
     </AuthShell>
   )
+}
+
+/** Turn a Prisma invite-endpoint error into plain, user-facing language. The server
+ *  already returns friendly messages for the 403 cases (email mismatch / unverified);
+ *  a 400 is the catch-all invalid/expired/used. */
+function humanizeInviteError(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 403) return e.message
+    if (e.status === 400) return 'This invitation is invalid, expired, or already used. Ask an admin to send a new one.'
+    if (e.status === 401) return 'Please sign in again to accept this invitation.'
+  }
+  return 'Could not accept this invitation. Ask an admin to send a new one.'
 }
 
 /** Turn raw RPC errors into plain, user-facing language. */

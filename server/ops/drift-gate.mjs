@@ -34,6 +34,10 @@ const ok = []
 const note = (cond, label) => { (cond ? ok : problems).push(label) }
 const SAFE = (e) => String(e?.message ?? e).replace(/postgres(ql)?:\/\/[^\s]+/gi, '<redacted-url>')
 
+// EOL-agnostic sha256 (strip CR bytes) so the gate matches the manifest on a Windows
+// (CRLF) or Linux (LF) checkout alike. Byte-exact equivalent of `tr -d '\r' | sha256sum`.
+const migrationChecksum = (buf) => createHash('sha256').update(Buffer.from(buf.filter((b) => b !== 0x0d))).digest('hex')
+
 // ---- Repo / code checks (no DB) ----
 const activeDirs = readdirSync(migrationsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
 note(JSON.stringify(activeDirs) === JSON.stringify(EXPECTED_ORDER), `active migration order == [${EXPECTED_ORDER.join(', ')}]`)
@@ -42,7 +46,7 @@ const manifest = JSON.parse(readFileSync(join(here, 'migration-checksums.json'),
 let checksumsMatch = JSON.stringify(Object.keys(manifest).sort()) === JSON.stringify([...EXPECTED_ORDER].sort())
 for (const name of EXPECTED_ORDER) {
   try {
-    const sum = createHash('sha256').update(readFileSync(join(migrationsDir, name, 'migration.sql'))).digest('hex')
+    const sum = migrationChecksum(readFileSync(join(migrationsDir, name, 'migration.sql')))
     if (sum !== manifest[name]) checksumsMatch = false
   } catch { checksumsMatch = false }
 }

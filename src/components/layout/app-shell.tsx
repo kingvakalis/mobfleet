@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings, Grid2x2,
+  Globe, Gauge,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
@@ -13,10 +14,13 @@ import { useSettings } from '@/state/settings-store'
 import { useFleetStats } from '@/hooks/use-fleet'
 import { useActingMember } from '@/lib/authorization/use-access'
 import { canAny } from '@/lib/authorization/effective-access'
+import { TeamSwitcher } from '@/components/team/team-switcher'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
   smartphone: Smartphone,
+  globe:      Globe,
+  gauge:      Gauge,
   layers:     Layers,
   users:      Users,
   zap:        Zap,
@@ -69,6 +73,9 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
           </span>
         </div>
       )}
+
+      {/* Workspace switcher (authoritative me-mode only; hidden otherwise) */}
+      <TeamSwitcher collapsed={collapsed} />
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0 overflow-y-auto py-2" aria-label="Primary">
