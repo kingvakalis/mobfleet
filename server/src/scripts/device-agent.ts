@@ -28,13 +28,22 @@
 import { AgentRuntime, type AgentTransport } from '../agent/agent-runtime'
 import { SimulatedDeviceControlAdapter } from '../agent/simulated-device-adapter'
 import { HttpWsAgentTransport } from '../agent/agent-transport'
+import { SupabaseAgentTransport } from '../agent/supabase-agent-transport'
 import type { DeviceControlAdapter } from '../agent/device-adapter'
-import type { DeviceIdentity } from '../agent/types'
+import { AGENT_VERSION, type DeviceIdentity } from '../agent/types'
 
 const SIMULATE = process.argv.includes('--simulate') || process.env.AGENT_SIMULATE === '1'
 const APPIUM = process.argv.includes('--appium') || process.env.AGENT_ADAPTER === 'appium'
 const SERVER_URL = process.env.SERVER_URL ?? 'http://localhost:8787'
 const WS_URL = process.env.WS_URL ?? SERVER_URL.replace(/^http/, 'ws') + '/ws'
+
+// Control-plane transport: 'railway' (default, Fastify backend / me-mode) or 'supabase'
+// (supabase-mode — talks ONLY to Supabase RPCs with the anon key + per-device key).
+const argValue = (flag: string): string | undefined => { const i = process.argv.indexOf(flag); return i >= 0 ? process.argv[i + 1] : undefined }
+const TRANSPORT = argValue('--transport') ?? process.env.AGENT_TRANSPORT ?? 'railway'
+const SUPABASE_TRANSPORT = TRANSPORT === 'supabase'
+const SUPABASE_URL = process.env.SUPABASE_URL ?? ''
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? ''
 
 const log = (event: string, fields?: Record<string, unknown>) =>
   console.log(JSON.stringify({ ts: Date.now(), event, ...fields }))
@@ -69,6 +78,28 @@ function parseJsonEnv(name: string): Record<string, unknown> | undefined {
 
 async function main(): Promise<void> {
   const deviceMap = parseDeviceMap()
+
+  if (SUPABASE_TRANSPORT) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      console.error('[device-agent] --transport supabase requires SUPABASE_URL + SUPABASE_ANON_KEY')
+      process.exit(2)
+    }
+    // Optional single-device self-pairing: redeem a pairing token (minted in the dashboard)
+    // → per-device creds for this UDID. Multi-device: pre-claim and pass AGENT_DEVICES.
+    if (process.env.PAIRING_TOKEN && process.env.UDID && !deviceMap.has(process.env.UDID)) {
+      try {
+        const claimed = await SupabaseAgentTransport.claimDevice({
+          supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY,
+          pairingToken: process.env.PAIRING_TOKEN, udid: process.env.UDID, name: process.env.DEVICE_NAME,
+        })
+        deviceMap.set(process.env.UDID, { deviceId: claimed.deviceId, deviceKey: claimed.deviceKey })
+        log('agent.paired', { udid: process.env.UDID, deviceId: claimed.deviceId })
+      } catch (e) {
+        console.error(`[device-agent] pairing failed: ${e instanceof Error ? e.message : e}`)
+        process.exit(2)
+      }
+    }
+  }
 
   let adapter: DeviceControlAdapter
   if (SIMULATE) {
@@ -107,7 +138,9 @@ async function main(): Promise<void> {
     if (!creds) return null
     let t = transports.get(identity.udid)
     if (!t) {
-      t = new HttpWsAgentTransport({ serverUrl: SERVER_URL, wsUrl: WS_URL, deviceId: creds.deviceId, deviceKey: creds.deviceKey, log })
+      t = SUPABASE_TRANSPORT
+        ? new SupabaseAgentTransport({ supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY, deviceId: creds.deviceId, deviceKey: creds.deviceKey, agentVersion: AGENT_VERSION, log })
+        : new HttpWsAgentTransport({ serverUrl: SERVER_URL, wsUrl: WS_URL, deviceId: creds.deviceId, deviceKey: creds.deviceKey, log })
       transports.set(identity.udid, t)
     }
     return t
@@ -115,7 +148,7 @@ async function main(): Promise<void> {
 
   const runtime = new AgentRuntime({ adapter, transportFor, log })
   const stop = runtime.start()
-  log('agent.boot', { version: runtime.version, serverUrl: SERVER_URL, devices: deviceMap.size })
+  log('agent.boot', { version: runtime.version, transport: TRANSPORT, devices: deviceMap.size })
 
   const shutdown = async () => {
     log('agent.shutdown')

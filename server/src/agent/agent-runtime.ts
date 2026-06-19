@@ -43,6 +43,9 @@ export interface AgentTransport {
   /** Register a handler for commands PUSHED over the live socket (optional —
    *  poll alone is sufficient; push is the low-latency fast path). */
   onPushedCommand?(handler: (frame: AgentCommandFrame) => void): void
+  /** Ack-start (optional): mark a command 'running' before execution, so the
+   *  control plane shows pending → running → done. supabase-mode implements it. */
+  markRunning?(commandId: string): Promise<void>
 }
 
 export interface AgentRuntimeOptions {
@@ -232,6 +235,8 @@ export class AgentRuntime {
       this.log('agent.command.expired', { udid, commandId: frame.commandId })
       return // the server's reaper will fail it; don't execute a stale command
     }
+    // Ack-start (optional): surface the command as running before we execute it.
+    await slot.transport.markRunning?.(frame.commandId).catch((err) => this.log('agent.markrunning.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
     let result: ExecResult
     try {
       result = await slot.executor.execute(udid, frame)

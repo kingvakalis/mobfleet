@@ -20,6 +20,13 @@ import { canActOnPhone, can } from '@/lib/authorization'
 import { AccessDenied } from '@/components/access/Can'
 import { logAudit } from '@/services/audit'
 import { client } from '@/lib/provider'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { controlCommandToWire } from '@/shared/control-command'
+import { enqueueCommand, watchCommand } from '@/services/device-commands'
+import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,6 +189,10 @@ export function PhoneControlPage() {
   const { jobs } = useFleet()
   const devices = useScopedDevices()
   const { employee, member } = useActingEmployee()
+  const { user } = useAuth()
+  const teamCtx = useTeamContext()
+  // supabase-mode (production): commands go through Supabase RLS, not /v1/agent/command.
+  const useSupabaseCommands = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
   const phoneControlDeviceId = useUIStore(s => s.phoneControlDeviceId)
   const closePhoneControl    = useUIStore(s => s.closePhoneControl)
 
@@ -335,18 +346,38 @@ export function PhoneControlPage() {
   // fires separately for instant feedback; the authoritative log entry arrives
   // over the device-log subscription (server/mock `command_log`), so we surface
   // only FAILURES here — never a fake "executed" success.
+  // supabase-mode: enqueue through Supabase (RLS) + report the REAL lifecycle (queued →
+  // running → done/failed) via watchCommand. No fake success; a queue failure is surfaced too.
+  const enqueueSupabase = async (wire: { deviceId: string; action: AgentCommandAction; payload?: Record<string, unknown> }, label: string) => {
+    const teamId = teamCtx.team?.id, userId = user?.id
+    if (!teamId || !userId) { addLog(`✗ ${label} failed: no active workspace`, 'error'); return }
+    try {
+      const { id } = await enqueueCommand({ teamId, deviceId: wire.deviceId, action: wire.action, payload: wire.payload, userId })
+      addLog(`⏳ ${label} — queued`, 'command')
+      watchCommand(id, (status, error) => {
+        if (status === 'running') addLog(`▶ ${label} — running`, 'command')
+        else if (status === 'acked') addLog(`✓ ${label} — done`, 'command')
+        else if (status === 'failed') addLog(`✗ ${label} — failed${error ? ': ' + error : ''}`, 'error')
+      })
+    } catch (e) {
+      addLog(`✗ ${label} failed: ${e instanceof Error ? e.message : 'error'}`, 'error')
+    }
+  }
+
   const sendControl = (command: ControlCommand, gateKey?: string, label?: string) =>
-    guard(gateKey, () =>
-      client.sendControlCommand(command).catch((e) =>
-        addLog(`✗ ${label ?? command.type} failed: ${e instanceof Error ? e.message : 'error'}`, 'error')),
-    )
+    guard(gateKey, async () => {
+      if (useSupabaseCommands) { await enqueueSupabase(controlCommandToWire(command), label ?? command.type); return }
+      await client.sendControlCommand(command).catch((e) =>
+        addLog(`✗ ${label ?? command.type} failed: ${e instanceof Error ? e.message : 'error'}`, 'error'))
+    })
 
   // Reboot has no ControlCommand counterpart — it stays on the generic queue call.
   const sendReboot = () =>
-    guard('reboot', () =>
-      client.sendCommand(device.id, { action: 'reboot' }).catch((e) =>
-        addLog(`✗ Device reboot failed: ${e instanceof Error ? e.message : 'error'}`, 'error')),
-    )
+    guard('reboot', async () => {
+      if (useSupabaseCommands) { await enqueueSupabase({ deviceId: device.id, action: 'reboot' }, 'Device reboot'); return }
+      await client.sendCommand(device.id, { action: 'reboot' }).catch((e) =>
+        addLog(`✗ Device reboot failed: ${e instanceof Error ? e.message : 'error'}`, 'error'))
+    })
 
   const launchAppCmd = (name: string) => {
     if (!canControl) { denyAction('phone control'); return }
