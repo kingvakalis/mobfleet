@@ -8,6 +8,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { useFleet } from '@/hooks/use-fleet'
 import { useNow } from '@/hooks/use-now'
 import { client } from '@/lib/provider'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { createPairingToken } from '@/services/device-commands'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import type { Device, PairingToken } from '@/shared/types'
@@ -24,6 +29,17 @@ function Inner({ onClose }: { onClose: () => void }) {
   const [minting, setMinting] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copyState, setCopyState] = useState<'idle' | 'ok' | 'fail'>('idle')
+  const [cmdCopied, setCmdCopied] = useState(false)
+
+  // supabase-mode: mint the pairing token via Supabase RLS (createPairingToken), NOT the
+  // backend /v1/devices/pair. me-mode + demo/mock keep using the provider unchanged.
+  const { user } = useAuth()
+  const teamCtx = useTeamContext()
+  const useSupabase = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''
+  // Read team/user via a ref so mint() doesn't re-run (re-mint) on context identity churn.
+  const credsRef = useRef({ teamId: teamCtx.team?.id, userId: user?.id })
+  useEffect(() => { credsRef.current = { teamId: teamCtx.team?.id, userId: user?.id } }, [teamCtx.team?.id, user?.id])
 
   // Devices present at mint time → anything new is the device that just paired.
   // `baseline` is state (read during render); `devicesRef` only feeds mint() and
@@ -45,14 +61,21 @@ function Inner({ onClose }: { onClose: () => void }) {
     setToken(null)
     setBaseline(new Set(devicesRef.current.map((d) => d.id)))
     try {
-      setToken(await client.createPairingToken())
+      if (useSupabase) {
+        const { teamId, userId } = credsRef.current
+        if (!teamId || !userId) throw new Error('No active workspace to pair into.')
+        const { token: pt, expiresAt } = await createPairingToken({ teamId, userId })
+        setToken({ pairingToken: pt, serverUrl: supabaseUrl, expiresAt: Date.parse(expiresAt) })
+      } else {
+        setToken(await client.createPairingToken())
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create a pairing token.')
     } finally {
       mintingRef.current = false
       setMinting(false)
     }
-  }, [])
+  }, [useSupabase, supabaseUrl])
 
   useEffect(() => {
     void mint() // mint() guards its own state writes behind mintingRef
@@ -72,7 +95,24 @@ function Inner({ onClose }: { onClose: () => void }) {
   const msLeft = token ? token.expiresAt - now : 0
   const expired = token != null && msLeft <= 0 && !paired
 
-  const qrPayload = token ? JSON.stringify({ serverUrl: token.serverUrl, pairingToken: token.pairingToken }) : ''
+  const qrPayload = token
+    ? JSON.stringify(useSupabase
+        ? { supabaseUrl: token.serverUrl, pairingToken: token.pairingToken }
+        : { serverUrl: token.serverUrl, pairingToken: token.pairingToken })
+    : ''
+
+  // Exact agent setup command (supabase-mode). Real PAIRING_TOKEN; URL/key/UDID are placeholders
+  // the operator fills from their env + device.
+  const agentCmd = token
+    ? `AGENT_TRANSPORT=supabase \\\nSUPABASE_URL=<your-supabase-url> \\\nSUPABASE_ANON_KEY=<your-anon-key> \\\nPAIRING_TOKEN=${token.pairingToken} \\\nUDID=<device-udid> \\\nnpm run device-agent -- --transport supabase --appium`
+    : ''
+  const copyCommand = () => {
+    if (!navigator.clipboard) return
+    void navigator.clipboard.writeText(agentCmd).then(
+      () => { setCmdCopied(true); setTimeout(() => setCmdCopied(false), 1500) },
+      () => {},
+    )
+  }
 
   const copy = () => {
     if (!token) return
@@ -172,7 +212,9 @@ function Inner({ onClose }: { onClose: () => void }) {
                 <QRCodeSVG value={qrPayload} size={188} level="M" marginSize={0} bgColor="#ffffff" fgColor="#0a0a0b" />
               </div>
               <p className="mono max-w-[280px] text-center text-[11px] leading-relaxed text-white/45">
-                Scan with the device agent to pair it. The new device appears here automatically.
+                {useSupabase
+                  ? 'Scan, or run the command below with the device agent. It appears in Phones once it connects.'
+                  : 'Scan with the device agent to pair it. The new device appears here automatically.'}
               </p>
 
               <button
@@ -188,6 +230,24 @@ function Inner({ onClose }: { onClose: () => void }) {
                 )}
                 <span className="truncate">{copyState === 'fail' ? 'Copy failed — select the token manually' : token.pairingToken}</span>
               </button>
+
+              {useSupabase && (
+                <div className="w-full">
+                  <p className="mono mb-1 text-[9px] uppercase tracking-wider text-white/35">Or run the agent</p>
+                  <div className="relative">
+                    <pre className="mono max-h-[112px] overflow-auto whitespace-pre-wrap break-all rounded-control border border-line bg-elevated p-2 pr-14 text-[9px] leading-relaxed text-white/55">{agentCmd}</pre>
+                    <button
+                      type="button"
+                      onClick={copyCommand}
+                      title="Copy setup command"
+                      className="mono absolute right-1.5 top-1.5 flex h-6 items-center gap-1 rounded-control border border-line bg-panel px-2 text-[9px] text-white/55 transition-colors hover:text-white"
+                    >
+                      {cmdCopied ? <Check size={11} style={{ color: 'var(--status-online)' }} /> : <Copy size={11} />}
+                      {cmdCopied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="mono flex items-center gap-1.5 text-[10px] text-white/40">
                 <span className="status-dot-pulse h-1.5 w-1.5 rounded-full" style={{ background: 'var(--status-warming)' }} />

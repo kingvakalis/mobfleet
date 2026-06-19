@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Plus, Trash2, Wifi, Cpu } from 'lucide-react'
+import { Plus, Trash2, Wifi, Cpu, QrCode } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
@@ -8,6 +8,7 @@ import { useDevices } from '@/hooks/useDevices'
 import { useNow } from '@/hooks/use-now'
 import { isHeartbeatStale } from '@/shared/heartbeat'
 import { useTeamContext } from '@/contexts/TeamContext'
+import { useUIStore } from '@/state/ui-store'
 import type { DeviceRow, DeviceStatusEnum } from '@/lib/database.types'
 
 const STATUS_ORDER: DeviceStatusEnum[] = ['online', 'busy', 'warming', 'offline', 'error']
@@ -102,6 +103,7 @@ export function SupabaseDevicesView() {
   const { devices, loading, error, addDevice, updateStatus, deleteDevice } = useDevices(team?.id ?? null)
   const canWrite = role === 'owner' || role === 'admin' || role === 'operator'
   const now = useNow() // ticks so heartbeat freshness self-updates
+  const openPair = useUIStore((s) => s.openPair) // opens the (supabase-aware) DevicePairingModal
 
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
@@ -141,7 +143,10 @@ export function SupabaseDevicesView() {
           </div>
         </div>
         {canWrite && !adding && (
-          <Button variant="primary" size="sm" onClick={() => setAdding(true)}><Plus size={14} /> Add device</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="primary" size="sm" onClick={openPair}><QrCode size={14} /> Pair device</Button>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(true)}><Plus size={14} /> Add manually</Button>
+          </div>
         )}
         {canWrite && adding && (
           <form onSubmit={submitAdd} className="flex items-center gap-2">
