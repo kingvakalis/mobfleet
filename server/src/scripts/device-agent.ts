@@ -146,12 +146,31 @@ async function main(): Promise<void> {
     return t
   }
 
-  const runtime = new AgentRuntime({ adapter, transportFor, log })
+  // Optional interval overrides (ops tuning / fast deterministic tests). Unset → runtime defaults.
+  const intervalMs = (name: string): number | undefined => {
+    const v = Number(process.env[name])
+    return Number.isFinite(v) && v > 0 ? v : undefined
+  }
+  const runtime = new AgentRuntime({
+    adapter, transportFor, log,
+    discoveryIntervalMs: intervalMs('DISCOVERY_INTERVAL_MS'),
+    heartbeatIntervalMs: intervalMs('HEARTBEAT_INTERVAL_MS'),
+    wdaCheckIntervalMs: intervalMs('WDA_CHECK_INTERVAL_MS'),
+  })
   const stop = runtime.start()
   log('agent.boot', { version: runtime.version, transport: TRANSPORT, devices: deviceMap.size })
 
+  // Keep the daemon's event loop alive until a signal stops us. The runtime's own
+  // timers are .unref()'d (so they never hang a test process), and the supabase
+  // transport is HTTP-poll-only with no persistent socket — unlike me-mode's
+  // WebSocket, which is what otherwise holds the loop open. Without this ref'd
+  // handle a `--transport supabase` agent would exit 0 right after boot, before
+  // it ever heartbeats or polls. Unconditional: redundant-but-harmless in me-mode.
+  const keepAlive = setInterval(() => {}, 1 << 30)
+
   const shutdown = async () => {
     log('agent.shutdown')
+    clearInterval(keepAlive)
     await stop()
     process.exit(0)
   }
