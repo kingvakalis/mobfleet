@@ -8,6 +8,7 @@ import { AuthzProvider } from '@/contexts/AuthzContext'
 import { TeamProvider } from '@/contexts/TeamContext'
 import { ProtectedRoute } from '@/auth/protected-route'
 import { OnboardingGate } from '@/auth/onboarding-gate'
+import { RedirectIfAuthed } from '@/auth/redirect-if-authed'
 import { LoginPage } from '@/pages/login'
 import { SignupPage } from '@/pages/signup'
 import { ForgotPasswordPage } from '@/pages/forgot-password'
@@ -40,8 +41,8 @@ createRoot(document.getElementById('root')!).render(
           <AuthzProvider>
             <TeamProvider>
               <Routes>
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/signup" element={<SignupPage />} />
+                <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+                <Route path="/signup" element={<RedirectIfAuthed><SignupPage /></RedirectIfAuthed>} />
                 {/* Public password recovery: reached pre-auth. /reset-password is the
                     landing target for the Supabase recovery email (see auth-redirect). */}
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />

@@ -29,13 +29,11 @@ const AccountsView    = lazy(() => import('@/components/accounts/accounts-view')
 const TeamView        = lazy(() => import('@/components/team/team-view').then(m => ({ default: m.TeamView })))
 const SettingsView    = lazy(() => import('@/components/settings/settings-view').then(m => ({ default: m.SettingsView })))
 const ScaleView       = lazy(() => import('@/components/scale/scale-view').then(m => ({ default: m.ScaleView })))
-const ProxiesView     = lazy(() => import('@/components/proxies/proxies-view').then(m => ({ default: m.ProxiesView })))
 
 const VIEW_MAP: Record<ViewId, ComponentType> = {
   'phone-control': PhoneControlPage,
   fleet:       FleetView,
   phones:      PhonesRoute,
-  proxies:     ProxiesView,
   accounts:    AccountsView,
   groups:      GroupsView,
   team:        TeamView,

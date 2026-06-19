@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { stashPendingInvite } from '@/contexts/onboarding'
 import { AuthError, AuthField, AuthShell, AuthSubmit, PasswordField } from './auth-shell'
 
 export function SignupPage() {
-  const { enabled, session, signup } = useAuth()
+  const { enabled, signup } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const inviteToken = params.get('invite') ?? ''
@@ -20,8 +20,6 @@ export function SignupPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState(false)
-
-  if (enabled && session) return <Navigate to={redirect} replace />
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()

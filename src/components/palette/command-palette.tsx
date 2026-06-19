@@ -30,7 +30,6 @@ const VIEW_ICON: Record<ViewId, LucideIcon> = {
   team:        Globe,
   groups:      Layers,
   phones:      Boxes,
-  proxies:     Globe,
   scale:       Maximize,
   logs:        Minus,
   accounts:    Table2,

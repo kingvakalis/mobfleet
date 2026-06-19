@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthError, AuthField, AuthShell, AuthSubmit, PasswordField } from './auth-shell'
 
 export function LoginPage() {
-  const { enabled, session, login } = useAuth()
+  const { enabled, login } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const redirect = params.get('redirect') || '/'
@@ -13,9 +13,6 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  // Already signed in → bounce to the intended destination.
-  if (enabled && session) return <Navigate to={redirect} replace />
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
