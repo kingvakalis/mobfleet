@@ -13,7 +13,7 @@ import { AuthError, AuthShell } from './auth-shell'
 
 type State =
   | { kind: 'accepting' }
-  | { kind: 'done'; teamName?: string; role?: string; switched?: boolean }
+  | { kind: 'done'; teamName?: string; role?: string }
   | { kind: 'error'; message: string }
 
 /**
@@ -27,21 +27,17 @@ type State =
  */
 export function InvitePage() {
   const { enabled, loading, session } = useAuth()
-  const { team, refresh } = useTeamContext()
+  const { teams, refresh } = useTeamContext()
   const authz = useAuthz()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
   const [state, setState] = useState<State>({ kind: 'accepting' })
   const ran = useRef(false)
-  // The active team BEFORE acceptance — to detect joining a SECOND team (there is
-  // no team switcher yet, so we must not pretend they landed in the new one).
-  const priorTeamId = useRef<string | null>(null)
 
   useEffect(() => {
     if (!enabled || loading || !session || ran.current || !token || !supabase) return
     ran.current = true
-    priorTeamId.current = team?.id ?? null
     const accept = async () => {
       // Authoritative ("me") path: inspect + redeem against the Prisma backend — no
       // Supabase accept_invite RPC for business state. Membership is written into the
@@ -56,9 +52,8 @@ export function InvitePage() {
           const res = await acceptInvite(token)
           clearPendingInvite()
           await supabase!.auth.updateUser({ data: { onboarded: true } }).catch(() => undefined)
-          await authz.refresh() // /v1/me now lists the joined team (use the switcher to enter it)
-          const switched = Boolean(authz.me?.team?.id) && authz.me?.team?.id !== res.teamId
-          setState({ kind: 'done', teamName: res.teamName, role: res.role, switched })
+          await authz.refresh() // /v1/me now lists the joined team (the switcher can enter it)
+          setState({ kind: 'done', teamName: res.teamName, role: res.role })
         } catch (e) {
           setState({ kind: 'error', message: humanizeInviteError(e) })
         }
@@ -76,13 +71,12 @@ export function InvitePage() {
       clearPendingInvite()
       // Invited users are considered onboarded — they join an existing workspace.
       await supabase!.auth.updateUser({ data: { onboarded: true } }).catch(() => undefined)
-      await refresh()
+      await refresh() // teamCtx now lists the joined team (the switcher can enter it)
       const res = data as { team_id?: string; team_name?: string; role?: string } | null
-      const switched = !!priorTeamId.current && !!res?.team_id && priorTeamId.current !== res.team_id
-      setState({ kind: 'done', teamName: res?.team_name, role: res?.role, switched })
+      setState({ kind: 'done', teamName: res?.team_name, role: res?.role })
     }
     void accept()
-  }, [enabled, loading, session, token, team, refresh, authz])
+  }, [enabled, loading, session, token, refresh, authz])
 
   // Standalone build (no Supabase) — invitations require the backend.
   if (!enabled) {
@@ -125,18 +119,25 @@ export function InvitePage() {
     )
   }
 
-  // Joined a SECOND team while already in another one — be honest: there's no
-  // team switcher yet, so we can't drop them into the new workspace.
-  if (state.switched) {
+  // Copy depends on whether the user now belongs to MORE THAN ONE workspace (computed
+  // from the post-accept roster): if so, point them at the workspace switcher; if it's
+  // their only workspace, just send them in. me-mode reads its own (/v1/me) team list.
+  const hasMultipleTeams =
+    AUTH_SOURCE === 'me'
+      ? authz.teams.filter((t) => t.status === 'active').length > 1
+      : teams.length > 1
+  const joined = state.teamName ? ` ${state.teamName}` : ' the workspace'
+  const asRole = state.role ? ` as ${state.role}` : ''
+
+  if (hasMultipleTeams) {
     return (
       <AuthShell title="Invitation accepted" subtitle={state.teamName ? `Joined ${state.teamName}` : 'Invitation accepted'}>
         <p className="mb-4 text-[13px] leading-relaxed text-white/60">
-          You joined{state.teamName ? ` ${state.teamName}` : ' the workspace'}
-          {state.role ? ` as ${state.role}` : ''}. Switching between workspaces isn't available yet —
-          ask that team's owner for help, or sign in with a separate account.
+          You joined{joined}{asRole}. You can switch to it anytime from the workspace
+          dropdown in the sidebar.
         </p>
-        <Button variant="outline" className="h-10 w-full" onClick={() => navigate('/', { replace: true })}>
-          Back to dashboard
+        <Button variant="primary" className="h-10 w-full" onClick={() => navigate('/', { replace: true })}>
+          Continue to dashboard
         </Button>
       </AuthShell>
     )
@@ -144,10 +145,7 @@ export function InvitePage() {
 
   return (
     <AuthShell title="You're in" subtitle={state.teamName ? `Joined ${state.teamName}` : 'Invitation accepted'}>
-      <p className="mb-4 text-[13px] text-white/60">
-        You joined{state.teamName ? ` ${state.teamName}` : ' the workspace'}
-        {state.role ? ` as ${state.role}` : ''}.
-      </p>
+      <p className="mb-4 text-[13px] text-white/60">You joined{joined}{asRole}.</p>
       <Button variant="primary" className="h-10 w-full" onClick={() => navigate('/', { replace: true })}>
         Enter workspace
       </Button>
