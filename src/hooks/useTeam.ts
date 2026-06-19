@@ -4,6 +4,13 @@ import type { TeamInviteRow, TeamMemberRow, TeamRole, TeamRow } from '@/lib/data
 import { useAuth } from '@/contexts/AuthContext'
 import { peekPendingInvite, takePendingTeamName } from '@/contexts/onboarding'
 
+/** One of the signed-in user's ACTIVE workspaces (for the team switcher). */
+export interface TeamSummary {
+  id: string
+  name: string
+  role: TeamRole
+}
+
 export interface UseTeam {
   /** True when Supabase is configured. */
   enabled: boolean
@@ -12,6 +19,8 @@ export interface UseTeam {
   /** Membership exists but is NOT active (suspended/removed) — distinct from "no team". */
   suspended: boolean
   team: TeamRow | null
+  /** All ACTIVE memberships (RLS hides suspended/removed) — the switchable workspaces. */
+  teams: TeamSummary[]
   /** Full roster (active + suspended) for the active team. */
   members: TeamMemberRow[]
   /** Pending invitations for the active team (empty unless the caller is admin). */
@@ -21,6 +30,10 @@ export interface UseTeam {
   /** The current user's role in the active team. */
   role: TeamRole | null
   refresh: () => Promise<void>
+  /** Switch the active workspace to another of the user's ACTIVE memberships. The
+   *  choice is persisted (per-user) and re-resolves the roster; an unknown/stale id
+   *  safely falls back to the first valid membership. supabase-mode. */
+  switchTeam: (teamId: string) => Promise<void>
   /** Deliberately create this user's FIRST team (as owner) and refresh. Idempotent;
    *  RLS + the owner-bootstrap trigger enforce that the browser can't insert an
    *  arbitrary owner membership. Used by the onboarding flow. */
@@ -28,6 +41,21 @@ export interface UseTeam {
 }
 
 const MEMBERSHIP_SELECT = 'role, team_id, teams ( id, name, owner_user_id, created_at )'
+
+// ─── Selected-team persistence (supabase-mode) ──────────────────────────────────
+// The active workspace is the user's deliberate choice, kept in localStorage so it
+// survives refreshes. Keyed by user id so two accounts on one browser never read
+// each other's selection. A stored id that is no longer an ACTIVE membership is
+// ignored at resolve time (fallback to the first membership) — never a wrong-team.
+const selectedTeamKey = (userId: string): string => `mobfleet.supabase.activeTeam.${userId}`
+function readSelectedTeam(userId: string): string | null {
+  if (typeof window === 'undefined') return null
+  try { return window.localStorage.getItem(selectedTeamKey(userId)) } catch { return null }
+}
+function writeSelectedTeam(userId: string, teamId: string): void {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(selectedTeamKey(userId), teamId) } catch { /* private mode → no persistence */ }
+}
 
 /**
  * Resolves the signed-in user's active team (their first membership), its full
@@ -48,6 +76,7 @@ export function useTeam(): UseTeam {
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
   const [team, setTeam] = useState<TeamRow | null>(null)
+  const [teams, setTeams] = useState<TeamSummary[]>([])
   const [members, setMembers] = useState<TeamMemberRow[]>([])
   const [invites, setInvites] = useState<TeamInviteRow[]>([])
   const [role, setRole] = useState<TeamRole | null>(null)
@@ -58,7 +87,7 @@ export function useTeam(): UseTeam {
   // one — mirrors the cancellation guard in AuthContext.
   const load = useCallback(async (isActive: () => boolean = () => true) => {
     if (!supabase || !userId) {
-      if (isActive()) { setTeam(null); setMembers([]); setInvites([]); setRole(null); setSuspended(false); setLoading(false) }
+      if (isActive()) { setTeam(null); setTeams([]); setMembers([]); setInvites([]); setRole(null); setSuspended(false); setLoading(false) }
       return
     }
     const sb = supabase
@@ -73,8 +102,22 @@ export function useTeam(): UseTeam {
     if (!isActive()) return
     if (mErr) { setError(mErr.message); setLoading(false); return }
 
-    const activeTeam = (memberships?.[0]?.teams as TeamRow | undefined) ?? null
-    const activeRole = (memberships?.[0]?.role as TeamRole | undefined) ?? null
+    // All ACTIVE memberships (RLS hides suspended/removed) → the switchable workspaces.
+    const list: TeamSummary[] = (memberships ?? []).flatMap((m) => {
+      const t = m.teams as TeamRow | undefined
+      return t ? [{ id: t.id, name: t.name, role: m.role as TeamRole }] : []
+    })
+    if (isActive()) setTeams(list)
+
+    // Active membership = the persisted choice if it's still an active membership,
+    // else the first (earliest-joined). This is the switcher's fallback for a
+    // removed/suspended/stale selection — never a wrong-team switch.
+    const persisted = readSelectedTeam(userId)
+    const chosen = memberships?.find((m) => (m.teams as TeamRow | undefined)?.id === persisted) ?? memberships?.[0]
+    const activeTeam = (chosen?.teams as TeamRow | undefined) ?? null
+    const activeRole = (chosen?.role as TeamRole | undefined) ?? null
+    // Replace a stale/missing stored id with the resolved fallback so it doesn't linger.
+    if (activeTeam && persisted !== activeTeam.id) writeSelectedTeam(userId, activeTeam.id)
 
     // No ACTIVE team. Classify the state — but do NOT auto-provision here. Team
     // creation is a deliberate onboarding step (provisionTeam), so a slow or raced
@@ -169,7 +212,16 @@ export function useTeam(): UseTeam {
     return () => { active = false }
   }, [enabled, load])
 
+  // Switch the active workspace. Persist the choice (so it survives refresh) then
+  // re-resolve through `load`, which validates the id against the live ACTIVE
+  // memberships and falls back to the first one if it's no longer valid.
+  const switchTeam = useCallback(async (teamId: string): Promise<void> => {
+    if (!userId) return
+    writeSelectedTeam(userId, teamId)
+    await load()
+  }, [userId, load])
+
   const currentMember = (userId ? members.find((m) => m.user_id === userId) : null) ?? null
 
-  return { enabled, loading, error, suspended, team, members, invites, currentMember, role, refresh: load, provisionTeam }
+  return { enabled, loading, error, suspended, team, teams, members, invites, currentMember, role, refresh: load, switchTeam, provisionTeam }
 }

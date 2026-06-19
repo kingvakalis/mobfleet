@@ -15,6 +15,7 @@ import { useFleetStats } from '@/hooks/use-fleet'
 import { useActingMember } from '@/lib/authorization/use-access'
 import { canAny } from '@/lib/authorization/effective-access'
 import { TeamSwitcher } from '@/components/team/team-switcher'
+import { SupabaseTeamSwitcher } from '@/components/team/supabase-team-switcher'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
@@ -74,8 +75,10 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         </div>
       )}
 
-      {/* Workspace switcher (authoritative me-mode only; hidden otherwise) */}
+      {/* Workspace switcher — me-mode (/v1/me) and supabase-mode (team_members);
+          each renders only in its own mode + when the user has 2+ active teams. */}
       <TeamSwitcher collapsed={collapsed} />
+      <SupabaseTeamSwitcher collapsed={collapsed} />
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0 overflow-y-auto py-2" aria-label="Primary">
