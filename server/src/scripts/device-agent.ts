@@ -2,9 +2,13 @@
  * Mac-Mini hardware-agent entrypoint — the production device daemon.
  *
  * It discovers USB iPhones, brings up WDA per device, heartbeats, and executes
- * queued commands against the real hardware. Two adapter modes:
+ * queued commands against the real hardware. Three adapter modes:
  *
- *   REAL (default on macOS):   MacosDeviceControlAdapter — libimobiledevice + WDA.
+ *   REAL (default on macOS):   MacosDeviceControlAdapter — libimobiledevice + WDA (direct).
+ *   APPIUM (--appium /         AppiumDeviceControlAdapter — libimobiledevice for USB
+ *   AGENT_ADAPTER=appium):     discovery + an Appium (XCUITest) server for gestures.
+ *                              Env: APPIUM_URL, APPIUM_BUNDLE_MAP (JSON name→bundleId),
+ *                              APPIUM_EXTRA_CAPS (JSON).
  *   SIMULATED (--simulate or   SimulatedDeviceControlAdapter — no hardware; used
  *   non-darwin):               for local/dev/CI smoke runs. A SIM_DEVICES env list
  *                              of UDIDs is attached at boot.
@@ -28,6 +32,7 @@ import type { DeviceControlAdapter } from '../agent/device-adapter'
 import type { DeviceIdentity } from '../agent/types'
 
 const SIMULATE = process.argv.includes('--simulate') || process.env.AGENT_SIMULATE === '1'
+const APPIUM = process.argv.includes('--appium') || process.env.AGENT_ADAPTER === 'appium'
 const SERVER_URL = process.env.SERVER_URL ?? 'http://localhost:8787'
 const WS_URL = process.env.WS_URL ?? SERVER_URL.replace(/^http/, 'ws') + '/ws'
 
@@ -50,6 +55,18 @@ function parseDeviceMap(): Map<string, { deviceId: string; deviceKey: string }> 
   return map
 }
 
+/** Parse a JSON object from an env var; undefined on missing/invalid (logs a warning). */
+function parseJsonEnv(name: string): Record<string, unknown> | undefined {
+  const raw = process.env[name]
+  if (!raw) return undefined
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>
+  } catch { /* fall through */ }
+  console.error(`[device-agent] ${name} is not a valid JSON object — ignoring`)
+  return undefined
+}
+
 async function main(): Promise<void> {
   const deviceMap = parseDeviceMap()
 
@@ -67,10 +84,20 @@ async function main(): Promise<void> {
       console.error('[device-agent] real mode requires macOS. Run with --simulate on this host, or use a Mac Mini.')
       process.exit(2)
     }
-    // Lazy import so a non-mac host never even loads the OS-bound module.
-    const { MacosDeviceControlAdapter } = await import('../agent/macos-device-adapter')
-    adapter = new MacosDeviceControlAdapter()
-    log('agent.mode', { mode: 'macos' })
+    // Lazy import so a non-mac host never even loads the OS-bound modules.
+    if (APPIUM) {
+      const { AppiumDeviceControlAdapter } = await import('../agent/appium-device-adapter')
+      adapter = new AppiumDeviceControlAdapter({
+        appiumUrl: process.env.APPIUM_URL,
+        bundleMap: parseJsonEnv('APPIUM_BUNDLE_MAP') as Record<string, string> | undefined,
+        extraCaps: parseJsonEnv('APPIUM_EXTRA_CAPS'),
+      })
+      log('agent.mode', { mode: 'appium', appiumUrl: process.env.APPIUM_URL ?? 'http://127.0.0.1:4723' })
+    } else {
+      const { MacosDeviceControlAdapter } = await import('../agent/macos-device-adapter')
+      adapter = new MacosDeviceControlAdapter()
+      log('agent.mode', { mode: 'macos' })
+    }
   }
 
   // One transport per provisioned device (created lazily as devices are discovered).

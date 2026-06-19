@@ -12,6 +12,7 @@
     "agent": "tsx src/scripts/heartbeat-agent.ts",
     "device-agent": "tsx src/scripts/device-agent.ts",
     "device-agent:sim": "tsx src/scripts/device-agent.ts --simulate",
+    "device-agent:appium": "tsx src/scripts/device-agent.ts --appium",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "test:it": "node --import tsx --test --test-concurrency=1 \"src/**/*.itest.ts\"",
