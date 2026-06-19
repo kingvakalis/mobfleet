@@ -60,7 +60,13 @@ function migrateDeploy(url) {
 }
 async function withClient(url, fn) { const c = new pg.Client({ connectionString: url }); await c.connect(); try { return await fn(c) } finally { await c.end() } }
 
-const EXPECTED_ORDER = ['00000000000000_baseline', '20260616110000_reconcile_legacy_objects', '20260616120000_add_migration_mapping_and_audit_schema']
+const EXPECTED_ORDER = [
+  '00000000000000_baseline',
+  '20260616110000_reconcile_legacy_objects',
+  '20260616120000_add_migration_mapping_and_audit_schema',
+  '20260617120000_add_team_notification_prefs',
+  '20260617130000_add_persistence_models',
+]
 
 async function main() {
   await withClient(migUrl, async (c) => {
@@ -91,8 +97,13 @@ async function main() {
   const dep1 = migrateDeploy(migUrl)
   if (dep1.code !== 0) fail('migrate:deploy failed')
   if (dep1.out.includes('@')) { /* never expect creds; redact in evidence */ }
-  evidence.deploy_applied = { reconcile: /20260616110000_reconcile_legacy_objects/.test(dep1.out), phase3a: /20260616120000_add_migration_mapping_and_audit_schema/.test(dep1.out) }
-  if (!evidence.deploy_applied.reconcile || !evidence.deploy_applied.phase3a) fail('deploy did not apply reconcile + phase3a')
+  evidence.deploy_applied = {
+    reconcile: /20260616110000_reconcile_legacy_objects/.test(dep1.out),
+    phase3a: /20260616120000_add_migration_mapping_and_audit_schema/.test(dep1.out),
+    notification_prefs: /20260617120000_add_team_notification_prefs/.test(dep1.out),
+    persistence_models: /20260617130000_add_persistence_models/.test(dep1.out),
+  }
+  if (!Object.values(evidence.deploy_applied).every(Boolean)) fail('deploy did not apply all four post-baseline migrations')
   const dep2 = migrateDeploy(migUrl)
   evidence.second_deploy_noop = dep2.code === 0 && /No pending migrations to apply/i.test(dep2.out)
   if (!evidence.second_deploy_noop) fail('second migrate:deploy was not a no-op')
@@ -137,9 +148,9 @@ async function assertBaselineParity(c) {
 }
 
 async function assertCompletedSchema(c) {
-  // Exclude Prisma's own bookkeeping table -- it is not one of the 15 application models.
+  // Exclude Prisma's own bookkeeping table -- it is not one of the 19 application models.
   const tabs = (await c.query(`SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations' ORDER BY 1`)).rows.map((r) => r.tablename)
-  const want15 = ['AgentCommand', 'AuditLog', 'Automation', 'Device', 'DeviceApiKey', 'DevicePairingToken', 'DeviceSession', 'Invite', 'Job', 'Membership', 'MigrationRecord', 'Proxy', 'Team', 'TeamEmailSettings', 'User']
+  const want19 = ['Account', 'AgentCommand', 'AuditLog', 'Automation', 'Device', 'DeviceApiKey', 'DevicePairingToken', 'DeviceSession', 'Invite', 'Job', 'Membership', 'MigrationRecord', 'Proxy', 'Shift', 'Team', 'TeamEmailSettings', 'User', 'UserPreference', 'WorkspaceSettings']
   const has = (t, col) => c.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name=$2`, [t, col]).then((r) => r.rowCount > 0)
   const conDef = (name) => c.query(`SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname=$1`, [name]).then((r) => r.rows[0]?.d ?? '')
   const idxNames = (await c.query(`SELECT indexname FROM pg_indexes WHERE schemaname='public'`)).rows.map((r) => r.indexname)
@@ -153,18 +164,25 @@ async function assertCompletedSchema(c) {
   const historyClean = hist.every((r) => r.finished_at !== null && r.rolled_back_at === null)
 
   const want = {
-    fifteen_tables: JSON.stringify(tabs) === JSON.stringify(want15),
+    // Compare as a set (JS-sorted both sides) so DB collation order can't cause a false fail.
+    nineteen_tables: JSON.stringify(tabs.slice().sort()) === JSON.stringify(want19.slice().sort()),
     membership_overrides: await has('Membership', 'overrides'),
     team_supabaseTeamId: await has('Team', 'supabaseTeamId'),
     team_supabaseTeamId_unique: idxNames.includes('Team_supabaseTeamId_key'),
     team_archivedAt: await has('Team', 'archivedAt'),
+    team_notificationPrefs: await has('Team', 'notificationPrefs'),
     invite_invitedByUserId_nullable: inviteNullable,
     invite_fk_set_null: /ON DELETE SET NULL/.test(inviteFk) && /ON UPDATE CASCADE/.test(inviteFk),
     agentcommand_ok: conNames.includes('AgentCommand_pkey') && conNames.includes('AgentCommand_teamId_fkey') && idxNames.includes('AgentCommand_teamId_deviceId_status_idx'),
     devicesession_ok: conNames.includes('DeviceSession_pkey') && conNames.includes('DeviceSession_teamId_fkey') && idxNames.includes('DeviceSession_deviceId_startedAt_idx') && idxNames.includes('DeviceSession_teamId_startedAt_idx'),
     teamemailsettings_ok: conNames.includes('TeamEmailSettings_pkey') && conNames.includes('TeamEmailSettings_teamId_fkey') && idxNames.includes('TeamEmailSettings_teamId_key'),
     migrationrecord_ok: conNames.includes('MigrationRecord_pkey') && idxNames.includes('MigrationRecord_batchId_idx') && idxNames.includes('MigrationRecord_entity_prismaId_idx'),
-    history_exactly_three: JSON.stringify(histNames) === JSON.stringify(EXPECTED_ORDER),
+    // Persistence models (migration 5)
+    account_ok: conNames.includes('Account_pkey') && conNames.includes('Account_teamId_fkey') && idxNames.includes('Account_teamId_username_key'),
+    shift_ok: conNames.includes('Shift_pkey') && conNames.includes('Shift_teamId_fkey') && conNames.includes('Shift_userId_fkey'),
+    userpreference_ok: conNames.includes('UserPreference_pkey') && conNames.includes('UserPreference_teamId_fkey') && idxNames.includes('UserPreference_teamId_userId_key'),
+    workspacesettings_ok: conNames.includes('WorkspaceSettings_pkey') && conNames.includes('WorkspaceSettings_teamId_fkey') && idxNames.includes('WorkspaceSettings_teamId_key'),
+    history_complete: JSON.stringify(histNames) === JSON.stringify(EXPECTED_ORDER),
     history_clean: historyClean,
   }
   evidence.completed_schema = want

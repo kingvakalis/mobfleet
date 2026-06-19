@@ -9,6 +9,8 @@
 1. `00000000000000_baseline` — exact audited live schema (Checkpoint 1).
 2. `20260616110000_reconcile_legacy_objects` — AgentCommand, DeviceSession, TeamEmailSettings, `Membership.overrides` (Checkpoint 2).
 3. `20260616120000_add_migration_mapping_and_audit_schema` — Phase 3A (Team.supabaseTeamId/archivedAt, MigrationRecord, nullable Invite FK → `ON DELETE SET NULL`).
+4. `20260617120000_add_team_notification_prefs` — additive nullable `Team.notificationPrefs JSONB` (transactional email prefs).
+5. `20260617130000_add_persistence_models` — additive Account / WorkspaceSettings / Shift / UserPreference tables (+ indexes + FKs ON DELETE CASCADE).
 
 ## Deploy model (what changed in Checkpoint 3)
 - **Application startup is SERVER-ONLY** (`node dist/index.js`). It never runs `db push`, `migrate`, or `resolve`, never swallows migration errors, never uses `--accept-data-loss`.
@@ -117,7 +119,7 @@ human confirms the stage's success criteria.
 
 ### Stage F — Verify history + empty diff
 - `_prisma_migrations` contains exactly, in order, all `finished`, none rolled back:
-  `00000000000000_baseline`, `20260616110000_reconcile_legacy_objects`, `20260616120000_add_migration_mapping_and_audit_schema`.
+  `00000000000000_baseline`, `20260616110000_reconcile_legacy_objects`, `20260616120000_add_migration_mapping_and_audit_schema`, `20260617120000_add_team_notification_prefs`, `20260617130000_add_persistence_models`.
 - `prisma migrate diff --from-url "$MIGRATION_DATABASE_URL" --to-schema-datamodel prisma/schema.postgres.prisma --exit-code` → **empty** (exit 0).
 - **STOP.** Proceed only on exact history + empty diff.
 
@@ -161,7 +163,7 @@ It proves staging ≠ production (sanitized fingerprints; refuses a production t
 audited baseline (parity vs `step0-production-audit.json`, all empty, `_prisma_migrations` absent),
 verifies the least-privilege migrator role, registers the baseline, runs `npm run migrate:deploy`
 (reconcile → Phase 3A in order), proves a second deploy is a no-op, and verifies the completed schema +
-exactly three clean history rows + an empty diff — emitting **redacted** evidence (no URLs/credentials).
+exactly five clean history rows + an empty diff — emitting **redacted** evidence (no URLs/credentials).
 Separately rehearse the **backup → migrate → restore-into-isolated-DB → compare** rollback. Only after a
 green staging rehearsal should the production stages above be scheduled.
 
