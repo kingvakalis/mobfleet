@@ -11,9 +11,10 @@ import {
   fetchTeamMembers, inviteTeamMember, removeTeamMember, patchTeamMember,
   type RoleId, type ShiftStatus, type TeamMemberDTO, type MemberPatch,
 } from '@/services/team'
-import type { RosterApi } from '@/hooks/useTeamRoster'
+import { useRoster, type RosterApi } from '@/hooks/useTeamRoster'
 import { inviteUrl, type RosterMember, type RosterStatus } from '@/services/team-members'
 import { useAuth } from '@/contexts/AuthContext'
+import { AUTH_SOURCE } from '@/auth/auth-source'
 import { useShiftOverlay } from '@/state/shift-overlay'
 import { Spinner } from '@/components/ui/spinner'
 import {
@@ -892,7 +893,24 @@ function useRailwayRoster(): Roster {
 // ─── Main view ───────────────────────────────────────────────────────────────
 
 export function TeamView() {
-  const roster = useRailwayRoster()
+  // AUTH_SOURCE is a build-time constant, so exactly ONE branch mounts for the whole app
+  // lifetime — each inner component's roster hook runs unconditionally (rules-of-hooks safe).
+  // supabase-mode (production default) uses the Supabase-native roster (team_members +
+  // team_invites via RLS — NO backend /v1/team/* calls); me-mode keeps the Railway backend roster.
+  return AUTH_SOURCE === 'me' ? <TeamViewRailway /> : <TeamViewSupabase />
+}
+
+function TeamViewRailway() {
+  return <TeamViewBody roster={useRailwayRoster()} />
+}
+
+function TeamViewSupabase() {
+  // The Supabase RosterApi has no global "mutating" flag (its mutations are fire-and-forget +
+  // refresh), so supply false to satisfy the shared body/drawer type.
+  return <TeamViewBody roster={{ ...useRoster(), mutating: false }} />
+}
+
+function TeamViewBody({ roster }: { roster: Roster }) {
   const employees = roster.employees
   const { member: actor, employee: actorEmployee } = useActingEmployee()
   // Anti-escalation / last-owner checks consider real members only (not pending invites).
