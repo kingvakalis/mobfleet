@@ -81,7 +81,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signup(email, password, workspaceName) {
         if (!supabase) return { error: 'Authentication is not configured.' }
-        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          // Land the email-confirmation link on the app ROOT, not /signup. After confirm
+          // the gate routes onward (onboarding / pending-invite redemption), so the address
+          // bar is never left on /signup. Independent of the dashboard Site URL setting;
+          // if this origin isn't allow-listed Supabase safely falls back to the Site URL.
+          options: { emailRedirectTo: `${window.location.origin}/` },
+        })
         if (error) return { error: error.message }
         // Stash the workspace name ONLY after a successful signUp, so a failed or
         // abandoned attempt can't leak its name into the next user's provisioning

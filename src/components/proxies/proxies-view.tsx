@@ -75,6 +75,29 @@ export function ProxiesView() {
     })
   }
 
+  // Truthful "not available in this workspace mode" state — the proxy registry lives only on
+  // the Prisma backend (no Supabase proxies table), so it can't reflect a supabase-mode
+  // workspace. Shown instead of a misleading 401 error or a fake empty list.
+  if (state.status === 'unavailable') {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-line">
+          <div>
+            <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Network</p>
+            <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">PROXY REGISTRY</h1>
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <WifiOff size={22} className="text-white/25" />
+          <span className="mono text-[11px] uppercase tracking-widest text-white/45">Proxy registry not available yet</span>
+          <span className="mono max-w-[440px] text-[10px] leading-relaxed tracking-wider text-white/25">
+            Proxy management runs on the fleet backend and isn’t connected to this workspace mode. It will appear here once the backend data plane is enabled for your workspace.
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full relative">
       {/* Header */}
