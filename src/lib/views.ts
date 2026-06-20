@@ -30,7 +30,7 @@ export const VIEWS: ViewMeta[] = [
   { id: 'team',        label: 'Team',             icon: 'users',      requiredAny: ['team.view', 'roles.view'] },
   { id: 'automations', label: 'Automations',      icon: 'zap',        requiredAny: ['automations.view'], hideInSupabaseMode: true },
   { id: 'jobs',        label: 'Jobs',             icon: 'briefcase',  requiredAny: ['jobs.view'] },
-  { id: 'logs',        label: 'Activity',         icon: 'terminal',   requiredAny: ['activity.view'], hideInSupabaseMode: true },
+  { id: 'logs',        label: 'Activity',         icon: 'terminal',   requiredAny: ['activity.view'] },
   { id: 'settings',    label: 'Settings',         icon: 'settings',   requiredAny: ['settings.view'] },
 ]
 

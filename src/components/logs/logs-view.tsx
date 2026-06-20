@@ -7,6 +7,13 @@ import { useAuthz } from '@/contexts/AuthzContext'
 import { fetchActivity, ApiError, type ActivityItem } from '@/services/activity'
 import { usePermission } from '@/lib/authorization/use-access'
 import { fadeIn, staggerContainer } from '@/lib/motion'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { useActivityEvents } from '@/hooks/useActivityEvents'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import type { ActivityCategory, ActivityEventRow } from '@/lib/database.types'
+
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
 
 /**
  * Activity — plain-language operational events (was "Logs").
@@ -447,6 +454,99 @@ function OperationalActivity() {
   )
 }
 
+// ─── Supabase-mode activity (real activity_events; NO synthetic feed, session store, or
+// Railway /v1/activity). Both tabs read the same table, filtered by category. ──────────
+const SB_RESULT_FILTERS = ['ALL', 'success', 'denied', 'error'] as const
+
+function SupabaseActivity({ category, canExport }: { category: ActivityCategory; canExport: boolean }) {
+  const { team, members } = useTeamContext()
+  const { events, loading, error } = useActivityEvents(team?.id ?? null, category)
+  const [search, setSearch] = useState('')
+  const [result, setResult] = useState<(typeof SB_RESULT_FILTERS)[number]>('ALL')
+
+  // Resolve a human actor from the team roster already in context (null actor = system/device).
+  const nameOf = useCallback((uid: string | null) => {
+    if (!uid) return 'System'
+    const m = members.find((x) => x.user_id === uid)
+    return m?.name || m?.email || uid.slice(0, 8)
+  }, [members])
+
+  const visible = useMemo(() => events.filter((e) =>
+    (result === 'ALL' || e.result === result) &&
+    (search === '' ||
+      humanizeAction(e.action).toLowerCase().includes(search.toLowerCase()) ||
+      (e.target_label ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (e.detail ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      nameOf(e.actor_user_id).toLowerCase().includes(search.toLowerCase())),
+  ), [events, result, search, nameOf])
+
+  const exportCsv = () => {
+    if (!canExport) return
+    const header = 'time,actor,action,target,detail,result'
+    const rows = visible.map((e) => [fmtDateTime(new Date(e.created_at).getTime()), nameOf(e.actor_user_id), e.action, e.target_label ?? '', (e.detail ?? '').replace(/,/g, ';'), e.result].join(','))
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'mobfleet-activity.csv'; a.click(); URL.revokeObjectURL(url)
+  }
+
+  const badge = (r: ActivityEventRow['result']) =>
+    r === 'denied' || r === 'error' ? 'bg-red-400/10 text-red-400' : r === 'info' ? 'bg-white/[0.06] text-white/45' : 'bg-emerald-400/10 text-emerald-400'
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-3">
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search activity..." className="h-8 w-64 rounded-lg border border-line bg-white/[0.03] pl-8 pr-3 text-xs text-white/80 placeholder-white/25 outline-none transition-colors focus:border-[var(--accent-border)]" />
+        </div>
+        <div className="flex gap-1">
+          {SB_RESULT_FILTERS.map((f) => (
+            <button key={f} onClick={() => setResult(f)} className={['rounded-md px-3 py-1 text-xs capitalize transition-colors', result === f ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/35 hover:text-white/60'].join(' ')}>{f}</button>
+          ))}
+        </div>
+        <button onClick={exportCsv} disabled={!canExport || visible.length === 0} title={canExport ? 'Export the loaded activity as CSV' : 'Requires export-activity permission'} className="mono ml-auto flex h-8 items-center gap-1.5 rounded-lg border border-line px-3 text-[10px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40">
+          <Download size={11} /> Export
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-auto px-4 py-2">
+        <div className="flex items-center gap-3 px-3 py-1.5 text-[9px] font-medium uppercase tracking-wider text-white/20">
+          <span className="w-36 shrink-0">Time</span>
+          <span className="w-16 shrink-0">Result</span>
+          <span className="w-44 shrink-0">Actor</span>
+          <span className="w-44 shrink-0">Action</span>
+          <span className="flex-1">Target / Detail</span>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-16"><span className="mono text-[10px] uppercase tracking-widest text-white/25">Loading activity…</span></div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-16"><ShieldAlert size={18} className="text-red-400/60" /><span className="text-[12px] text-white/55">Could not load activity.</span></div>
+        ) : (
+          <>
+            <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-0.5 font-mono text-[11px]">
+              {visible.map((e) => (
+                <motion.div key={e.id} variants={fadeIn} className="flex items-center gap-3 rounded-md px-3 py-1.5 transition-colors hover:bg-white/[0.02]">
+                  <span className="w-36 shrink-0 tabular-nums text-white/25">{fmtDateTime(new Date(e.created_at).getTime())}</span>
+                  <span className={['w-16 shrink-0 rounded px-1.5 py-0.5 text-center text-[9px] font-semibold uppercase', badge(e.result)].join(' ')}>{e.result}</span>
+                  <span className="w-44 shrink-0 truncate text-white/55" title={e.actor_user_id ?? 'system'}>{nameOf(e.actor_user_id)}</span>
+                  <span className="w-44 shrink-0 truncate font-medium text-white/70" title={e.action}>{humanizeAction(e.action)}</span>
+                  <span className="flex-1 truncate text-white/40">{e.target_label}{e.detail ? <span className="text-white/25"> · {e.detail}</span> : null}</span>
+                </motion.div>
+              ))}
+            </motion.div>
+            {visible.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16">
+                <ActivityIcon size={18} className="mb-2 text-white/15" />
+                <span className="mono text-[10px] uppercase tracking-widest text-white/25">{events.length === 0 ? 'No activity recorded yet' : 'No events match the current filters'}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
 export function ActivityView() {
   const canViewSecurity = usePermission('activity.view_security')
   const canExport = usePermission('activity.export')
@@ -498,7 +598,9 @@ export function ActivityView() {
         </div>
       </div>
 
-      {activeTab === 'security' ? <SecurityAudit canExport={canExport} /> : <OperationalActivity />}
+      {activeTab === 'security'
+        ? (SUPABASE_MODE ? <SupabaseActivity category="security" canExport={canExport} /> : <SecurityAudit canExport={canExport} />)
+        : (SUPABASE_MODE ? <SupabaseActivity category="operational" canExport={canExport} /> : <OperationalActivity />)}
     </div>
   )
 }
