@@ -59,6 +59,18 @@ test('ackCommand maps success and failure', async () => {
   assert.equal(bad.calls[0].body.p_success, false); assert.equal(bad.calls[0].body.p_error, 'boom')
 })
 
+test('putScreenshot uploads via put_device_screenshot with the device key + frame', async () => {
+  const { calls, fetchImpl } = mockFetch()
+  await mk(fetchImpl).putScreenshot('c1', { base64: 'IMG', format: 'png', width: 390, height: 844 })
+  assert.equal(calls[0].fn, 'put_device_screenshot')
+  assert.equal(calls[0].body.p_device_key, 'KEY')
+  assert.equal(calls[0].body.p_command_id, 'c1')
+  assert.equal(calls[0].body.p_image_base64, 'IMG')
+  assert.equal(calls[0].body.p_format, 'png')
+  assert.equal(calls[0].body.p_width, 390)
+  assert.equal(calls[0].body.p_height, 844)
+})
+
 test('sendHeartbeat opens a session once, then heartbeats, then ends on offline', async () => {
   const { calls, fetchImpl } = mockFetch({ device_session_start: 'sess-1' })
   const t = mk(fetchImpl, { agentVersion: 'agent/1.0' })

@@ -323,6 +323,43 @@ export interface Database {
           { foreignKeyName: 'agent_commands_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
         ]
       }
+      device_screenshots: {
+        Row: {
+          device_id: string
+          team_id: string
+          command_id: string | null
+          format: string
+          width: number | null
+          height: number | null
+          image_base64: string
+          captured_at: string
+        }
+        Insert: {
+          device_id: string
+          team_id: string
+          command_id?: string | null
+          format?: string
+          width?: number | null
+          height?: number | null
+          image_base64: string
+          captured_at?: string
+        }
+        Update: {
+          device_id?: string
+          team_id?: string
+          command_id?: string | null
+          format?: string
+          width?: number | null
+          height?: number | null
+          image_base64?: string
+          captured_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: 'device_screenshots_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
+          { foreignKeyName: 'device_screenshots_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
+          { foreignKeyName: 'device_screenshots_command_id_fkey'; columns: ['command_id']; referencedRelation: 'agent_commands'; referencedColumns: ['id'] },
+        ]
+      }
       activity_events: {
         Row: {
           id: string
@@ -478,6 +515,17 @@ export interface Database {
         Args: Record<string, never>
         Returns: boolean
       }
+      put_device_screenshot: {
+        Args: {
+          p_device_key: string
+          p_command_id: string | null
+          p_image_base64: string
+          p_format?: string
+          p_width?: number | null
+          p_height?: number | null
+        }
+        Returns: undefined
+      }
       log_activity_event: {
         Args: {
           p_team_id: string
@@ -518,6 +566,7 @@ export type DeviceGroupUpdate = Database['public']['Tables']['device_groups']['U
 export type AutomationJobRow = Database['public']['Tables']['automation_jobs']['Row']
 export type AutomationJobInsert = Database['public']['Tables']['automation_jobs']['Insert']
 export type AgentCommandRow = Database['public']['Tables']['agent_commands']['Row']
+export type DeviceScreenshotRow = Database['public']['Tables']['device_screenshots']['Row']
 export type ActivityEventRow = Database['public']['Tables']['activity_events']['Row']
 export type AutomationRow = Database['public']['Tables']['automations']['Row']
 export type AutomationInsert = Database['public']['Tables']['automations']['Insert']

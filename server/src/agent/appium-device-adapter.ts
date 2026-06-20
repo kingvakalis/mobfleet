@@ -28,6 +28,23 @@ import type { DeviceIdentity, DeviceTelemetry } from './types'
 
 const run = promisify(execFile)
 
+/**
+ * Build the screenshot AdapterExecOutcome from a raw WDA `/screenshot` value (a
+ * base64 PNG string) and an optional `/window/rect` (device LOGICAL size, points).
+ * PURE + exported for unit testing — no network, no session.
+ *
+ * The base64 is carried in `result.screenshot.base64` so the agent runtime can hand
+ * it to the (supabase) transport's frame-upload path. `width`/`height` are the device
+ * logical size, which the dashboard uses to map a tap on the displayed frame back to
+ * device coordinates. A non-string value (WDA returned something unexpected) degrades
+ * to a benign non-bytes marker so nothing fabricates a frame.
+ */
+export function screenshotOutcome(value: unknown, rect?: { width?: unknown; height?: unknown } | null): AdapterExecOutcome {
+  if (typeof value !== 'string' || value.length === 0) return { result: { screenshot: 'captured' } }
+  const pos = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.round(n) : null)
+  return { result: { screenshot: { base64: value, format: 'png', width: pos(rect?.width), height: pos(rect?.height) } } }
+}
+
 export interface AppiumAdapterOptions {
   /** Appium server base URL (default http://127.0.0.1:4723). */
   appiumUrl?: string
@@ -182,8 +199,14 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
     switch (action.via) {
       case 'screenshot': {
         const res = await this.appium('GET', `/session/${sid}/screenshot`) as { value?: unknown }
-        const v = res?.value
-        return { result: { screenshot: typeof v === 'string' ? `b64:${v.length}` : 'captured' } }
+        // Best-effort device logical size (points) so the dashboard can map taps on the
+        // displayed frame to device coordinates — never fail the capture if it's missing.
+        let rect: { width?: unknown; height?: unknown } | null = null
+        try {
+          const wr = await this.appium('GET', `/session/${sid}/window/rect`) as { value?: { width?: unknown; height?: unknown } }
+          rect = wr?.value ?? null
+        } catch { rect = null }
+        return screenshotOutcome(res?.value, rect)
       }
       case 'type': {
         // W3C: send keys to the currently-focused element (a text field must be focused).

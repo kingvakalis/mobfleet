@@ -46,6 +46,48 @@ export interface AgentTransport {
   /** Ack-start (optional): mark a command 'running' before execution, so the
    *  control plane shows pending → running → done. supabase-mode implements it. */
   markRunning?(commandId: string): Promise<void>
+  /** Upload a REAL captured screenshot frame for a command (optional). supabase-mode
+   *  implements it (device-key RPC → device_screenshots) so the dashboard renders the
+   *  actual device screen; me-mode has no counterpart and simply skips it. */
+  putScreenshot?(commandId: string, frame: ScreenshotFrame): Promise<void>
+}
+
+/** A captured device screenshot ready for transport. `width`/`height` are the device
+ *  LOGICAL size (points) so the UI can map a tap on the displayed frame to device coords. */
+export interface ScreenshotFrame {
+  base64: string
+  format: string
+  width: number | null
+  height: number | null
+}
+
+/** Pull a real screenshot frame out of a command's ExecResult (screenshot success
+ *  with bytes only). Returns null when there is nothing to transport — e.g. a
+ *  non-screenshot action, a failure, or the simulated adapter (no real bytes).
+ *  PURE + exported for unit testing. */
+export function extractScreenshotFrame(action: AgentCommandFrame['action'], result: ExecResult): ScreenshotFrame | null {
+  if (action !== 'screenshot' || !result.success) return null
+  const r = result.result
+  if (!r || typeof r !== 'object') return null
+  const s = (r as { screenshot?: unknown }).screenshot
+  if (!s || typeof s !== 'object') return null
+  const o = s as { base64?: unknown; format?: unknown; width?: unknown; height?: unknown }
+  if (typeof o.base64 !== 'string' || o.base64.length === 0) return null
+  const dim = (n: unknown): number | null => (typeof n === 'number' && Number.isFinite(n) ? n : null)
+  return { base64: o.base64, format: typeof o.format === 'string' ? o.format : 'png', width: dim(o.width), height: dim(o.height) }
+}
+
+/** Return a copy of the result with screenshot BYTES removed (format/dims kept), so an
+ *  ACK never carries the (multi-MB) base64 — the frame travels via putScreenshot instead.
+ *  PURE + exported for unit testing. */
+export function stripScreenshotBytes(result: ExecResult): ExecResult {
+  const r = result.result
+  if (!r || typeof r !== 'object') return result
+  const s = (r as { screenshot?: unknown }).screenshot
+  if (!s || typeof s !== 'object' || typeof (s as { base64?: unknown }).base64 !== 'string') return result
+  const rest = { ...(s as Record<string, unknown>) }
+  delete rest.base64
+  return { ...result, result: { ...(r as Record<string, unknown>), screenshot: rest } }
 }
 
 export interface AgentRuntimeOptions {
@@ -245,8 +287,17 @@ export class AgentRuntime {
       // throw escape the loop. Treat as a generic, retryable failure.
       result = { success: false, error: { code: 'AGENT_ERROR', message: errMsg(err), retryable: true } }
     }
+    // Live-frame transport (supabase-mode): upload captured screenshot BYTES, then ACK
+    // a copy with the bytes stripped so the ack stays small. Best-effort — an upload
+    // failure never blocks the ack (the command still completed on the device).
+    const shot = extractScreenshotFrame(frame.action, result)
+    if (shot && slot.transport.putScreenshot) {
+      await slot.transport
+        .putScreenshot(frame.commandId, shot)
+        .catch((err) => this.log('agent.screenshot.upload_error', { udid, commandId: frame.commandId, error: errMsg(err) }))
+    }
     await slot.transport
-      .ackCommand(frame.commandId, result)
+      .ackCommand(frame.commandId, shot ? stripScreenshotBytes(result) : result)
       .catch((err) => this.log('agent.ack.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
   }
 

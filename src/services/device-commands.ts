@@ -48,6 +48,23 @@ export async function listCommands(deviceId: string, limit = 50): Promise<Comman
   return (data ?? []) as CommandRow[]
 }
 
+/** The latest REAL screenshot frame the agent captured for a device. `width`/`height`
+ *  are the device LOGICAL size (points), used to map a tap on the displayed frame to
+ *  device coordinates. Returns null when no frame has been captured yet (RLS: member). */
+export interface DeviceScreenshot { imageBase64: string; format: string; width: number | null; height: number | null; capturedAt: string; commandId: string | null }
+export async function getLatestScreenshot(deviceId: string): Promise<DeviceScreenshot | null> {
+  if (!supabase) return null
+  const { data, error } = await sb()
+    .from('device_screenshots')
+    .select('image_base64,format,width,height,captured_at,command_id')
+    .eq('device_id', deviceId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  const r = data as { image_base64: string; format: string | null; width: number | null; height: number | null; captured_at: string; command_id: string | null }
+  return { imageBase64: r.image_base64, format: r.format ?? 'png', width: r.width, height: r.height, capturedAt: r.captured_at, commandId: r.command_id }
+}
+
 /** Mint a one-time pairing token (admin/writer) the agent redeems via claim_device. */
 export async function createPairingToken(o: { teamId: string; userId: string }): Promise<{ token: string; expiresAt: string }> {
   const { data, error } = await sb().from('device_pairing_tokens').insert({ team_id: o.teamId, created_by: o.userId }).select('token,expires_at').single()

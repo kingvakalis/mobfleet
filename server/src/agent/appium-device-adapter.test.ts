@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { toAppiumAction, resolveBundleId } from './appium-device-adapter'
+import { toAppiumAction, resolveBundleId, screenshotOutcome } from './appium-device-adapter'
 
 test('toAppiumAction maps gestures to XCUITest mobile: scripts', () => {
   assert.deepEqual(toAppiumAction({ kind: 'screenshot' }), { via: 'screenshot' })
@@ -52,6 +52,26 @@ test('install is delegated to ABM/MDM (throws INSTALL_UNSUPPORTED)', () => {
   } catch (e) {
     assert.equal((e as { code?: string }).code, 'INSTALL_UNSUPPORTED')
   }
+})
+
+test('screenshotOutcome carries REAL base64 + device logical dims, degrades safely', () => {
+  // valid base64 + window rect → bytes carried with logical size (rounded, positive)
+  assert.deepEqual(
+    screenshotOutcome('AAAA', { width: 390, height: 844 }),
+    { result: { screenshot: { base64: 'AAAA', format: 'png', width: 390, height: 844 } } },
+  )
+  // missing/invalid rect → bytes still carried, dims null (UI falls back to glass coords)
+  assert.deepEqual(
+    screenshotOutcome('BBBB'),
+    { result: { screenshot: { base64: 'BBBB', format: 'png', width: null, height: null } } },
+  )
+  assert.deepEqual(
+    screenshotOutcome('CCCC', { width: 0, height: -5 }),
+    { result: { screenshot: { base64: 'CCCC', format: 'png', width: null, height: null } } },
+  )
+  // non-string / empty WDA value → benign marker, never a fabricated frame
+  assert.deepEqual(screenshotOutcome(undefined), { result: { screenshot: 'captured' } })
+  assert.deepEqual(screenshotOutcome(''), { result: { screenshot: 'captured' } })
 })
 
 test('resolveBundleId: map hit, bundle-id passthrough, plain name → null', () => {

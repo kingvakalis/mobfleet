@@ -13,7 +13,7 @@
  * device-key Realtime non-trivial); polling is the durable path. fetch is injectable
  * so the lifecycle is unit-tested without a network.
  */
-import type { AgentTransport } from './agent-runtime'
+import type { AgentTransport, ScreenshotFrame } from './agent-runtime'
 import type { AgentCommandFrame, ExecResult } from './types'
 import { agentCommandActionSchema } from '../../../src/shared/schemas'
 
@@ -107,6 +107,18 @@ export class SupabaseAgentTransport implements AgentTransport {
 
   async ackCommand(commandId: string, result: ExecResult): Promise<void> {
     await this.rpc('ack_agent_command', { p_command_id: commandId, p_success: result.success, p_error: result.error?.message ?? null })
+  }
+
+  /** Upload a captured screenshot frame (device-key RPC → device_screenshots). The
+   *  base64 PNG bytes ride the RPC body; the dashboard reads the row over RLS. */
+  async putScreenshot(commandId: string, frame: ScreenshotFrame): Promise<void> {
+    await this.rpc('put_device_screenshot', {
+      p_command_id: commandId,
+      p_image_base64: frame.base64,
+      p_format: frame.format,
+      p_width: frame.width,
+      p_height: frame.height,
+    })
   }
 
   async sendHeartbeat(hb: { status: 'online' | 'busy' | 'warming' | 'offline' | 'error'; battery: number | null; cpuUsage: number | null; memoryUsage: number | null }): Promise<void> {
