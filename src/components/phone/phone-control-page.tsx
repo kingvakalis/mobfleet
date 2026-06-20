@@ -265,6 +265,9 @@ export function PhoneControlPage() {
     if (!deviceId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLogs([])
+    // supabase-mode: skip the me-mode Railway log socket; the supabase command lifecycle
+    // (enqueue → watchCommand) populates this log instead.
+    if (useSupabaseCommands) return
     const unsub = client.subscribeDeviceLogs(deviceId, (entry) => {
       const next: LogEntry = {
         id: uid(),
@@ -275,12 +278,18 @@ export function PhoneControlPage() {
       setLogs(l => [...l, next].slice(-500))
     })
     return unsub
-  }, [deviceId])
+  }, [deviceId, useSupabaseCommands])
 
   // Real session history (GET /v1/devices/:id/sessions). Empty for the simulated
   // provider — no mock fallback; never crashes the page on error.
   useEffect(() => {
     if (!deviceId) return
+    // supabase-mode: do NOT call the me-mode Railway endpoint (GET /v1/devices/:id/sessions) —
+    // it 401s with a Supabase JWT. Show a truthful "hardware control pending" state instead.
+    if (useSupabaseCommands) {
+      setSessions([]); setSessionsError(null); setSessionsLoading(false)
+      return
+    }
     let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSessionsLoading(true); setSessionsError(null); setSessions([])
@@ -289,7 +298,7 @@ export function PhoneControlPage() {
       .catch(() => { if (!cancelled) setSessionsError('Could not load sessions for this device.') })
       .finally(() => { if (!cancelled) setSessionsLoading(false) })
     return () => { cancelled = true }
-  }, [deviceId])
+  }, [deviceId, useSupabaseCommands])
 
   if (!canView) return (
     <AccessDenied
@@ -695,6 +704,11 @@ export function PhoneControlPage() {
           {/* Live interactive phone — dominant object, subtle cursor tilt */}
           <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
+              {useSupabaseCommands && (
+                <div className="mb-3 rounded-control border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-center">
+                  <span className="mono text-[9px] uppercase tracking-wider text-amber-300/90">No live phone session yet · hardware control pending</span>
+                </div>
+              )}
               <LivePhone
                 ref={phoneRef}
                 device={device}
@@ -872,7 +886,11 @@ export function PhoneControlPage() {
                   ) : sessionsError ? (
                     <span className="py-6 text-center text-[11px] text-amber-300/80">{sessionsError}</span>
                   ) : sessions.length === 0 ? (
-                    <span className="py-6 text-center text-[11px] text-white/30">No sessions recorded for this device yet.</span>
+                    <span className="py-6 text-center text-[11px] text-white/30">
+                      {useSupabaseCommands
+                        ? 'Hardware control pending — live sessions appear once a device agent connects.'
+                        : 'No sessions recorded for this device yet.'}
+                    </span>
                   ) : (
                     sessions.map((s) => (
                       <div key={s.id} className="p-2.5 rounded-lg border border-white/[0.06]">
