@@ -22,6 +22,12 @@ import { REGIONS, regionLabel } from '@/data/regions'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 import { VIEWS, type ViewId } from '@/lib/views'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+
+// In supabase-mode the palette must not offer navigation to hidden pages, nor the
+// mock/HTTP-fleet provisioning actions (provision/retire/scale/fit-graph).
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
 
 const VIEW_ICON: Record<ViewId, LucideIcon> = {
   fleet: LayoutGrid,
@@ -109,7 +115,7 @@ function Palette({ onClose }: { onClose: () => void }) {
             </Command.Empty>
 
             <Command.Group heading="Views">
-              {VIEWS.map((v) => (
+              {VIEWS.filter((v) => !(SUPABASE_MODE && v.hideInSupabaseMode)).map((v) => (
                 <Item
                   key={v.id}
                   icon={VIEW_ICON[v.id]}
@@ -119,17 +125,21 @@ function Palette({ onClose }: { onClose: () => void }) {
               ))}
             </Command.Group>
 
-            <Command.Group heading="Fleet">
-              <Item icon={Maximize} label="Fit graph to screen" onSelect={() => run(fitGraph)} />
-              <Item icon={Layers} label="Open Scale control" onSelect={() => run(openScale)} />
-              <Item
-                icon={Plus}
-                label="Provision 4 devices"
-                hint={regionLabel(REGIONS[0].id)}
-                onSelect={() => run(() => safe(client.createDevices(4, { region: REGIONS[0].id }), 'Could not provision devices'))}
-              />
-              <Item icon={Minus} label="Retire an idle device" onSelect={() => run(retireIdle)} />
-            </Command.Group>
+            {/* Mock/HTTP-fleet actions (fit graph, scale, provision, retire) — hidden in
+                supabase-mode where the Fleet/Scale pages and the mock provider are gated. */}
+            {!SUPABASE_MODE && (
+              <Command.Group heading="Fleet">
+                <Item icon={Maximize} label="Fit graph to screen" onSelect={() => run(fitGraph)} />
+                <Item icon={Layers} label="Open Scale control" onSelect={() => run(openScale)} />
+                <Item
+                  icon={Plus}
+                  label="Provision 4 devices"
+                  hint={regionLabel(REGIONS[0].id)}
+                  onSelect={() => run(() => safe(client.createDevices(4, { region: REGIONS[0].id }), 'Could not provision devices'))}
+                />
+                <Item icon={Minus} label="Retire an idle device" onSelect={() => run(retireIdle)} />
+              </Command.Group>
+            )}
 
             <Command.Group heading="Jobs">
               <Item

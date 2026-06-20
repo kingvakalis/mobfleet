@@ -1,4 +1,4 @@
-import { lazy, Suspense, useSyncExternalStore, type ComponentType } from 'react'
+import { lazy, Suspense, useEffect, useSyncExternalStore, type ComponentType } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AppShell } from '@/components/layout/app-shell'
 import { ErrorBoundary } from '@/components/system/error-boundary'
@@ -13,9 +13,14 @@ import { Spinner } from '@/components/ui/spinner'
 import { AccessDenied } from '@/components/access/Can'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
-import { VIEW_REQUIRED, type ViewId } from '@/lib/views'
+import { VIEWS, VIEW_REQUIRED, isViewHiddenInSupabaseMode, type ViewId } from '@/lib/views'
 import { useActingMember } from '@/lib/authorization/use-access'
 import { canAny } from '@/lib/authorization/effective-access'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+
+// Real customer build: supabase-mode hides + route-guards mock/unreachable pages.
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
 
 const FleetView       = lazy(() => import('@/components/fleet/fleet-view').then(m => ({ default: m.FleetView })))
 // Phones + Jobs go through a route wrapper that uses live Supabase data when
@@ -58,10 +63,20 @@ function ViewFallback() {
 
 export default function App() {
   const hash = useHash()
-  const view = useUIStore(s => s.view)
+  const requestedView = useUIStore(s => s.view)
   const setView = useUIStore(s => s.setView)
   const member = useActingMember()
-  const Current = VIEW_MAP[view] ?? VIEW_MAP.fleet
+  // First view that is BOTH permitted and visible (supabase-mode drops hidden pages).
+  // A normal customer lands on Phones.
+  const firstSafeView: ViewId =
+    VIEWS.find((v) => canAny(member, v.requiredAny) && !(SUPABASE_MODE && v.hideInSupabaseMode))?.id ?? 'phones'
+  // A hideInSupabaseMode page reached via a stale persisted view, command palette, or a
+  // deep link is never rendered — fall back to the first safe view (and persist it, so the
+  // sidebar highlight + stored view don't stay stuck on a hidden page).
+  const hiddenActive = SUPABASE_MODE && isViewHiddenInSupabaseMode(requestedView)
+  const view = hiddenActive ? firstSafeView : requestedView
+  useEffect(() => { if (hiddenActive) setView(firstSafeView) }, [hiddenActive, firstSafeView, setView])
+  const Current = VIEW_MAP[view] ?? VIEW_MAP[firstSafeView] ?? VIEW_MAP.phones
   // Centralized route guard: the active view must be permitted for the acting
   // user. Computed synchronously from the store, so restricted content never
   // flashes before redirect. (Backend remains the source of truth once wired.)
@@ -89,7 +104,7 @@ export default function App() {
               </Suspense>
             </ErrorBoundary>
           ) : (
-            <AccessDenied onBack={() => setView('fleet')} />
+            <AccessDenied onBack={() => setView(firstSafeView)} />
           )}
         </motion.div>
       </AnimatePresence>

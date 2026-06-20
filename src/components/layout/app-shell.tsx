@@ -16,6 +16,13 @@ import { useActingMember } from '@/lib/authorization/use-access'
 import { canAny } from '@/lib/authorization/effective-access'
 import { TeamSwitcher } from '@/components/team/team-switcher'
 import { SupabaseTeamSwitcher } from '@/components/team/supabase-team-switcher'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+
+// In supabase-mode (the real customer build), pages flagged hideInSupabaseMode are
+// dropped from the nav — they are mock/demo or backed by a backend the customer's
+// Supabase JWT can't reach. Demo/standalone builds (Supabase not configured) keep them.
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
 
 const ICON_MAP: Record<string, LucideIcon> = {
   network:    Network,
@@ -48,8 +55,9 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   }, [])
 
   const online = stats.idle + stats.busy
-  // Permission-aware nav: only sections the acting user may open.
-  const visibleViews = VIEWS.filter((v) => canAny(member, v.requiredAny))
+  // Permission-aware nav: only sections the acting user may open — and, in
+  // supabase-mode, excluding pages gated as hideInSupabaseMode (mock/unreachable).
+  const visibleViews = VIEWS.filter((v) => canAny(member, v.requiredAny) && !(SUPABASE_MODE && v.hideInSupabaseMode))
 
   return (
     <>
