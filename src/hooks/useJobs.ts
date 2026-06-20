@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { AutomationJobRow, Json, JobStatusEnum } from '@/lib/database.types'
+
+// Per-instance suffix so concurrent useJobs mounts (Jobs view + Fleet via useFleet)
+// don't share a realtime topic. See the note in useDevices.ts.
+let jobChannelSeq = 0
 
 export interface NewJob {
   type: string
@@ -31,6 +35,8 @@ export function useJobs(teamId: string | null): UseJobs {
   const [jobs, setJobs] = useState<AutomationJobRow[]>([])
   const [loading, setLoading] = useState<boolean>(Boolean(teamId))
   const [error, setError] = useState<string | null>(null)
+  const chanId = useRef(0)
+  if (chanId.current === 0) chanId.current = ++jobChannelSeq
 
   const upsertLocal = useCallback((row: AutomationJobRow) => {
     setJobs((prev) => {
@@ -72,7 +78,7 @@ export function useJobs(teamId: string | null): UseJobs {
     if (!supabase || !teamId) return
     const sb = supabase
     const channel: RealtimeChannel = sb
-      .channel(`automation_jobs:${teamId}`)
+      .channel(`automation_jobs:${teamId}:${chanId.current}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'automation_jobs', filter: `team_id=eq.${teamId}` },

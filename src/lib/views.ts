@@ -22,7 +22,7 @@ export interface ViewMeta {
 }
 
 export const VIEWS: ViewMeta[] = [
-  { id: 'fleet',       label: 'Fleet',            icon: 'network',    requiredAny: ['fleet.view'], hideInSupabaseMode: true },
+  { id: 'fleet',       label: 'Fleet',            icon: 'network',    requiredAny: ['fleet.view'] },
   { id: 'phones',      label: 'Phones',           icon: 'smartphone', requiredAny: ['phones.view'] },
   { id: 'scale',       label: 'Scale',            icon: 'gauge',      requiredAny: ['phones.provision', 'phones.retire'], hideInSupabaseMode: true },
   { id: 'accounts',    label: 'Account Database', icon: 'database',   requiredAny: ['accounts.view'], hideInSupabaseMode: true },

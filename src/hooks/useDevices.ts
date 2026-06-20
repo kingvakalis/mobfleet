@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { DeviceRow, DeviceStatusEnum } from '@/lib/database.types'
+
+// Realtime channel topics must be UNIQUE per subscription. useDevices can be mounted
+// many times concurrently (Phones view + Fleet via useFleet + the sidebar stats), so a
+// fixed `devices:<teamId>` topic would collide ("cannot add postgres_changes callbacks
+// after subscribe"). A per-instance suffix keeps each subscription independent.
+let deviceChannelSeq = 0
 
 export interface NewDevice {
   name: string
@@ -37,6 +43,8 @@ export function useDevices(teamId: string | null): UseDevices {
   const [devices, setDevices] = useState<DeviceRow[]>([])
   const [loading, setLoading] = useState<boolean>(Boolean(teamId))
   const [error, setError] = useState<string | null>(null)
+  const chanId = useRef(0)
+  if (chanId.current === 0) chanId.current = ++deviceChannelSeq
 
   const upsertLocal = useCallback((row: DeviceRow) => {
     setDevices((prev) => {
@@ -84,7 +92,7 @@ export function useDevices(teamId: string | null): UseDevices {
     if (!supabase || !teamId) return
     const sb = supabase
     const channel: RealtimeChannel = sb
-      .channel(`devices:${teamId}`)
+      .channel(`devices:${teamId}:${chanId.current}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'devices', filter: `team_id=eq.${teamId}` },

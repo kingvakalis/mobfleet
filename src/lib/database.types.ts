@@ -12,6 +12,10 @@ export type InviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired'
 export type ScopeTypeEnum = 'workspace' | 'assigned_groups' | 'assigned_phones' | 'self'
 export type DeviceStatusEnum = 'online' | 'offline' | 'error' | 'busy' | 'warming'
 export type JobStatusEnum = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type AgentCommandStatus = 'pending' | 'delivered' | 'running' | 'acked' | 'failed'
+export type ActivityCategory = 'operational' | 'security'
+export type ActivityResult = 'success' | 'denied' | 'error' | 'info'
+export type AccountRecordStatus = 'active' | 'flagged' | 'banned' | 'warming'
 
 export interface Database {
   public: {
@@ -168,6 +172,7 @@ export interface Database {
           status: DeviceStatusEnum
           ip_address: string | null
           wda_port: number | null
+          group_name: string
           last_heartbeat: string | null
           created_at: string
         }
@@ -181,6 +186,7 @@ export interface Database {
           status?: DeviceStatusEnum
           ip_address?: string | null
           wda_port?: number | null
+          group_name?: string
           last_heartbeat?: string | null
           created_at?: string
         }
@@ -194,10 +200,41 @@ export interface Database {
           status?: DeviceStatusEnum
           ip_address?: string | null
           wda_port?: number | null
+          group_name?: string
           last_heartbeat?: string | null
           created_at?: string
         }
         Relationships: [{ foreignKeyName: 'devices_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] }]
+      }
+      device_groups: {
+        Row: {
+          id: string
+          team_id: string
+          name: string
+          color: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          name: string
+          color?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          name?: string
+          color?: string | null
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [{ foreignKeyName: 'device_groups_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] }]
       }
       automation_jobs: {
         Row: {
@@ -241,6 +278,195 @@ export interface Database {
           { foreignKeyName: 'automation_jobs_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
         ]
       }
+      agent_commands: {
+        Row: {
+          id: string
+          team_id: string
+          device_id: string
+          action: string
+          payload: Json
+          status: AgentCommandStatus
+          error: string | null
+          delivered_at: string | null
+          started_at: string | null
+          acked_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          device_id: string
+          action: string
+          payload?: Json
+          status?: AgentCommandStatus
+          error?: string | null
+          delivered_at?: string | null
+          started_at?: string | null
+          acked_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          device_id?: string
+          action?: string
+          payload?: Json
+          status?: AgentCommandStatus
+          error?: string | null
+          delivered_at?: string | null
+          started_at?: string | null
+          acked_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: 'agent_commands_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
+          { foreignKeyName: 'agent_commands_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
+        ]
+      }
+      activity_events: {
+        Row: {
+          id: string
+          team_id: string
+          actor_user_id: string | null
+          category: ActivityCategory
+          action: string
+          target_id: string | null
+          target_label: string | null
+          result: ActivityResult
+          detail: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          actor_user_id?: string | null
+          category?: ActivityCategory
+          action: string
+          target_id?: string | null
+          target_label?: string | null
+          result?: ActivityResult
+          detail?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          actor_user_id?: string | null
+          category?: ActivityCategory
+          action?: string
+          target_id?: string | null
+          target_label?: string | null
+          result?: ActivityResult
+          detail?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Relationships: [{ foreignKeyName: 'activity_events_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] }]
+      }
+      automations: {
+        Row: {
+          id: string
+          team_id: string
+          name: string
+          description: string
+          task_type: string
+          steps: Json
+          paused: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          name: string
+          description?: string
+          task_type: string
+          steps?: Json
+          paused?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          name?: string
+          description?: string
+          task_type?: string
+          steps?: Json
+          paused?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [{ foreignKeyName: 'automations_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] }]
+      }
+      account_records: {
+        Row: {
+          id: string
+          team_id: string
+          platform: 'Instagram' | 'TikTok'
+          handle: string
+          username: string
+          email: string
+          status: AccountRecordStatus
+          assigned_device_id: string | null
+          group_name: string
+          owner_user_id: string | null
+          two_fa: boolean
+          tags: string[]
+          followers: number
+          notes: string
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          platform: 'Instagram' | 'TikTok'
+          handle: string
+          username?: string
+          email?: string
+          status?: AccountRecordStatus
+          assigned_device_id?: string | null
+          group_name?: string
+          owner_user_id?: string | null
+          two_fa?: boolean
+          tags?: string[]
+          followers?: number
+          notes?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          platform?: 'Instagram' | 'TikTok'
+          handle?: string
+          username?: string
+          email?: string
+          status?: AccountRecordStatus
+          assigned_device_id?: string | null
+          group_name?: string
+          owner_user_id?: string | null
+          two_fa?: boolean
+          tags?: string[]
+          followers?: number
+          notes?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: 'account_records_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
+          { foreignKeyName: 'account_records_assigned_device_id_fkey'; columns: ['assigned_device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
+        ]
+      }
     }
     Views: Record<never, never>
     Functions: {
@@ -251,6 +477,19 @@ export interface Database {
       has_any_membership: {
         Args: Record<string, never>
         Returns: boolean
+      }
+      log_activity_event: {
+        Args: {
+          p_team_id: string
+          p_action: string
+          p_category?: ActivityCategory
+          p_target_id?: string | null
+          p_target_label?: string | null
+          p_result?: ActivityResult
+          p_detail?: string | null
+          p_metadata?: Json
+        }
+        Returns: string
       }
     }
     Enums: {
@@ -273,5 +512,16 @@ export type OnboardingResponseInsert = Database['public']['Tables']['onboarding_
 export type DeviceRow = Database['public']['Tables']['devices']['Row']
 export type DeviceInsert = Database['public']['Tables']['devices']['Insert']
 export type DeviceUpdate = Database['public']['Tables']['devices']['Update']
+export type DeviceGroupRow = Database['public']['Tables']['device_groups']['Row']
+export type DeviceGroupInsert = Database['public']['Tables']['device_groups']['Insert']
+export type DeviceGroupUpdate = Database['public']['Tables']['device_groups']['Update']
 export type AutomationJobRow = Database['public']['Tables']['automation_jobs']['Row']
 export type AutomationJobInsert = Database['public']['Tables']['automation_jobs']['Insert']
+export type AgentCommandRow = Database['public']['Tables']['agent_commands']['Row']
+export type ActivityEventRow = Database['public']['Tables']['activity_events']['Row']
+export type AutomationRow = Database['public']['Tables']['automations']['Row']
+export type AutomationInsert = Database['public']['Tables']['automations']['Insert']
+export type AutomationUpdate = Database['public']['Tables']['automations']['Update']
+export type AccountRecordRow = Database['public']['Tables']['account_records']['Row']
+export type AccountRecordInsert = Database['public']['Tables']['account_records']['Insert']
+export type AccountRecordUpdate = Database['public']['Tables']['account_records']['Update']
