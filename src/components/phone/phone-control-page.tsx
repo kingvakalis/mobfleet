@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
+import { motion, AnimatePresence, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
 import {
-  ChevronLeft, ChevronRight, AlertTriangle,
+  ChevronLeft, ChevronRight, ChevronDown, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
   Camera, RefreshCw, Power,
   Send, Copy, X, Rocket, FileText,
@@ -132,15 +132,47 @@ function DPadButton({ icon, label, onClick, className = '', center, disabled }: 
 }
 
 // ─── Card wrapper ─────────────────────────────────────────────────────────────
-function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
+// `collapsible` turns the header into a toggle (clickable header + chevron) that
+// shows/hides the body with a light framer-motion height animation. The default
+// (non-collapsible) path is unchanged — same markup, always-open body.
+function Card({ title, children, className = '', collapsible = false, defaultOpen = true }: { title?: string; children: React.ReactNode; className?: string; collapsible?: boolean; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const titleSpan = (
+    <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+  )
   return (
     <div className={`rounded-xl border border-white/[0.08] bg-[#111318] ${className}`}>
-      {title && (
-        <div className="px-4 py-3 border-b border-white/[0.06]">
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
-        </div>
+      {title && (collapsible ? (
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-white/[0.02] ${open ? 'border-b border-white/[0.06]' : ''}`}
+        >
+          {titleSpan}
+          <ChevronDown size={14} className="shrink-0 text-white/40 transition-transform duration-200" style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
+        </button>
+      ) : (
+        <div className="px-4 py-3 border-b border-white/[0.06]">{titleSpan}</div>
+      ))}
+      {collapsible ? (
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.div
+              key="card-body"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div className="p-4">{children}</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      ) : (
+        <div className="p-4">{children}</div>
       )}
-      <div className="p-4">{children}</div>
     </div>
   )
 }
@@ -627,7 +659,7 @@ export function PhoneControlPage() {
         <div className="w-[280px] shrink-0 flex flex-col gap-3 p-3 overflow-y-auto" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
 
           {/* Device Info */}
-          <Card title="Device Info">
+          <Card title="Device Info" collapsible defaultOpen>
             <div className="flex flex-col">
               {[
                 { label: 'PHONE',    value: device.name },
@@ -659,7 +691,7 @@ export function PhoneControlPage() {
           </Card>
 
           {/* Quality Settings */}
-          <Card title="Quality Settings">
+          <Card title="Quality Settings" collapsible defaultOpen={false}>
             <p className="text-[11px] text-white/35 mb-4 leading-relaxed">Higher quality and FPS improve visibility but may increase latency.</p>
             <div className="mb-4">
               <div className="flex justify-between items-center">
