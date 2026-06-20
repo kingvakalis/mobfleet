@@ -28,7 +28,7 @@ export const VIEWS: ViewMeta[] = [
   { id: 'accounts',    label: 'Account Database', icon: 'database',   requiredAny: ['accounts.view'], hideInSupabaseMode: true },
   { id: 'groups',      label: 'Groups',           icon: 'layers',     requiredAny: ['groups.view'] },
   { id: 'team',        label: 'Team',             icon: 'users',      requiredAny: ['team.view', 'roles.view'] },
-  { id: 'automations', label: 'Automations',      icon: 'zap',        requiredAny: ['automations.view'], hideInSupabaseMode: true },
+  { id: 'automations', label: 'Automations',      icon: 'zap',        requiredAny: ['automations.view'] },
   { id: 'jobs',        label: 'Jobs',             icon: 'briefcase',  requiredAny: ['jobs.view'] },
   { id: 'logs',        label: 'Activity',         icon: 'terminal',   requiredAny: ['activity.view'] },
   { id: 'settings',    label: 'Settings',         icon: 'settings',   requiredAny: ['settings.view'] },

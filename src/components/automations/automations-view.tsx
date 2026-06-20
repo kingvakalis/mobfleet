@@ -12,6 +12,15 @@ import {
   type AutomationStep, type CustomAutomation, type StepKind,
 } from '@/services/automations-local'
 import type { TaskType } from '@/shared/types'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { useSupabaseAutomations } from '@/hooks/useSupabaseAutomations'
+import { useToastStore } from '@/state/toast-store'
+
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
+
+type AuditAction = 'automation.edited' | 'automation.run' | 'automation.deleted'
 
 const ADDABLE_STEPS: StepKind[] = ['open-app', 'wait', 'tap', 'type', 'swipe', 'screenshot']
 const TASK_TYPES: TaskType[] = ['warmup', 'upload', 'engage', 'post']
@@ -31,14 +40,15 @@ interface Row {
 
 // ─── Builder modal — a real editor that saves real automations ───────────────
 
-function BuilderModal({ initial, onClose }: { initial: CustomAutomation | null; onClose: () => void }) {
-  const saveCustom = useAutomationLocal(s => s.saveCustom)
+function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation | null; onSave: (a: CustomAutomation) => Promise<void> | void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [taskType, setTaskType] = useState<TaskType>(initial?.taskType ?? 'warmup')
   const [steps, setSteps] = useState<AutomationStep[]>(initial?.steps ?? defaultSteps())
   const [dirty, setDirty] = useState(false)
   const [selectedStep, setSelectedStep] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
 
   const valid = name.trim().length > 1 && steps.length >= 2
 
@@ -69,16 +79,23 @@ function BuilderModal({ initial, onClose }: { initial: CustomAutomation | null; 
       return next
     })
 
-  const save = () => {
-    if (!valid) return
-    saveCustom({
-      id: initial?.id ?? 'custom-' + newStepId(),
-      name: name.trim(),
-      description: description.trim() || 'Custom automation',
-      taskType,
-      steps,
-    })
-    onClose()
+  const save = async () => {
+    if (!valid || saving) return
+    setSaving(true); setSaveErr(null)
+    try {
+      await onSave({
+        id: initial?.id ?? 'custom-' + newStepId(),
+        name: name.trim(),
+        description: description.trim() || 'Custom automation',
+        taskType,
+        steps,
+        createdAt: initial?.createdAt ?? Date.now(),
+      })
+      onClose()
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Could not save automation')
+      setSaving(false)
+    }
   }
 
   const tryClose = () => {
@@ -196,13 +213,14 @@ function BuilderModal({ initial, onClose }: { initial: CustomAutomation | null; 
         </div>
 
         <div className="border-t border-line p-4">
+          {saveErr && <p className="mb-2 text-[11px] text-status-error">{saveErr}</p>}
           <button
-            onClick={save}
-            disabled={!valid}
+            onClick={() => void save()}
+            disabled={!valid || saving}
             title={!valid ? 'Name and at least one step are required' : undefined}
             className="btn-accent mono w-full py-2.5 text-[11px] uppercase tracking-widest"
           >
-            Save Automation
+            {saving ? 'Saving…' : 'Save Automation'}
           </button>
         </div>
       </motion.div>
@@ -210,32 +228,28 @@ function BuilderModal({ initial, onClose }: { initial: CustomAutomation | null; 
   )
 }
 
-// ─── Main view ───────────────────────────────────────────────────────────────
+// ─── Shared presentational body (mode-agnostic) ───────────────────────────────
 
-export function AutomationsView() {
-  const providerList = useAutomations()
-  const { paused, custom, togglePaused, removeCustom } = useAutomationLocal()
-  const openSubmit = useUIStore(s => s.openSubmit)
-  const { employee, member } = useActingEmployee()
-  const canCreate = can(member, 'automations.create')
-  const canRun    = can(member, 'automations.run')
-  const canEdit   = can(member, 'automations.edit')
-  const canDelete = can(member, 'automations.delete')
+interface AutomationsBodyProps {
+  rows: Row[]
+  perms: { canCreate: boolean; canRun: boolean; canEdit: boolean; canDelete: boolean }
+  /** Session-audit hook for demo/me-mode; a no-op in supabase-mode (DB triggers record it). */
+  audit: (action: AuditAction, target: string, detail?: string) => void
+  onSave: (a: CustomAutomation) => Promise<void> | void
+  onTogglePaused: (row: Row) => Promise<unknown> | void
+  onRun: (row: Row) => Promise<unknown> | void
+  onDelete: (row: Row) => Promise<unknown> | void
+}
+
+function AutomationsBody({ rows, perms, audit, onSave, onTogglePaused, onRun, onDelete }: AutomationsBodyProps) {
+  const { canCreate, canRun, canEdit, canDelete } = perms
   const [search, setSearch] = useState('')
   const [builder, setBuilder] = useState<{ open: boolean; editing: CustomAutomation | null }>({ open: false, editing: null })
 
-  const rows = useMemo<Row[]>(() => [
-    ...providerList.map(a => ({
-      id: a.id, name: a.name, description: a.description, taskType: a.taskType,
-      successRate: a.successRate, runs: a.runs, lastRun: a.lastRun,
-      paused: !!paused[a.id], custom: false,
-    })),
-    ...custom.map(c => ({
-      id: c.id, name: c.name, description: c.description, taskType: c.taskType,
-      successRate: 100, runs: 0, lastRun: 'never',
-      paused: !!paused[c.id], custom: true, steps: c.steps,
-    })),
-  ], [providerList, custom, paused])
+  const toEditing = (row: Row): CustomAutomation => ({
+    id: row.id, name: row.name, description: row.description, taskType: row.taskType,
+    steps: row.steps ?? defaultSteps(), createdAt: Date.now(),
+  })
 
   const visible = rows.filter(a =>
     search === '' ||
@@ -347,7 +361,7 @@ export function AutomationsView() {
                   type="button"
                   disabled={!canEdit}
                   title={canEdit ? undefined : 'Requires edit permission'}
-                  onClick={() => { togglePaused(a.id); logAudit({ actor: employee.name, action: 'automation.edited', target: a.name, detail: a.paused ? 'resumed' : 'paused', result: 'success' }) }}
+                  onClick={() => { void onTogglePaused(a); audit('automation.edited', a.name, a.paused ? 'resumed' : 'paused') }}
                   className={[
                     'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-35',
                     !a.paused
@@ -361,7 +375,7 @@ export function AutomationsView() {
                   type="button"
                   disabled={a.paused || !canRun}
                   title={!canRun ? 'Requires run permission' : a.paused ? 'Resume the automation to run it' : undefined}
-                  onClick={() => { openSubmit(a.custom ? undefined : a.id); logAudit({ actor: employee.name, action: 'automation.run', target: a.name, result: 'success' }) }}
+                  onClick={() => { void onRun(a); audit('automation.run', a.name) }}
                   className="btn-accent flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[10px] disabled:opacity-35 disabled:cursor-not-allowed"
                 >
                   <Play size={10} /> Run Now
@@ -372,7 +386,7 @@ export function AutomationsView() {
                       <button
                         type="button"
                         title="Edit"
-                        onClick={() => setBuilder({ open: true, editing: custom.find(c => c.id === a.id) ?? null })}
+                        onClick={() => setBuilder({ open: true, editing: toEditing(a) })}
                         className="btn-ghost flex items-center justify-center rounded-lg px-2.5"
                       >
                         <Pencil size={11} />
@@ -382,7 +396,7 @@ export function AutomationsView() {
                       <button
                         type="button"
                         title="Delete"
-                        onClick={() => { if (window.confirm(`Delete "${a.name}"?`)) { removeCustom(a.id); logAudit({ actor: employee.name, action: 'automation.deleted', target: a.name, result: 'success' }) } }}
+                        onClick={() => { if (window.confirm(`Delete "${a.name}"?`)) { void onDelete(a); audit('automation.deleted', a.name) } }}
                         className="flex items-center justify-center rounded-lg border border-status-error/25 px-2.5 text-status-error transition-colors hover:bg-status-error/10"
                       >
                         <Trash2 size={11} />
@@ -416,10 +430,89 @@ export function AutomationsView() {
           <BuilderModal
             key={builder.editing?.id ?? 'new'}
             initial={builder.editing}
+            onSave={onSave}
             onClose={() => setBuilder({ open: false, editing: null })}
           />
         )}
       </AnimatePresence>
     </div>
   )
+}
+
+// ─── demo / me-mode (presets + localStorage custom; unchanged behavior) ───────
+function DemoAutomationsView() {
+  const providerList = useAutomations()
+  const { paused, custom, togglePaused, removeCustom, saveCustom } = useAutomationLocal()
+  const openSubmit = useUIStore(s => s.openSubmit)
+  const { employee, member } = useActingEmployee()
+
+  const rows = useMemo<Row[]>(() => [
+    ...providerList.map(a => ({
+      id: a.id, name: a.name, description: a.description, taskType: a.taskType,
+      successRate: a.successRate, runs: a.runs, lastRun: a.lastRun,
+      paused: !!paused[a.id], custom: false,
+    })),
+    ...custom.map(c => ({
+      id: c.id, name: c.name, description: c.description, taskType: c.taskType,
+      successRate: 100, runs: 0, lastRun: 'never',
+      paused: !!paused[c.id], custom: true, steps: c.steps,
+    })),
+  ], [providerList, custom, paused])
+
+  return (
+    <AutomationsBody
+      rows={rows}
+      perms={{ canCreate: can(member, 'automations.create'), canRun: can(member, 'automations.run'), canEdit: can(member, 'automations.edit'), canDelete: can(member, 'automations.delete') }}
+      audit={(action, target, detail) => logAudit({ actor: employee.name, action, target, detail, result: 'success' })}
+      onSave={(a) => saveCustom(a)}
+      onTogglePaused={(row) => togglePaused(row.id)}
+      onRun={(row) => openSubmit(row.custom ? undefined : row.id)}
+      onDelete={(row) => removeCustom(row.id)}
+    />
+  )
+}
+
+// ─── supabase-mode (real automations table + automation_jobs metrics; no localStorage,
+// no /v1/automations, no fabricated metrics) ───────────────────────────────────
+function SupabaseAutomationsView() {
+  const { team } = useTeamContext()
+  const sa = useSupabaseAutomations(team?.id ?? null)
+  const { member } = useActingEmployee()
+  const addToast = useToastStore(s => s.addToast)
+
+  const rows = useMemo<Row[]>(() => sa.automations.map(a => ({
+    id: a.id, name: a.name, description: a.description, taskType: a.taskType,
+    successRate: a.successRate, runs: a.runs, lastRun: a.lastRun,
+    paused: a.paused, custom: true, steps: a.steps,
+  })), [sa.automations])
+
+  const save = async (a: CustomAutomation) => {
+    // A 'custom-'-prefixed id is a brand-new (unsaved) automation → insert; a real UUID → update.
+    const r = await sa.saveAutomation({ id: a.id.startsWith('custom-') ? undefined : a.id, name: a.name, description: a.description, taskType: a.taskType, steps: a.steps })
+    if (r?.error) throw new Error(r.error)
+  }
+  const run = async (row: Row) => {
+    const summary = sa.automations.find(a => a.id === row.id)
+    if (!summary) return
+    const r = await sa.runAutomation(summary, null)
+    addToast(r?.error ? `Run failed: ${r.error}` : `Queued a run of ${summary.name}`, r?.error ? 'error' : 'success')
+  }
+  const toggle = async (row: Row) => { const r = await sa.togglePaused(row.id); if (r?.error) addToast(`Could not update: ${r.error}`, 'error') }
+  const del = async (row: Row) => { const r = await sa.deleteAutomation(row.id); if (r?.error) addToast(`Delete failed: ${r.error}`, 'error') }
+
+  return (
+    <AutomationsBody
+      rows={rows}
+      perms={{ canCreate: can(member, 'automations.create'), canRun: can(member, 'automations.run'), canEdit: can(member, 'automations.edit'), canDelete: can(member, 'automations.delete') }}
+      audit={() => { /* supabase: activity recorded by DB triggers (automation.*) */ }}
+      onSave={save}
+      onTogglePaused={toggle}
+      onRun={run}
+      onDelete={del}
+    />
+  )
+}
+
+export function AutomationsView() {
+  return SUPABASE_MODE ? <SupabaseAutomationsView /> : <DemoAutomationsView />
 }
