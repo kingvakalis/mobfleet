@@ -306,11 +306,11 @@ export function PhoneControlPage() {
     // supabase-mode: do NOT call the me-mode Railway endpoint (GET /v1/devices/:id/sessions) —
     // it 401s with a Supabase JWT. Show a truthful "hardware control pending" state instead.
     if (useSupabaseCommands) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSessions([]); setSessionsError(null); setSessionsLoading(false)
       return
     }
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSessionsLoading(true); setSessionsError(null); setSessions([])
     client.listDeviceSessions(deviceId)
       .then(s => { if (!cancelled) setSessions(s) })
@@ -841,7 +841,11 @@ export function PhoneControlPage() {
           {/* Live interactive phone — dominant object, subtle cursor tilt */}
           <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
-              {useSupabaseCommands && (
+              {/* supabase-mode: the "pending" banner is shown ONLY until a REAL frame
+                  arrives — once LivePhone renders the captured device_screenshots frame,
+                  a "hardware control pending" line above it would be untruthful, so it's
+                  gated on `!frame` (the captured screen itself becomes the truthful state). */}
+              {useSupabaseCommands && !frame && (
                 <div className="mb-3 rounded-control border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-center">
                   <span className="mono text-[9px] uppercase tracking-wider text-amber-300/90">No live phone session yet · hardware control pending</span>
                 </div>
