@@ -2,7 +2,7 @@ import {
   forwardRef, useImperativeHandle, useState, useEffect, useMemo, useCallback,
 } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Power, TriangleAlert, Lock as LockIcon } from 'lucide-react'
+import { Power, TriangleAlert, Lock as LockIcon, Camera } from 'lucide-react'
 import { STATUS } from '@/lib/status'
 import type { Device, Job } from '@/lib/provider/types'
 import type { LogLevel } from '@/hooks/use-device-log'
@@ -27,6 +27,24 @@ export interface LivePhoneHandle {
 
 interface Ripple { x: number; y: number; id: number }
 interface SwipeViz { dir: SwipeDir; id: number }
+
+/** A REAL captured device frame (supabase-mode). `src` is a data: URL; `width`/`height`
+ *  are the device LOGICAL size (points) used to map a tap on the displayed frame to
+ *  device coordinates. Absent (`undefined`) → the legacy simulated screen is shown. */
+export interface LiveFrame { src: string; capturedAt: number; width: number | null; height: number | null }
+
+/** Map a click within the glass (`object-fit: contain` letterboxed) to device logical
+ *  points. Returns null when the click landed on a letterbox bar (outside the frame). */
+function mapTapToDevice(x: number, y: number, glassW: number, glassH: number, devW: number, devH: number): { x: number; y: number } | null {
+  const scale = Math.min(glassW / devW, glassH / devH)
+  const dispW = devW * scale, dispH = devH * scale
+  const ix = x - (glassW - dispW) / 2, iy = y - (glassH - dispH) / 2
+  if (ix < 0 || iy < 0 || ix > dispW || iy > dispH) return null
+  return {
+    x: Math.max(0, Math.min(devW, Math.round(ix / scale))),
+    y: Math.max(0, Math.min(devH, Math.round(iy / scale))),
+  }
+}
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -269,12 +287,21 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   readOnly?: boolean
   onLog: (level: LogLevel, text: string) => void
   /** Reports a screen tap at (x, y) so the PARENT can send the control command —
-   *  this component stays visual-only (single send owner). */
+   *  this component stays visual-only (single send owner). In real-frame mode (x, y)
+   *  are device LOGICAL points; otherwise they are CSS pixels in the glass. */
   onTap?: (x: number, y: number) => void
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap }, ref) {
+  /** REAL-FRAME MODE (supabase-mode). `undefined` → legacy simulated screen (mock /
+   *  demo / me-mode, unchanged). `null` → real device, no frame captured yet (honest
+   *  placeholder). A value → render the actual device screenshot. */
+  frame?: LiveFrame | null
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame }, ref) {
   const f = width / 260
   const screenH = Math.round(width * 1.95)
   const clock = useClock()
+  // When `frame` is provided at all (null or a value) we are driving a REAL device:
+  // show the captured screenshot (never the simulated springboard) and suppress the
+  // optimistic mock narrations/state — the page logs the real command lifecycle.
+  const realMode = frame !== undefined
 
   const [awake, setAwake] = useState(true)
   const [activeApp, setActiveApp] = useState<string | null>(null)
@@ -285,65 +312,86 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   const [swipeViz, setSwipeViz] = useState<SwipeViz | null>(null)
 
   const statusColor = STATUS[device.status].color
-  const interactive = awake && (device.status === 'online' || device.status === 'busy')
+  // In real mode the device's awake/lock state lives on the physical phone (shown in the
+  // captured frame), not in our simulated `awake`, so interactivity tracks device status.
+  const interactive = realMode
+    ? (device.status === 'online' || device.status === 'busy')
+    : awake && (device.status === 'online' || device.status === 'busy')
 
+  // In real-frame mode the mock springboard isn't shown, so the screen-state mutators
+  // are no-ops (the real captured frame is the truth) — this also avoids emitting
+  // optimistic "launched X"/"home" narrations that would race the real lifecycle log.
   const launchApp = useCallback((name: string) => {
+    if (realMode) return
     const app = ALL_APPS.find(a => a.name === name)
     if (!app) return
     setActiveApp(name)
     setSwitcherOpen(false)
     setRecents(r => [name, ...r.filter(n => n !== name)].slice(0, 4))
     onLog('info', `launched ${name}`)
-  }, [onLog])
+  }, [onLog, realMode])
 
   const home = useCallback(() => {
+    if (realMode) return
     setActiveApp(null)
     setSwitcherOpen(false)
     onLog('info', 'home')
-  }, [onLog])
+  }, [onLog, realMode])
 
   const back = useCallback(() => {
+    if (realMode) return
     if (switcherOpen) setSwitcherOpen(false)
     else if (activeApp) setActiveApp(null)
     onLog('info', 'back')
-  }, [activeApp, switcherOpen, onLog])
+  }, [activeApp, switcherOpen, onLog, realMode])
 
   const lock = useCallback(() => {
+    if (realMode) return
     setAwake(a => {
       onLog(a ? 'warn' : 'ok', a ? 'screen locked' : 'screen woke')
       return !a
     })
-  }, [onLog])
+  }, [onLog, realMode])
 
   const screenshot = useCallback(() => {
+    // The flash is real visual feedback that a capture was requested; keep it in both
+    // modes, but don't narrate a fake "captured" in real mode (the real frame arrives async).
     setFlash(true)
     setTimeout(() => setFlash(false), 220)
-    onLog('ok', 'screenshot captured')
-  }, [onLog])
+    if (!realMode) onLog('ok', 'screenshot captured')
+  }, [onLog, realMode])
 
   const switcher = useCallback(() => {
+    if (realMode) return
     setSwitcherOpen(s => !s)
     onLog('info', 'app switcher')
-  }, [onLog])
+  }, [onLog, realMode])
 
   const swipe = useCallback((dir: SwipeDir) => {
-    if (!awake) return
+    if (!realMode && !awake) return
     setSwipeViz({ dir, id: Date.now() })
-    onLog('info', `swipe ${dir}`)
-  }, [awake, onLog])
+    if (!realMode) onLog('info', `swipe ${dir}`)
+  }, [awake, onLog, realMode])
 
   const tapCenter = useCallback(() => {
-    // Mirror the direct-tap guard: tapCenter now also sends (via onTap), so it
-    // must respect read-only access the same way (defense-in-depth — the button
-    // is already disabled when read-only, and the server enforces phones.control).
+    // Mirror the direct-tap guard: tapCenter also sends (via onTap), so it must
+    // respect read-only access (defense-in-depth — the button is disabled when
+    // read-only and the server enforces phones.control).
     if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
-    if (!awake) { lock(); return }
-    const cx = Math.round(width / 2)
-    const cy = Math.round(screenH / 2)
-    setRipple({ x: cx, y: cy, id: Date.now() })
-    onLog('info', 'tap (center)')
-    onTap?.(cx, cy)
-  }, [readOnly, awake, lock, onLog, width, screenH, onTap])
+    if (!realMode) {
+      if (!awake) { lock(); return }
+      const cx = Math.round(width / 2)
+      const cy = Math.round(screenH / 2)
+      setRipple({ x: cx, y: cy, id: Date.now() })
+      onLog('info', 'tap (center)')
+      onTap?.(cx, cy)
+      return
+    }
+    // real mode: need the device's logical size to send an accurate center tap.
+    if (!frame || !frame.width || !frame.height) { onLog('warn', 'tap ignored — device screen size unknown'); return }
+    setRipple({ x: Math.round(width / 2), y: Math.round(screenH / 2), id: Date.now() })
+    onTap?.(Math.round(frame.width / 2), Math.round(frame.height / 2))
+  }, [readOnly, realMode, awake, lock, onLog, width, screenH, onTap, frame])
 
   useImperativeHandle(ref, () => ({ home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter }),
     [home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter])
@@ -353,10 +401,21 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
     const r = e.currentTarget.getBoundingClientRect()
     const x = Math.round(e.clientX - r.left)
     const y = Math.round(e.clientY - r.top)
-    if (!awake) { lock(); return }
+    if (!realMode) {
+      if (!awake) { lock(); return }
+      setRipple({ x, y, id: Date.now() })
+      onLog('info', `${gesture} (${x}, ${y})`)
+      onTap?.(x, y) // parent sends the tap control command (we stay visual-only)
+      return
+    }
+    // real mode: an accurate tap needs the device's logical size. If the frame or its
+    // dims are unknown, SUPPRESS the tap rather than send mis-scaled glass pixels as
+    // device points (truthful: don't issue a tap we can't place correctly).
+    if (!frame || !frame.width || !frame.height) { onLog('warn', 'tap ignored — device screen size unknown'); return }
+    const dev = mapTapToDevice(x, y, width, screenH, frame.width, frame.height)
+    if (!dev) return // tap landed on a letterbox bar
     setRipple({ x, y, id: Date.now() })
-    onLog('info', `${gesture} (${x}, ${y})`)
-    onTap?.(x, y) // parent sends the tap control command (we stay visual-only)
+    onTap?.(dev.x, dev.y)
   }
 
   const activeAppDef = useMemo(
@@ -366,7 +425,41 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
 
   // What the glass shows
   let screen: React.ReactNode
-  if (!awake) {
+  if (realMode) {
+    // REAL device: show the captured frame, or an HONEST status placeholder — never a
+    // simulated springboard. The lock/app state is whatever the screenshot shows.
+    if (device.status === 'offline') {
+      screen = <CenterScreen icon={<Power size={18 * f} className="text-fg-muted" />} label="Powered Off" />
+    } else if (device.status === 'error') {
+      screen = (
+        <div className="flex h-full flex-col items-center justify-center gap-2" style={{ background: 'rgba(255,59,59,0.06)' }}>
+          <TriangleAlert size={20 * f} style={{ color: statusColor }} />
+          <span className="label" style={{ color: statusColor }}>Agent Unreachable</span>
+          <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>retrying connection…</span>
+        </div>
+      )
+    } else if (device.status === 'warming') {
+      screen = (
+        <div className="flex h-full flex-col items-center justify-center" style={{ gap: 14 * f }}>
+          <div className="rounded-full border border-fg/30 spin-slow" style={{ width: 30 * f, height: 30 * f, borderTopColor: 'rgba(255,255,255,0.7)' }} />
+          <span className="label text-fg-secondary">Booting</span>
+          <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>{device.osVersion}</span>
+        </div>
+      )
+    } else if (frame) {
+      screen = (
+        <img
+          src={frame.src}
+          alt={`${device.name} live screen`}
+          draggable={false}
+          className="pointer-events-none h-full w-full select-none"
+          style={{ objectFit: 'contain', background: '#000' }}
+        />
+      )
+    } else {
+      screen = <CenterScreen icon={<Camera size={18 * f} className="text-fg-muted" />} label="Waiting for frame" sub="Press Screenshot to capture" />
+    }
+  } else if (!awake) {
     screen = <CenterScreen icon={<LockIcon size={18 * f} className="text-fg-muted" />} label="Locked" sub={clock} />
   } else if (device.status === 'offline') {
     screen = <CenterScreen icon={<Power size={18 * f} className="text-fg-muted" />} label="Powered Off" />
@@ -426,7 +519,9 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         >
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${awake}-${device.status}-${activeApp ?? (device.status === 'busy' && job ? 'job' : 'board')}`}
+              key={realMode
+                ? `real-${device.status}-${frame ? frame.capturedAt : 'none'}`
+                : `${awake}-${device.status}-${activeApp ?? (device.status === 'busy' && job ? 'job' : 'board')}`}
               className="absolute inset-0"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -437,9 +532,9 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
             </motion.div>
           </AnimatePresence>
 
-          {/* app switcher overlay */}
+          {/* app switcher overlay (mock only — never over a real device frame) */}
           <AnimatePresence>
-            {switcherOpen && interactive && (
+            {switcherOpen && interactive && !realMode && (
               <motion.div
                 className="absolute inset-0 z-20 flex items-center justify-center gap-2 bg-black/70 backdrop-blur-sm"
                 initial={{ opacity: 0 }}

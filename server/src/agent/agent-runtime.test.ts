@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentRuntime, type AgentTransport } from './agent-runtime'
+import { AgentRuntime, extractScreenshotFrame, stripScreenshotBytes, type AgentTransport, type ScreenshotFrame } from './agent-runtime'
 import { SimulatedDeviceControlAdapter } from './simulated-device-adapter'
 import type { AgentCommandFrame, DeviceIdentity, ExecResult } from './types'
 
@@ -12,6 +12,7 @@ class FakeTransport implements AgentTransport {
   readonly deviceId: string
   heartbeats: Array<{ status: string; battery: number | null }> = []
   acks: Array<{ commandId: string; result: ExecResult }> = []
+  screenshots: Array<{ commandId: string; frame: ScreenshotFrame }> = []
   private queue: AgentCommandFrame[] = []
   private pushHandler: ((f: AgentCommandFrame) => void) | null = null
 
@@ -28,6 +29,9 @@ class FakeTransport implements AgentTransport {
   }
   async ackCommand(commandId: string, result: ExecResult): Promise<void> {
     this.acks.push({ commandId, result })
+  }
+  async putScreenshot(commandId: string, frame: ScreenshotFrame): Promise<void> {
+    this.screenshots.push({ commandId, frame })
   }
   onPushedCommand(handler: (f: AgentCommandFrame) => void): void {
     this.pushHandler = handler
@@ -171,4 +175,57 @@ test('an unprovisioned UDID (no transport) is not managed', async () => {
 test('agent reports a stable version string', () => {
   const { runtime } = build()
   assert.match(runtime.version, /^\d+\.\d+\.\d+$/)
+})
+
+// ── live-frame screenshot transport ──────────────────────────────────────────
+
+test('extractScreenshotFrame: bytes from a screenshot success only', () => {
+  const ok: ExecResult = { success: true, result: { screenshot: { base64: 'IMG', format: 'png', width: 390, height: 844 } } }
+  assert.deepEqual(extractScreenshotFrame('screenshot', ok), { base64: 'IMG', format: 'png', width: 390, height: 844 })
+  assert.equal(extractScreenshotFrame('tap', ok), null)                         // wrong action
+  assert.equal(extractScreenshotFrame('screenshot', { success: false }), null)   // failure
+  // simulated adapter shape (opaque string, no real bytes) → nothing to transport
+  assert.equal(extractScreenshotFrame('screenshot', { success: true, result: { screenshot: 'sim://x' } }), null)
+})
+
+test('stripScreenshotBytes: removes base64, keeps format/dims, passes others through', () => {
+  const r: ExecResult = { success: true, result: { screenshot: { base64: 'IMG', format: 'png', width: 1, height: 2 } } }
+  assert.deepEqual(stripScreenshotBytes(r).result, { screenshot: { format: 'png', width: 1, height: 2 } })
+  const other: ExecResult = { success: true, result: { foo: 1 } }
+  assert.equal(stripScreenshotBytes(other), other) // untouched (same ref)
+})
+
+test('screenshot command uploads the frame via putScreenshot and acks WITHOUT bytes', async () => {
+  const { adapter, runtime, transports } = build()
+  adapter.attach(ID)
+  await runtime.discoverOnce()
+  // the simulator returns an opaque string; make execute return REAL base64 for screenshots
+  const orig = adapter.execute.bind(adapter)
+  adapter.execute = (async (u, c) => {
+    if (c.kind === 'screenshot') return { result: { screenshot: { base64: 'PNGBYTES', format: 'png', width: 390, height: 844 } } }
+    return orig(u, c)
+  }) as typeof adapter.execute
+
+  transports.get('udid-1')!.enqueue(frame('shot-1', 'screenshot'))
+  await runtime.pollOnce()
+  const t = transports.get('udid-1')!
+
+  assert.equal(t.screenshots.length, 1, 'frame uploaded once')
+  assert.equal(t.screenshots[0].commandId, 'shot-1')
+  assert.equal(t.screenshots[0].frame.base64, 'PNGBYTES')
+  assert.equal(t.screenshots[0].frame.width, 390)
+
+  const ack = t.acks.find((a) => a.commandId === 'shot-1')!
+  assert.equal(ack.result.success, true)
+  const shot = (ack.result.result as { screenshot?: { base64?: string } }).screenshot
+  assert.equal(shot?.base64, undefined, 'ack must NOT carry the multi-MB screenshot bytes')
+})
+
+test('a non-screenshot command never calls putScreenshot', async () => {
+  const { adapter, runtime, transports } = build()
+  adapter.attach(ID)
+  await runtime.discoverOnce()
+  transports.get('udid-1')!.enqueue(frame('h1', 'home'))
+  await runtime.pollOnce()
+  assert.equal(transports.get('udid-1')!.screenshots.length, 0)
 })
