@@ -18,6 +18,14 @@ import {
   useAccounts, relTime, parseAccountsCsv, ACCOUNT_STATUSES, ACCOUNT_STATUS_COLOR,
   type Account, type AccountInput, type AccountStatus, type Platform,
 } from '@/services/accounts'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { SupabaseAccountsView } from './supabase-accounts-view'
+
+// In supabase-mode the Account Database is metadata-only (real account_records, NO secrets) —
+// rendered by SupabaseAccountsView. The legacy demo/me-mode view below (localStorage store with
+// masked credential reveal) is used ONLY when Supabase is not configured.
+const SUPABASE_MODE = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
 
 // ─── Shared bits (same language as Phones / Team) ────────────────────────────
 
@@ -794,7 +802,7 @@ function scopeAccounts(member: Member, selfName: string, accounts: Account[]): A
 
 // ─── Main view ───────────────────────────────────────────────────────────────
 
-export function AccountsView() {
+function DemoAccountsView() {
   const { accounts: allAccounts, update, remove } = useAccounts()
   const snapshot = useFleet()
   const employees = useTeam((s) => s.employees)
@@ -1206,4 +1214,9 @@ export function AccountsView() {
       </AnimatePresence>
     </div>
   )
+}
+
+/** supabase-mode → metadata-only real account_records; demo/me-mode → legacy local store. */
+export function AccountsView() {
+  return SUPABASE_MODE ? <SupabaseAccountsView /> : <DemoAccountsView />
 }

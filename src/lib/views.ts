@@ -25,7 +25,7 @@ export const VIEWS: ViewMeta[] = [
   { id: 'fleet',       label: 'Fleet',            icon: 'network',    requiredAny: ['fleet.view'] },
   { id: 'phones',      label: 'Phones',           icon: 'smartphone', requiredAny: ['phones.view'] },
   { id: 'scale',       label: 'Scale',            icon: 'gauge',      requiredAny: ['phones.provision', 'phones.retire'], hideInSupabaseMode: true },
-  { id: 'accounts',    label: 'Account Database', icon: 'database',   requiredAny: ['accounts.view'], hideInSupabaseMode: true },
+  { id: 'accounts',    label: 'Account Database', icon: 'database',   requiredAny: ['accounts.view'] },
   { id: 'groups',      label: 'Groups',           icon: 'layers',     requiredAny: ['groups.view'] },
   { id: 'team',        label: 'Team',             icon: 'users',      requiredAny: ['team.view', 'roles.view'] },
   { id: 'automations', label: 'Automations',      icon: 'zap',        requiredAny: ['automations.view'] },
