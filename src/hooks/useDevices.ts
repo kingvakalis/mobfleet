@@ -17,6 +17,10 @@ export interface NewDevice {
   status?: DeviceStatusEnum
   ip_address?: string | null
   wda_port?: number | null
+  // `group_name` is a real, updatable `devices` column (see DeviceUpdate). It was
+  // omitted from this input contract; updateDevice already passes any patch field
+  // straight to `.update(patch)`, so this is a type-only widening — no behavior change.
+  group_name?: string
 }
 
 export interface UseDevices {
