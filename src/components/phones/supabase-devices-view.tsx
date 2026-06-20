@@ -129,6 +129,7 @@ export function SupabaseDevicesView() {
   const canDelete = role === 'owner' || role === 'admin'
   const now = useNow() // ticks so heartbeat freshness self-updates
   const openPair = useUIStore((s) => s.openPair) // opens the (supabase-aware) DevicePairingModal
+  const openPhoneControl = useUIStore((s) => s.openPhoneControl) // routes to the existing Phone Control view
 
   // Toolbar / selection state
   const [search, setSearch] = useState('')
@@ -401,7 +402,7 @@ export function SupabaseDevicesView() {
                     </button>
                   </th>
                 )}
-                {['NAME', 'STATUS', 'GROUP', 'PLATFORM', 'ADDRESS', 'HEARTBEAT'].map((h) => (
+                {['NAME', 'STATUS', 'GROUP', 'PLATFORM', 'ADDRESS', 'HEARTBEAT', ''].map((h) => (
                   <th key={h} className="px-3 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -467,6 +468,16 @@ export function SupabaseDevicesView() {
                           {hbAgo(d.last_heartbeat, now)}
                         </span>
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openPhoneControl(d.id) }}
+                        title="Open live phone control"
+                        className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[var(--accent-border)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
+                      >
+                        CONTROL →
+                      </button>
                     </td>
                   </motion.tr>
                 )
