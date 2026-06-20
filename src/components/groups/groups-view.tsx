@@ -6,9 +6,13 @@ import { client } from '@/lib/provider'
 import { STATUS } from '@/lib/status'
 import { EXPO_OUT, fadeRise, staggerContainer } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
-import { useActingEmployee, useScopedDevices } from '@/lib/authorization/use-access'
+import { useActingEmployee, useScopedDevices, groupInScope } from '@/lib/authorization/use-access'
 import { can } from '@/lib/authorization'
 import { logAudit } from '@/services/audit'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { useDeviceGroups } from '@/hooks/useDeviceGroups'
 
 /** Searchable multi-select phone picker used by New Group / Assign / Edit flows. */
 function PhonePicker({
@@ -144,6 +148,24 @@ export function GroupsView() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<Modal>(null)
 
+  // supabase-mode persists groups to Supabase (device_groups + devices.group_name via RLS);
+  // demo/me-mode keeps the in-memory provider. Devices already carry the real group_name
+  // (useFleet → mapDevice), so display + assigned_groups scope are real here.
+  const { team } = useTeamContext()
+  const supabaseMode = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
+  const dg = useDeviceGroups(supabaseMode ? (team?.id ?? null) : null)
+
+  const persistGroup = async (name: string, ids: string[], oldName?: string) => {
+    if (supabaseMode) {
+      if (oldName && oldName !== name) { const r = await dg.renameGroup(oldName, name); if (r.error) throw new Error(r.error) }
+      const r = await dg.assignDevices(ids, name); if (r.error) throw new Error(r.error)
+      // group.created/updated + device.updated activity is recorded by DB triggers.
+    } else {
+      await client.assignGroup(ids, name)
+      logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, result: 'success' })
+    }
+  }
+
   const canCreate    = can(member, 'groups.create')
   const canEdit      = can(member, 'groups.edit')
   const canAssign    = can(member, 'groups.assign_phones')
@@ -156,6 +178,9 @@ export function GroupsView() {
       arr.push(d)
       map.set(d.group, arr)
     }
+    // Include explicit Supabase groups that currently have no in-scope devices (freshly
+    // created / emptied), scope-filtered by name so a restricted member sees only theirs.
+    for (const g of dg.groups) if (groupInScope(member.scope, g.name) && !map.has(g.name)) map.set(g.name, [])
     return [...map.entries()]
       .map(([name, groupDevices]) => ({
         name,
@@ -167,7 +192,7 @@ export function GroupsView() {
         users: [...new Set(groupDevices.map(d => d.assignedUser).filter(Boolean))] as string[],
       }))
       .sort((a, b) => b.devices.length - a.devices.length)
-  }, [devices])
+  }, [devices, dg.groups, member])
 
   const visible = groups.filter(g => search === '' || g.name.toLowerCase().includes(search.toLowerCase()))
   const totalBusy = devices.filter(d => d.status === 'busy').length
@@ -319,7 +344,7 @@ export function GroupsView() {
             title="New Group"
             confirmLabel="Create Group"
             askName
-            onConfirm={async (name, ids) => { await client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: `group created · ${ids.length} phones`, result: 'success' }) }}
+            onConfirm={(name, ids) => persistGroup(name, ids)}
             onClose={() => setModal(null)}
           />
         )}
@@ -329,7 +354,7 @@ export function GroupsView() {
             title={`Assign Phones — ${modal.group}`}
             confirmLabel="Assign"
             preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={async (_, ids) => { await client.assignGroup(ids, modal.group); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${modal.group}`, detail: `${ids.length} phones assigned`, result: 'success' }) }}
+            onConfirm={(_, ids) => persistGroup(modal.group, ids)}
             onClose={() => setModal(null)}
           />
         )}
@@ -341,7 +366,7 @@ export function GroupsView() {
             askName
             initialName={modal.group}
             preselected={new Set(devices.filter(d => d.group === modal.group).map(d => d.id))}
-            onConfirm={async (name, ids) => { await client.assignGroup(ids, name); logAudit({ actor: employee.name, action: 'scope.changed', target: `group ${name}`, detail: 'group edited', result: 'success' }) }}
+            onConfirm={(name, ids) => persistGroup(name, ids, modal.group)}
             onClose={() => setModal(null)}
           />
         )}
