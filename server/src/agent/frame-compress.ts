@@ -37,6 +37,11 @@ async function loadSharp(): Promise<((input: Buffer) => SharpPipe) | null> {
   } catch {
     sharpMod = null
   }
+  if (sharpMod === null) {
+    // One-time: without sharp, frames are NOT downscaled — a full ~2MB PNG per capture can overload
+    // Supabase. Install it on the agent host: run `npm install` in server/ (sharp is an optionalDependency).
+    console.warn('[frame-compress] sharp unavailable — screenshots will NOT be compressed; run `npm install` in server/ to enable downscaling')
+  }
   return sharpMod as ((input: Buffer) => SharpPipe) | null
 }
 

@@ -84,7 +84,12 @@ export function subscribeDeviceScreenshots(deviceId: string, onFrame: (s: Device
         onFrame({ imageBase64: r.image_base64, format: r.format ?? 'png', width: r.width ?? null, height: r.height ?? null, capturedAt: r.captured_at ?? '', commandId: r.command_id ?? null })
       }
     })
-    .subscribe()
+  // If device_screenshots isn't in the supabase_realtime publication yet, the channel can't subscribe —
+  // tear it down quietly (no retries, no recurring console noise) and let the GO LIVE fallback poll drive
+  // updates. (CLOSED is the normal unsubscribe path → ignored.)
+  ch.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') void client.removeChannel(ch)
+  })
   return () => { void client.removeChannel(ch) }
 }
 

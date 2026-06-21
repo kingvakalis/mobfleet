@@ -40,6 +40,9 @@ function nowMs() { return Date.now() }
 // fallback for when Realtime is delayed/unavailable.
 const LIVE_CAPTURE_INTERVAL_MS = 1500
 const LIVE_POLL_INTERVAL_MS = 1200
+// Hard floor between screenshot enqueues — bounds the capture rate even if the capture-loop effect
+// re-runs (e.g. a transient device online↔busy status flip) and calls captureOnce back-to-back.
+const LIVE_MIN_CAPTURE_GAP_MS = 1200
 function fmt(d: Date) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -257,6 +260,14 @@ export function PhoneControlPage() {
   // down on device-switch/unmount — otherwise an orphaned poller would keep writing a
   // previous device's lifecycle logs/latency into the current view (and keep polling).
   const watchersRef = useRef<Set<() => void>>(new Set())
+  // GO LIVE in-flight guard: only ONE screenshot capture is ever in flight, even if the capture-loop
+  // effect re-runs (e.g. a device online↔busy status flip) mid-capture. `liveCaptureFinishRef` lets the
+  // effect cleanup STOP the in-flight capture (cancel its watcher) the instant GO LIVE ends.
+  const captureBusyRef = useRef(false)
+  const lastCaptureAtRef = useRef(0)
+  const liveCaptureFinishRef = useRef<() => void>(() => {})
+  // Last time a Realtime frame arrived — lets the fallback poll skip a tick when Realtime is healthy.
+  const lastRealtimeFrameRef = useRef(0)
 
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'command') => {
     setLogs(l => [...l, { id: uid(), ts: new Date(), type, text }].slice(-500))
@@ -355,27 +366,42 @@ export function PhoneControlPage() {
   }, [])
 
   // One live capture: enqueue ONE real screenshot command and resolve on its terminal state
-  // (acked/failed/expired) or a safety timeout — so the GO LIVE loop is strictly SEQUENTIAL and can
-  // never have two screenshot commands in flight. On ack we read the frame (Realtime usually has it
-  // already). The agent has NO autonomous capture loop; THIS is what drives each live frame.
+  // (acked/failed/expired) or a safety timeout. The shared `captureBusyRef` guard makes this strictly
+  // SEQUENTIAL even across capture-loop effect re-runs — there is NEVER more than one screenshot
+  // command in flight. The display is painted by the Realtime sub + the fallback poll, so the ack here
+  // only RELEASES the loop (no redundant frame read). `liveCaptureFinishRef` exposes finish() so the
+  // loop's cleanup can stop this capture (cancel its watcher) the instant GO LIVE ends.
   const captureOnce = useCallback(() => new Promise<void>((resolve) => {
     const teamId = teamCtx.team?.id, userId = user?.id, id = deviceIdRef.current
-    if (!teamId || !userId || !id) { resolve(); return }
+    const now = nowMs()
+    // never overlap (busy guard) AND never enqueue faster than the min gap — bounds the rate even if
+    // the capture-loop effect re-runs (transient status flip) and calls this back-to-back.
+    if (!teamId || !userId || !id || captureBusyRef.current || now - lastCaptureAtRef.current < LIVE_MIN_CAPTURE_GAP_MS) { resolve(); return }
+    captureBusyRef.current = true
+    lastCaptureAtRef.current = now
+    let settled = false
+    let cancel: () => void = () => {}
+    const finish = () => {
+      if (settled) return
+      settled = true
+      captureBusyRef.current = false
+      liveCaptureFinishRef.current = () => {}
+      cancel(); watchersRef.current.delete(cancel)
+      resolve()
+    }
+    liveCaptureFinishRef.current = finish
     enqueueCommand({ teamId, deviceId: id, action: 'screenshot', userId })
       .then(({ id: cmdId }) => {
-        let settled = false
-        let cancel: () => void = () => {}
-        const finish = () => { if (!settled) { settled = true; cancel(); watchersRef.current.delete(cancel); resolve() } }
+        if (settled) return // stopped (GO LIVE off / device change) before the row landed
         cancel = watchCommand(cmdId, (status) => {
           if (id !== deviceIdRef.current) { finish(); return } // device switched — stop + drop
-          if (status === 'acked') void refreshFrame(id)
           if (status === 'acked' || status === 'failed' || status === 'expired') finish()
         }, { intervalMs: 1000, timeoutMs: 12000 })
         watchersRef.current.add(cancel)
         setTimeout(finish, 13000) // resolve even if the watch never sees a terminal status
       })
-      .catch(() => resolve())
-  }), [teamCtx.team?.id, user?.id, refreshFrame])
+      .catch(() => finish())
+  }), [teamCtx.team?.id, user?.id])
 
   // Reset + load the latest existing frame when the device changes (no new capture).
   useEffect(() => {
@@ -387,8 +413,9 @@ export function PhoneControlPage() {
     void refreshFrame(deviceId)
   }, [deviceId, useSupabaseCommands, refreshFrame, cancelAllWatchers])
 
-  // Stop every in-flight watcher when the page unmounts (no detached polling / state writes).
-  useEffect(() => () => cancelAllWatchers(), [cancelAllWatchers])
+  // Stop every in-flight watcher when the page unmounts (no detached polling / state writes). Null the
+  // device ref so any in-flight refreshFrame short-circuits (no setState after unmount).
+  useEffect(() => () => { cancelAllWatchers(); liveCaptureFinishRef.current(); deviceIdRef.current = undefined }, [cancelAllWatchers])
 
   // GO LIVE — capture loop: client-driven, strictly SEQUENTIAL. Enqueue one screenshot, await its
   // terminal state, then pace to ~LIVE_CAPTURE_INTERVAL_MS before the next. Never overlapping; never
@@ -406,25 +433,43 @@ export function PhoneControlPage() {
       }
     }
     void run()
-    return () => { active = false }
+    // Cleanup STOPS immediately: break the loop AND finish the in-flight capture (cancel its watcher),
+    // so nothing keeps polling / writes a frame after GO LIVE off / device change / offline / unmount.
+    return () => { active = false; liveCaptureFinishRef.current() }
   }, [liveView, useSupabaseCommands, canScreenshot, deviceId, device?.status, captureOnce])
 
   // GO LIVE — display refresh: show the latest frame as soon as the agent uploads it. Supabase
-  // Realtime (instant) on device_screenshots PLUS a fallback poll every LIVE_POLL_INTERVAL_MS in case
-  // Realtime is delayed/unavailable. Only runs while GO LIVE — no constant frame reads when off.
+  // Realtime (instant) on device_screenshots PLUS a fallback poll every LIVE_POLL_INTERVAL_MS that
+  // SKIPS a tick whenever Realtime delivered a frame recently (no redundant full-image read when the
+  // websocket is healthy; the poll carries the load only when Realtime is delayed/unavailable). Only
+  // runs while GO LIVE — no constant frame reads when off.
   useEffect(() => {
     const online = device?.status === 'online' || device?.status === 'busy'
     if (!liveView || !useSupabaseCommands || !deviceId || !online) return
     const apply = (sc: DeviceScreenshot) => {
       if (deviceIdRef.current !== deviceId) return
+      lastRealtimeFrameRef.current = nowMs()
       const ts = Date.parse(sc.capturedAt)
       const fmt = sc.format === 'jpeg' || sc.format === 'webp' ? sc.format : 'png'
       setFrame({ src: `data:image/${fmt};base64,${sc.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: sc.width, height: sc.height })
     }
     const unsub = subscribeDeviceScreenshots(deviceId, apply)
-    const poll = setInterval(() => { void refreshFrame(deviceId) }, LIVE_POLL_INTERVAL_MS)
+    const poll = setInterval(() => {
+      if (nowMs() - lastRealtimeFrameRef.current < LIVE_POLL_INTERVAL_MS) return // Realtime is fresh — skip the read
+      void refreshFrame(deviceId)
+    }, LIVE_POLL_INTERVAL_MS)
     return () => { unsub(); clearInterval(poll) }
   }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame])
+
+  // If the device becomes unreachable while GO LIVE, turn GO LIVE OFF so the STREAM badge is truthful
+  // (the loops already stop via their `online` guard; this keeps liveView state in sync, not 'Live').
+  useEffect(() => {
+    const st = device?.status
+    if (liveView && st && st !== 'online' && st !== 'busy') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLiveView(false)
+    }
+  }, [liveView, device?.status])
 
   if (!canView) return (
     <AccessDenied
