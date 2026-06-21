@@ -204,6 +204,12 @@ function PhoneStage({ statusColor, stabilized, children }: {
 const PHONE_W_MIN = 270, PHONE_W_MAX = 330
 const PHONE_STAGE_CHROME = 128 // center py-5(40) + status mb-4(16) + action mt-5(20) + hud p-5(40) + shell(12); excludes the measured bars
 
+// Responsive status-bar metric label: short form on constrained widths (keeps the bar on ONE row even with
+// both side panels open) → full word at 2xl+ where the center column is wide enough. Same visual styling.
+function RLabel({ short, full }: { short: string; full: string }) {
+  return <><span className="2xl:hidden">{short}</span><span className="hidden 2xl:inline">{full}</span></>
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
   const { jobs } = useFleet()
@@ -927,43 +933,45 @@ export function PhoneControlPage() {
             within the center column instead of overflowing under the side panels. */}
         <div ref={centerRef} className="flex-1 min-w-0 flex flex-col items-center overflow-y-auto py-5 px-4">
 
-          {/* Status bar — compact + responsive: wraps to a 2nd row and stays within the center column
-              (never under the side panels) via flex-wrap + max-w-full (the center column carries min-w-0). */}
-          <div ref={statusBarRef} className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 mb-4 px-3 py-1 rounded-xl border border-white/[0.08] bg-[#111318] max-w-full">
-            <div className="flex items-center gap-1.5">
+          {/* Status bar — ALWAYS one row on normal desktop (flex-nowrap) even with both side panels open:
+              compact metric groups (smaller fonts/gaps) + responsive label shortening (REF/BAT/STABLE at
+              <2xl, full words at 2xl+). min-w-0 + max-w-full keep it INSIDE the center column; it only wraps
+              on an extremely tiny viewport (max-[1330px]) rather than overflowing under the panels. */}
+          <div ref={statusBarRef} className="flex flex-nowrap max-[1360px]:flex-wrap items-center justify-center gap-x-1 gap-y-1 mb-4 px-2 py-1 rounded-xl border border-white/[0.08] bg-[#111318] min-w-0 max-w-full whitespace-nowrap">
+            <div className="flex items-center gap-1 shrink-0">
               <div className="w-2 h-2 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 5px ${meta.color}` }} />
-              <span className="text-[11px]" style={{ color: meta.color }}>{meta.label}</span>
+              <span className="text-[10px] uppercase tracking-wide" style={{ color: meta.color }}>{meta.label}</span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <Zap size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">{useSupabaseCommands ? 'REFRESH' : 'LATENCY'}</span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short={useSupabaseCommands ? 'REF' : 'LAT'} full={useSupabaseCommands ? 'REFRESH' : 'LATENCY'} /></span>
               {useSupabaseCommands
-                ? <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: refreshColor }}>{frameLatency == null ? '—' : `${Math.round(frameLatency)}ms`}</span>
-                : <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>}
+                ? <span className="font-mono text-[11px] font-bold tabular-nums" style={{ color: refreshColor }}>{frameLatency == null ? '—' : `${Math.round(frameLatency)}ms`}</span>
+                : <span className="font-mono text-[11px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <Gauge size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">{useSupabaseCommands ? 'FRAME' : 'FPS'}</span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short={useSupabaseCommands ? 'FRM' : 'FPS'} full={useSupabaseCommands ? 'FRAME' : 'FPS'} /></span>
               {useSupabaseCommands
-                ? <span className="font-mono text-[12px] font-bold text-white tabular-nums">{frame ? fmt(new Date(frame.capturedAt)) : '—'}</span>
-                : <span className="font-mono text-[12px] font-bold text-white tabular-nums">{liveFps}</span>}
+                ? <span className="font-mono text-[11px] font-bold text-white tabular-nums">{frame ? fmt(new Date(frame.capturedAt)) : '—'}</span>
+                : <span className="font-mono text-[11px] font-bold text-white tabular-nums">{liveFps}</span>}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <Shield size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">STREAM</span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short="STR" full="STREAM" /></span>
               {useSupabaseCommands
-                ? <span className="font-mono text-[12px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snapshot' : 'Idle'}</span>
-                : <span className="font-mono text-[12px] text-green-400">Stable</span>}
+                ? <span className="font-mono text-[11px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snap' : 'Idle'}</span>
+                : <span className="font-mono text-[11px] text-green-400">Stable</span>}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 shrink-0">
               <BatteryMedium size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">BATTERY</span>
-              <span className="font-mono text-[12px] text-white tabular-nums">{device.battery}%</span>
+              <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short="BAT" full="BATTERY" /></span>
+              <span className="font-mono text-[11px] text-white tabular-nums">{device.battery}%</span>
             </div>
-            <div className="w-px h-4 bg-white/[0.08]" />
+            <div className="w-px h-4 bg-white/[0.08] shrink-0" />
             {/* Stabilize: stops decorative body tilt — screen controls unaffected. Truthful + two-way: shows
                 the EFFECTIVE state; in supabase-mode it toggles the session-local live default (stabilized),
-                otherwise the persisted workspace setting. */}
+                otherwise the persisted workspace setting. Label shortens to STABLE/TILT at <2xl. */}
             <button
               type="button"
               aria-pressed={stabilized}
@@ -975,14 +983,15 @@ export function PhoneControlPage() {
                 addLog(next ? 'Phone motion stabilized' : 'Phone motion enabled')
               }}
               className={[
-                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors',
+                'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors shrink-0',
                 stabilized
                   ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
                   : 'text-white/40 border border-white/[0.08] hover:text-white/70',
               ].join(' ')}
             >
               <Anchor size={11} />
-              {stabilized ? 'Stabilized' : 'Stabilize'}
+              <span className="2xl:hidden">{stabilized ? 'Stable' : 'Tilt'}</span>
+              <span className="hidden 2xl:inline">{stabilized ? 'Stabilized' : 'Stabilize'}</span>
             </button>
             {/* Live view: opt-in auto-refresh of the REAL device screenshot (supabase-mode). */}
             {useSupabaseCommands && canScreenshot && (
@@ -993,7 +1002,7 @@ export function PhoneControlPage() {
                 disabled={device.status === 'offline' || device.status === 'error'}
                 onClick={() => { const next = !liveView; setLiveView(next); addLog(next ? 'Live view on — auto-refreshing screen' : 'Live view off') }}
                 className={[
-                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0',
                   liveView
                     ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
                     : 'text-white/40 border border-white/[0.08] hover:text-white/70',
