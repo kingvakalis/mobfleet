@@ -332,7 +332,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   const [swipeViz, setSwipeViz] = useState<SwipeViz | null>(null)
   // Real-screen pointer-gesture tracking (down → move → up): start point (glass + device),
   // start time, and whether it crossed the move threshold (tap vs drag).
-  const ptrRef = useRef<{ gx: number; gy: number; dx: number; dy: number; t: number; moved: boolean } | null>(null)
+  const ptrRef = useRef<{ gx: number; gy: number; dx: number; dy: number; t: number; moved: boolean; dw: number; dh: number; sh: number } | null>(null)
 
   const statusColor = STATUS[device.status].color
   // In real mode the device's awake/lock state lives on the physical phone (shown in the
@@ -425,13 +425,15 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   // start/end device coordinates, and a hold becomes a long-press. Device LOGICAL points are
   // emitted via onGesture; the parent owns sending the command (we stay visual-only).
   const onScreenPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!realMode) return
+    if (!realMode || !interactive) return // no gestures on an offline/error device (screen shows it's dead)
     if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
     if (!frame || !frame.width || !frame.height) { onLog('warn', 'gesture ignored — device screen size unknown'); return }
     const r = e.currentTarget.getBoundingClientRect()
     const gx = e.clientX - r.left, gy = e.clientY - r.top
     const dev = mapPointToDevice(gx, gy, width, screenH, frame.width, frame.height)
-    ptrRef.current = { gx, gy, dx: dev.x, dy: dev.y, t: Date.now(), moved: false }
+    // Snapshot the frame's logical dims + glass height at down-time so a frame arriving mid-drag (GO LIVE)
+    // can't remap the gesture across two coordinate scales.
+    ptrRef.current = { gx, gy, dx: dev.x, dy: dev.y, t: Date.now(), moved: false, dw: frame.width, dh: frame.height, sh: screenH }
     setRipple({ x: gx, y: gy, id: Date.now() })
     try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is best-effort */ }
   }
@@ -444,9 +446,9 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   const onScreenPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const p = ptrRef.current
     ptrRef.current = null
-    if (!realMode || !p || !frame || !frame.width || !frame.height) return
+    if (!realMode || !p) return
     const r = e.currentTarget.getBoundingClientRect()
-    const end = mapPointToDevice(e.clientX - r.left, e.clientY - r.top, width, screenH, frame.width, frame.height)
+    const end = mapPointToDevice(e.clientX - r.left, e.clientY - r.top, width, p.sh, p.dw, p.dh)
     const dur = Date.now() - p.t
     if (!p.moved) {
       if (dur >= LONG_PRESS_MS) onGesture?.({ type: 'long_press', x: p.dx, y: p.dy, durationMs: dur })
