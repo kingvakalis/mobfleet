@@ -65,15 +65,27 @@ export async function getLatestScreenshot(deviceId: string): Promise<DeviceScree
   return { imageBase64: r.image_base64, format: r.format ?? 'png', width: r.width, height: r.height, capturedAt: r.captured_at, commandId: r.command_id }
 }
 
-/** Mark the signed-in user as an active VIEWER of a device, with a desired frame rate
- *  (0 = present but not live-streaming). The agent (device-key) reads device_viewer_fps and
- *  runs its continuous capture loop only while a recent viewer wants frames — so live frames
- *  flow WITHOUT a screenshot command per frame. Best-effort: never throws to the UI. */
-export async function markDeviceViewer(deviceId: string, fps: number): Promise<void> {
-  if (!supabase) return
-  try {
-    await sb().rpc('mark_device_viewer', { p_device_id: deviceId, p_fps: Math.max(0, Math.round(fps)) })
-  } catch { /* presence is best-effort — never block or crash the page */ }
+// Realtime subscriptions need a UNIQUE topic per instance (a fixed topic collides →
+// "cannot add postgres_changes callbacks after subscribe"). A per-call suffix keeps them independent.
+let screenSeq = 0
+
+/** Subscribe to the latest REAL frame for a device over Supabase Realtime (postgres_changes on
+ *  device_screenshots). Fires on insert/update with the new row → onFrame. Requires the table to be
+ *  in the `supabase_realtime` publication; if it isn't, the channel is simply inert and the GO LIVE
+ *  fallback poll still drives updates. Returns an unsubscribe. */
+export function subscribeDeviceScreenshots(deviceId: string, onFrame: (s: DeviceScreenshot) => void): () => void {
+  if (!supabase) return () => {}
+  const client = sb()
+  const ch = client
+    .channel(`devscreens:${deviceId}:${++screenSeq}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'device_screenshots', filter: `device_id=eq.${deviceId}` }, (payload) => {
+      const r = payload.new as { image_base64?: string; format?: string | null; width?: number | null; height?: number | null; captured_at?: string; command_id?: string | null } | null
+      if (r && typeof r.image_base64 === 'string' && r.image_base64.length > 0) {
+        onFrame({ imageBase64: r.image_base64, format: r.format ?? 'png', width: r.width ?? null, height: r.height ?? null, capturedAt: r.captured_at ?? '', commandId: r.command_id ?? null })
+      }
+    })
+    .subscribe()
+  return () => { void client.removeChannel(ch) }
 }
 
 /** Mint a one-time pairing token (admin/writer) the agent redeems via claim_device. */

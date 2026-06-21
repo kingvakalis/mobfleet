@@ -122,14 +122,6 @@ export class SupabaseAgentTransport implements AgentTransport {
     })
   }
 
-  /** How many fps a dashboard viewer currently wants (0 = none) — device-key RPC →
-   *  device_viewer_fps. Gates the runtime's continuous capture loop. */
-  async viewerFps(): Promise<number> {
-    const v = await this.rpc('device_viewer_fps', {})
-    const n = typeof v === 'number' ? v : Number(v)
-    return Number.isFinite(n) ? n : 0
-  }
-
   async sendHeartbeat(hb: { status: 'online' | 'busy' | 'warming' | 'offline' | 'error'; battery: number | null; cpuUsage: number | null; memoryUsage: number | null }): Promise<void> {
     if (hb.status === 'offline') {
       if (this.sessionId) { await this.rpc('device_session_end', { p_session_id: this.sessionId }).catch((e) => this.log('transport.session_end.error', { error: errMsg(e) })); this.sessionId = null }

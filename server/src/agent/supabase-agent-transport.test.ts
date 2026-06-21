@@ -79,15 +79,6 @@ test('putScreenshot accepts a null commandId (continuous-capture frame)', async 
   assert.equal(calls[0].body.p_format, 'jpeg')
 })
 
-test('viewerFps reads device_viewer_fps with the device key; coerces non-number to 0', async () => {
-  const { calls, fetchImpl } = mockFetch({ device_viewer_fps: 4 })
-  assert.equal(await mk(fetchImpl).viewerFps(), 4)
-  assert.equal(calls[0].fn, 'device_viewer_fps')
-  assert.equal(calls[0].body.p_device_key, 'KEY')
-  const z = mockFetch({ device_viewer_fps: null })
-  assert.equal(await mk(z.fetchImpl).viewerFps(), 0)
-})
-
 test('sendHeartbeat opens a session once, then heartbeats, then ends on offline', async () => {
   const { calls, fetchImpl } = mockFetch({ device_session_start: 'sess-1' })
   const t = mk(fetchImpl, { agentVersion: 'agent/1.0' })

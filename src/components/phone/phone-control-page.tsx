@@ -25,7 +25,7 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
-import { enqueueCommand, watchCommand, getLatestScreenshot, markDeviceViewer } from '@/services/device-commands'
+import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -34,9 +34,12 @@ function uid() { return Math.random().toString(36).slice(2, 9) }
 // Module-scope so the impure clock read is never analyzed as a render-phase call
 // (mirrors uid()); these timings are only taken at event time (enqueue / ack).
 function nowMs() { return Date.now() }
-// Live-view target frame rate: the client read cadence AND the fps requested from the agent
-// (the agent runs its continuous capture loop at this rate while a viewer is active).
-const LIVE_FPS = 4
+// Client-driven GO LIVE pacing (conservative — ~1 frame / 1.5s, well under any Supabase limit).
+// The capture loop enqueues AT MOST one screenshot command per LIVE_CAPTURE_INTERVAL_MS (sequential,
+// never overlapping); the display refreshes from the latest frame every LIVE_POLL_INTERVAL_MS as a
+// fallback for when Realtime is delayed/unavailable.
+const LIVE_CAPTURE_INTERVAL_MS = 1500
+const LIVE_POLL_INTERVAL_MS = 1200
 function fmt(d: Date) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -351,18 +354,28 @@ export function PhoneControlPage() {
     } catch { /* keep the prior frame; never crash the page */ }
   }, [])
 
-  // Viewer presence: while Phone Control is open, tell the agent a viewer is watching and at what
-  // fps (LIVE_FPS while GO LIVE, else 0 = present but not streaming). The agent (device-key) reads
-  // device_viewer_fps and runs its continuous capture loop ONLY for recently-active viewers — so
-  // live frames flow WITHOUT a screenshot command per frame (the slow path). Heartbeat is well
-  // inside the server's viewer window so a brief tab stall never tears the stream down.
-  useEffect(() => {
-    if (!useSupabaseCommands || !deviceId) return
-    const fps = liveView ? LIVE_FPS : 0
-    void markDeviceViewer(deviceId, fps)
-    const id = setInterval(() => { void markDeviceViewer(deviceId, fps) }, 4000)
-    return () => clearInterval(id)
-  }, [useSupabaseCommands, deviceId, liveView])
+  // One live capture: enqueue ONE real screenshot command and resolve on its terminal state
+  // (acked/failed/expired) or a safety timeout — so the GO LIVE loop is strictly SEQUENTIAL and can
+  // never have two screenshot commands in flight. On ack we read the frame (Realtime usually has it
+  // already). The agent has NO autonomous capture loop; THIS is what drives each live frame.
+  const captureOnce = useCallback(() => new Promise<void>((resolve) => {
+    const teamId = teamCtx.team?.id, userId = user?.id, id = deviceIdRef.current
+    if (!teamId || !userId || !id) { resolve(); return }
+    enqueueCommand({ teamId, deviceId: id, action: 'screenshot', userId })
+      .then(({ id: cmdId }) => {
+        let settled = false
+        let cancel: () => void = () => {}
+        const finish = () => { if (!settled) { settled = true; cancel(); watchersRef.current.delete(cancel); resolve() } }
+        cancel = watchCommand(cmdId, (status) => {
+          if (id !== deviceIdRef.current) { finish(); return } // device switched — stop + drop
+          if (status === 'acked') void refreshFrame(id)
+          if (status === 'acked' || status === 'failed' || status === 'expired') finish()
+        }, { intervalMs: 1000, timeoutMs: 12000 })
+        watchersRef.current.add(cancel)
+        setTimeout(finish, 13000) // resolve even if the watch never sees a terminal status
+      })
+      .catch(() => resolve())
+  }), [teamCtx.team?.id, user?.id, refreshFrame])
 
   // Reset + load the latest existing frame when the device changes (no new capture).
   useEffect(() => {
@@ -377,22 +390,40 @@ export function PhoneControlPage() {
   // Stop every in-flight watcher when the page unmounts (no detached polling / state writes).
   useEffect(() => () => cancelAllWatchers(), [cancelAllWatchers])
 
-  // Live view: while GO LIVE + reachable, fast-READ the latest agent-pushed frame (the agent is
-  // capturing continuously via viewer presence — NO screenshot command per frame). Paced to
-  // ~LIVE_FPS; sequential so reads never pile up.
+  // GO LIVE — capture loop: client-driven, strictly SEQUENTIAL. Enqueue one screenshot, await its
+  // terminal state, then pace to ~LIVE_CAPTURE_INTERVAL_MS before the next. Never overlapping; never
+  // hammers Supabase. Stops the instant GO LIVE is off / device changes / device offline / unmount.
   useEffect(() => {
     const online = device?.status === 'online' || device?.status === 'busy'
-    if (!liveView || !useSupabaseCommands || !deviceId || !online) return
+    if (!liveView || !useSupabaseCommands || !canScreenshot || !deviceId || !online) return
     let active = true
     const run = async () => {
       while (active) {
-        await refreshFrame(deviceId)
+        const t0 = nowMs()
+        await captureOnce()
         if (!active) break
-        await new Promise<void>((r) => setTimeout(r, Math.round(1000 / LIVE_FPS)))
+        await new Promise<void>((r) => setTimeout(r, Math.max(300, LIVE_CAPTURE_INTERVAL_MS - (nowMs() - t0))))
       }
     }
     void run()
     return () => { active = false }
+  }, [liveView, useSupabaseCommands, canScreenshot, deviceId, device?.status, captureOnce])
+
+  // GO LIVE — display refresh: show the latest frame as soon as the agent uploads it. Supabase
+  // Realtime (instant) on device_screenshots PLUS a fallback poll every LIVE_POLL_INTERVAL_MS in case
+  // Realtime is delayed/unavailable. Only runs while GO LIVE — no constant frame reads when off.
+  useEffect(() => {
+    const online = device?.status === 'online' || device?.status === 'busy'
+    if (!liveView || !useSupabaseCommands || !deviceId || !online) return
+    const apply = (sc: DeviceScreenshot) => {
+      if (deviceIdRef.current !== deviceId) return
+      const ts = Date.parse(sc.capturedAt)
+      const fmt = sc.format === 'jpeg' || sc.format === 'webp' ? sc.format : 'png'
+      setFrame({ src: `data:image/${fmt};base64,${sc.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: sc.width, height: sc.height })
+    }
+    const unsub = subscribeDeviceScreenshots(deviceId, apply)
+    const poll = setInterval(() => { void refreshFrame(deviceId) }, LIVE_POLL_INTERVAL_MS)
+    return () => { unsub(); clearInterval(poll) }
   }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame])
 
   if (!canView) return (

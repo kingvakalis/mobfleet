@@ -51,10 +51,6 @@ export interface AgentTransport {
    *  implements it (device-key RPC → device_screenshots) so the dashboard renders the
    *  actual device screen; me-mode has no counterpart and simply skips it. */
   putScreenshot?(commandId: string | null, frame: ScreenshotFrame): Promise<void>
-  /** Ask whether a dashboard viewer currently wants live frames, and at what fps (0 = none).
-   *  supabase-mode implements it (device-key RPC → device_viewer_fps) to gate the continuous
-   *  capture loop; me-mode omits it so no continuous capture runs. */
-  viewerFps?(): Promise<number>
 }
 
 /** A captured device screenshot ready for transport. `width`/`height` are the device
@@ -104,13 +100,9 @@ export interface AgentRuntimeOptions {
   heartbeatIntervalMs?: number
   /** How often to re-check WDA health + recover it. */
   wdaCheckIntervalMs?: number
-  /** How often to drain the command queue. Default 500ms (was the 10s heartbeat interval) so
-   *  taps/Home/swipes reach WDA quickly. Configurable via COMMAND_POLL_INTERVAL_MS. */
+  /** How often to drain the command queue. Default 1000ms — taps/Home/swipes/screenshots reach WDA
+   *  promptly WITHOUT hammering Supabase. Configurable via COMMAND_POLL_INTERVAL_MS. */
   commandPollIntervalMs?: number
-  /** How often to refresh each device's desired live fps from viewer presence. Default 2000ms. */
-  viewerCheckIntervalMs?: number
-  /** Capture-loop tick — the upper bound on live fps. Default 200ms (≤5 fps). */
-  captureTickIntervalMs?: number
   /** Live-frame compression (width/quality/format); defaults from env. */
   frameCompression?: FrameCompressionConfig
   log?: (event: string, fields?: Record<string, unknown>) => void
@@ -120,12 +112,6 @@ interface Slot {
   managed: ManagedDevice
   transport: AgentTransport
   executor: CommandExecutor
-  /** Desired live fps from viewer presence (0 = no viewer wants frames). */
-  liveFps: number
-  /** Epoch ms of the last continuous-capture upload (paces the loop to liveFps). */
-  lastCaptureAt: number
-  /** True while a continuous capture is in flight (one at a time per device). */
-  capturing: boolean
 }
 
 export class AgentRuntime {
@@ -145,9 +131,7 @@ export class AgentRuntime {
       discoveryIntervalMs: o.discoveryIntervalMs ?? 5_000,
       heartbeatIntervalMs: o.heartbeatIntervalMs ?? 10_000,
       wdaCheckIntervalMs: o.wdaCheckIntervalMs ?? 15_000,
-      commandPollIntervalMs: o.commandPollIntervalMs ?? 500,
-      viewerCheckIntervalMs: o.viewerCheckIntervalMs ?? 2_000,
-      captureTickIntervalMs: o.captureTickIntervalMs ?? 200,
+      commandPollIntervalMs: o.commandPollIntervalMs ?? 1_000,
       frameCompression: o.frameCompression ?? compressionConfigFromEnv(process.env),
     }
   }
@@ -215,9 +199,6 @@ export class AgentRuntime {
       managed: { identity, wdaPort: port, wdaReady },
       transport,
       executor: new CommandExecutor(this.adapter),
-      liveFps: 0,
-      lastCaptureAt: 0,
-      capturing: false,
     })
     // Wire push delivery for this device's transport (if supported).
     transport.onPushedCommand?.((frame) => void this.handleCommand(udid, frame))
@@ -329,43 +310,6 @@ export class AgentRuntime {
       .catch((err) => this.log('agent.ack.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
   }
 
-  /** Refresh each device's desired live fps from viewer presence (0 = no active viewer). */
-  async viewerCheckOnce(): Promise<void> {
-    for (const slot of this.slots.values()) {
-      if (!slot.transport.viewerFps) continue
-      try { slot.liveFps = clampFps(await slot.transport.viewerFps()) }
-      catch (err) { this.log('agent.viewer.error', { deviceId: slot.transport.deviceId, error: errMsg(err) }) }
-    }
-  }
-
-  /** One capture-loop tick: for each device with an active viewer (liveFps>0), capture +
-   *  compress + upload a frame when its per-fps interval has elapsed. Independent of the
-   *  command queue — GO LIVE streams frames WITHOUT a screenshot command per frame. */
-  async captureTickOnce(): Promise<void> {
-    const now = Date.now()
-    for (const [udid, slot] of this.slots) {
-      if (slot.liveFps <= 0 || slot.capturing || !slot.managed.wdaReady || !slot.transport.putScreenshot) continue
-      if (now - slot.lastCaptureAt < Math.floor(1000 / slot.liveFps)) continue
-      slot.capturing = true
-      slot.lastCaptureAt = now
-      try { await this.captureFrame(udid, slot) }
-      finally { slot.capturing = false }
-    }
-  }
-
-  /** Capture one screenshot directly from the adapter (no command), compress, and upload. */
-  private async captureFrame(udid: string, slot: Slot): Promise<void> {
-    try {
-      const outcome = await this.adapter.execute(udid, { kind: 'screenshot' })
-      const shot = extractScreenshotFrame('screenshot', { success: true, result: outcome.result })
-      if (!shot || !slot.transport.putScreenshot) return
-      const small = await compressFrame(shot, this.opts.frameCompression)
-      await slot.transport.putScreenshot(null, small)
-    } catch (err) {
-      this.log('agent.capture.error', { udid, error: errMsg(err) })
-    }
-  }
-
   /** Start the periodic loops. Returns a stop() that clears them + tears down WDA. */
   start(): () => Promise<void> {
     const wrap = (fn: () => Promise<void>, name: string) => () =>
@@ -376,8 +320,6 @@ export class AgentRuntime {
     this.timers.push(setInterval(wrap(() => this.checkWdaOnce(), 'wda'), this.opts.wdaCheckIntervalMs))
     this.timers.push(setInterval(wrap(() => this.heartbeatOnce(), 'heartbeat'), this.opts.heartbeatIntervalMs))
     this.timers.push(setInterval(wrap(() => this.pollOnce(), 'poll'), this.opts.commandPollIntervalMs))
-    this.timers.push(setInterval(wrap(() => this.viewerCheckOnce(), 'viewer'), this.opts.viewerCheckIntervalMs))
-    this.timers.push(setInterval(wrap(() => this.captureTickOnce(), 'capture'), this.opts.captureTickIntervalMs))
     for (const t of this.timers) if (typeof t.unref === 'function') t.unref()
     this.log('agent.started', { version: this.version })
     return async () => {
@@ -390,9 +332,4 @@ export class AgentRuntime {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : 'error'
-}
-
-/** Clamp a viewer's requested fps to a safe [0, 15] integer (0 = no continuous capture). */
-function clampFps(v: number): number {
-  return Number.isFinite(v) && v > 0 ? Math.min(15, Math.floor(v)) : 0
 }
