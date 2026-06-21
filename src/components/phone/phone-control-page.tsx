@@ -268,6 +268,16 @@ export function PhoneControlPage() {
   const liveCaptureFinishRef = useRef<() => void>(() => {})
   // Last time a Realtime frame arrived — lets the fallback poll skip a tick when Realtime is healthy.
   const lastRealtimeFrameRef = useRef(0)
+  // Debounce timer for the post-command "refresh the screen" follow-up capture (coalesces rapid gestures).
+  const frameRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // A forced post-command refresh that was dropped because a capture was already in flight — re-fired
+  // ONCE when that capture finishes, so the displayed frame can't get stuck one step behind the device.
+  const pendingRefreshRef = useRef(false)
+  // Latest scheduleFrameRefresh + liveView, read from inside captureOnce's finish() (which closes over
+  // neither): the trailing re-fire only runs with GO LIVE off (when on, the loop already keeps it fresh).
+  // Kept current via a post-commit effect (below) so the values are always the committed ones.
+  const scheduleFrameRefreshRef = useRef<() => void>(() => {})
+  const liveViewRef = useRef(liveView)
 
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'command') => {
     setLogs(l => [...l, { id: uid(), ts: new Date(), type, text }].slice(-500))
@@ -365,29 +375,37 @@ export function PhoneControlPage() {
     } catch { /* keep the prior frame; never crash the page */ }
   }, [])
 
-  // One live capture: enqueue ONE real screenshot command and resolve on its terminal state
-  // (acked/failed/expired) or a safety timeout. The shared `captureBusyRef` guard makes this strictly
-  // SEQUENTIAL even across capture-loop effect re-runs — there is NEVER more than one screenshot
-  // command in flight. The display is painted by the Realtime sub + the fallback poll, so the ack here
-  // only RELEASES the loop (no redundant frame read). `liveCaptureFinishRef` exposes finish() so the
-  // loop's cleanup can stop this capture (cancel its watcher) the instant GO LIVE ends.
-  const captureOnce = useCallback(() => new Promise<void>((resolve) => {
+  // One live capture: enqueue ONE real screenshot command and, on its ACK, read+display the captured
+  // frame (works whether or not GO LIVE is on). The shared `captureBusyRef` guard makes this strictly
+  // SEQUENTIAL — there is NEVER more than one screenshot in flight. `force` bypasses the min-gap for a
+  // deliberate post-command refresh (the min-gap only paces the continuous GO LIVE loop) but still
+  // respects the busy guard. `liveCaptureFinishRef` exposes finish() so the loop's cleanup can stop this
+  // capture the instant GO LIVE ends.
+  const captureOnce = useCallback((force = false) => new Promise<void>((resolve) => {
     const teamId = teamCtx.team?.id, userId = user?.id, id = deviceIdRef.current
     const now = nowMs()
-    // never overlap (busy guard) AND never enqueue faster than the min gap — bounds the rate even if
-    // the capture-loop effect re-runs (transient status flip) and calls this back-to-back.
-    if (!teamId || !userId || !id || captureBusyRef.current || now - lastCaptureAtRef.current < LIVE_MIN_CAPTURE_GAP_MS) { resolve(); return }
+    if (!teamId || !userId || !id) { resolve(); return }
+    // Strictly one capture in flight. A FORCED (post-command) refresh that loses to an in-flight capture
+    // is remembered so finish() re-fires it ONCE — otherwise the last gesture's frame is never read and
+    // the screen sticks one step behind. The min-gap only paces the continuous GO LIVE loop (force skips it).
+    if (captureBusyRef.current) { if (force) pendingRefreshRef.current = true; resolve(); return }
+    if (!force && now - lastCaptureAtRef.current < LIVE_MIN_CAPTURE_GAP_MS) { resolve(); return }
     captureBusyRef.current = true
     lastCaptureAtRef.current = now
     let settled = false
     let cancel: () => void = () => {}
+    let safety: ReturnType<typeof setTimeout> | undefined
     const finish = () => {
       if (settled) return
       settled = true
       captureBusyRef.current = false
       liveCaptureFinishRef.current = () => {}
+      if (safety) clearTimeout(safety) // don't leave the 13s fallback ticking after an early finish
       cancel(); watchersRef.current.delete(cancel)
       resolve()
+      // Trailing-edge: a gesture that arrived while this capture ran needs the device's FINAL frame. Only
+      // with GO LIVE off — when on, the loop + Realtime already keep the screen fresh (no timer ping-pong).
+      if (pendingRefreshRef.current && !liveViewRef.current) { pendingRefreshRef.current = false; scheduleFrameRefreshRef.current() }
     }
     liveCaptureFinishRef.current = finish
     enqueueCommand({ teamId, deviceId: id, action: 'screenshot', userId })
@@ -395,17 +413,34 @@ export function PhoneControlPage() {
         if (settled) return // stopped (GO LIVE off / device change) before the row landed
         cancel = watchCommand(cmdId, (status) => {
           if (id !== deviceIdRef.current) { finish(); return } // device switched — stop + drop
+          if (status === 'acked') void refreshFrame(id) // read + display the freshly-captured frame
           if (status === 'acked' || status === 'failed' || status === 'expired') finish()
         }, { intervalMs: 1000, timeoutMs: 12000 })
         watchersRef.current.add(cancel)
-        setTimeout(finish, 13000) // resolve even if the watch never sees a terminal status
+        safety = setTimeout(finish, 13000) // resolve even if the watch never sees a terminal status
       })
       .catch(() => finish())
-  }), [teamCtx.team?.id, user?.id])
+  }), [teamCtx.team?.id, user?.id, refreshFrame])
+
+  // After a state-changing command, capture ONE fresh frame so the UI reflects the device's new screen.
+  // Debounced → a rapid gesture burst coalesces into a SINGLE follow-up capture (no storm); forced → the
+  // min-gap can't drop it; the busy guard still prevents overlap. With GO LIVE off this is the ONLY thing
+  // that refreshes the screen after a command; with GO LIVE on it just makes the post-gesture update snappier.
+  const scheduleFrameRefresh = useCallback(() => {
+    if (frameRefreshTimerRef.current) clearTimeout(frameRefreshTimerRef.current)
+    frameRefreshTimerRef.current = setTimeout(() => { frameRefreshTimerRef.current = null; void captureOnce(true) }, 350)
+  }, [captureOnce])
+
+  // Keep the refs captureOnce's finish() reads (it closes over neither) pointed at the latest COMMITTED
+  // scheduleFrameRefresh + liveView, so a trailing post-command refresh re-fires correctly and only when off.
+  useEffect(() => { scheduleFrameRefreshRef.current = scheduleFrameRefresh; liveViewRef.current = liveView })
 
   // Reset + load the latest existing frame when the device changes (no new capture).
   useEffect(() => {
     cancelAllWatchers() // tear down the previous device's in-flight command watchers
+    pendingRefreshRef.current = false // drop a queued trailing refresh BEFORE releasing the capture (no re-fire for the old device)
+    liveCaptureFinishRef.current() // release any in-flight forced/gesture capture, else captureBusyRef stays stuck → new device's captures all drop
+    if (frameRefreshTimerRef.current) { clearTimeout(frameRefreshTimerRef.current); frameRefreshTimerRef.current = null } // drop a pending refresh for the old device
     deviceIdRef.current = deviceId
     if (!useSupabaseCommands || !deviceId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -415,7 +450,7 @@ export function PhoneControlPage() {
 
   // Stop every in-flight watcher when the page unmounts (no detached polling / state writes). Null the
   // device ref so any in-flight refreshFrame short-circuits (no setState after unmount).
-  useEffect(() => () => { cancelAllWatchers(); liveCaptureFinishRef.current(); deviceIdRef.current = undefined }, [cancelAllWatchers])
+  useEffect(() => () => { cancelAllWatchers(); pendingRefreshRef.current = false; liveCaptureFinishRef.current(); deviceIdRef.current = undefined; if (frameRefreshTimerRef.current) clearTimeout(frameRefreshTimerRef.current) }, [cancelAllWatchers])
 
   // GO LIVE — capture loop: client-driven, strictly SEQUENTIAL. Enqueue one screenshot, await its
   // terminal state, then pace to ~LIVE_CAPTURE_INTERVAL_MS before the next. Never overlapping; never
@@ -546,9 +581,11 @@ export function PhoneControlPage() {
         if (status === 'running') addLog(`▶ ${label} — running`, 'command')
         else if (status === 'acked') {
           addLog(`✓ ${label} — done`, 'command')
-          // A real screenshot just landed — pull the uploaded frame onto the screen (which also
-          // records the read round-trip as the REFRESH metric).
-          if (wire.action === 'screenshot') { void refreshFrame(wire.deviceId) }
+          // Reflect the device's new screen: a screenshot reads its own uploaded frame; any OTHER
+          // state-changing command (tap/swipe/home/back/switcher/launch/type/lock/unlock) schedules ONE
+          // debounced follow-up capture so the browser updates within ~1–2s. reboot/install are skipped.
+          if (wire.action === 'screenshot') void refreshFrame(wire.deviceId)
+          else if (wire.action !== 'reboot' && wire.action !== 'install') scheduleFrameRefresh()
         }
         else if (status === 'failed') addLog(`✗ ${label} — failed${error ? ': ' + error : ''}`, 'error')
         if (status === 'acked' || status === 'failed' || status === 'expired') stop()
