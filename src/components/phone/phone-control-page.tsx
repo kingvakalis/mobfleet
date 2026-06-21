@@ -892,10 +892,13 @@ export function PhoneControlPage() {
         </div>
 
         {/* ── CENTER COLUMN ───────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col items-center overflow-y-auto py-5 px-4">
+        {/* min-w-0 lets this flex column shrink below the status bar's intrinsic width so the bar wraps
+            within the center column instead of overflowing under the side panels. */}
+        <div className="flex-1 min-w-0 flex flex-col items-center overflow-y-auto py-5 px-4">
 
-          {/* Status bar */}
-          <div className="flex items-center gap-5 mb-5 px-4 py-2.5 rounded-xl border border-white/[0.08] bg-[#111318]">
+          {/* Status bar — compact + responsive: wraps to a 2nd row and stays within the center column
+              (never under the side panels) via flex-wrap + max-w-full (the center column carries min-w-0). */}
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 mb-4 px-3 py-1 rounded-xl border border-white/[0.08] bg-[#111318] max-w-full">
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 5px ${meta.color}` }} />
               <span className="text-[11px]" style={{ color: meta.color }}>{meta.label}</span>
@@ -941,7 +944,7 @@ export function PhoneControlPage() {
                 addLog(next ? 'Phone motion stabilized' : 'Phone motion enabled')
               }}
               className={[
-                'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider transition-colors',
+                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors',
                 stabilized
                   ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
                   : 'text-white/40 border border-white/[0.08] hover:text-white/70',
@@ -959,7 +962,7 @@ export function PhoneControlPage() {
                 disabled={device.status === 'offline' || device.status === 'error'}
                 onClick={() => { const next = !liveView; setLiveView(next); addLog(next ? 'Live view on — auto-refreshing screen' : 'Live view off') }}
                 className={[
-                  'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                   liveView
                     ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
                     : 'text-white/40 border border-white/[0.08] hover:text-white/70',
