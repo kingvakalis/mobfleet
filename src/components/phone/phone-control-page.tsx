@@ -934,8 +934,10 @@ export function PhoneControlPage() {
             </div>
           )}
 
-          {/* Live interactive phone — dominant object, subtle cursor tilt */}
-          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
+          {/* Live interactive phone — dominant object, subtle cursor tilt. With a REAL frame the tilt is
+              force-stabilized: the 3D (preserve-3d) transform would both let the screenshot escape the
+              glass clip during a drag (ghosting) AND skew getBoundingClientRect → inexact tap/drag coords. */}
+          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone || (useSupabaseCommands && !!frame)}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
               {/* supabase-mode: the "pending" banner is shown ONLY until a REAL frame
                   arrives — once LivePhone renders the captured device_screenshots frame,

@@ -454,7 +454,6 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
       return
     }
     const dir = dragDir(end.x - p.dx, end.y - p.dy)
-    setSwipeViz({ dir, id: Date.now() })
     onGesture?.({ type: gesture === 'scroll' ? 'scroll' : 'swipe', x1: p.dx, y1: p.dy, x2: end.x, y2: end.y, dir, durationMs: dur })
   }
   const onScreenPointerCancel = () => { ptrRef.current = null }
@@ -566,8 +565,11 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         {/* glass — a real frame renders CLEAN (no scanline/reflection overlay) so the
             screenshot is bright + pixel-faithful; the mock screen keeps its CRT styling. */}
         <div
-          className={`relative overflow-hidden bg-[#050507] ${frame ? '' : 'scanlines'} ${interactive ? 'cursor-pointer' : ''}`}
-          style={{ width, height: screenH, borderRadius: 30 * f, touchAction: 'none' }}
+          className={`relative select-none overflow-hidden bg-[#050507] ${frame ? '' : 'scanlines'} ${interactive ? 'cursor-pointer' : ''}`}
+          // touch-action:none + user-select:none → a drag (esp. VERTICAL) is a pointer gesture, never a
+          // text-selection / scroll the browser steals from us (which silently killed up/down swipes on the
+          // scrollable page). transformStyle:flat keeps the frame clipped under the stage's 3D tilt.
+          style={{ width, height: screenH, borderRadius: 30 * f, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', transformStyle: 'flat' }}
           onClick={tap}
           onPointerDown={onScreenPointerDown}
           onPointerMove={onScreenPointerMove}
@@ -576,20 +578,27 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
           role="button"
           aria-label={`${device.name} screen`}
         >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={realMode
-                ? `real-${device.status}-${frame ? 'frame' : 'none'}`
-                : `${awake}-${device.status}-${activeApp ?? (device.status === 'busy' && job ? 'job' : 'board')}`}
-              className="absolute inset-0"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-            >
+          {realMode ? (
+            // REAL frame: ONE statically-positioned image layer (no crossfade/exit → no previous-frame
+            // ghost) inside an overflow-hidden, flattened viewport, so the screenshot is ALWAYS clipped to
+            // the glass and never dissociates/offsets outside the shell during a drag.
+            <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 30 * f, transform: 'translateZ(0)', transformStyle: 'flat' }}>
               {screen}
-            </motion.div>
-          </AnimatePresence>
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${awake}-${device.status}-${activeApp ?? (device.status === 'busy' && job ? 'job' : 'board')}`}
+                className="absolute inset-0"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
+              >
+                {screen}
+              </motion.div>
+            </AnimatePresence>
+          )}
 
           {/* app switcher overlay (mock only — never over a real device frame) */}
           <AnimatePresence>
@@ -661,7 +670,8 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
             )}
           </AnimatePresence>
 
-          {/* directional swipe trail (D-pad / gesture feedback) */}
+          {/* directional swipe trail — mock/no-frame only (never an animated overlay over a real frame) */}
+          {!realMode && (
           <AnimatePresence>
             {swipeViz && (() => {
               const dist = Math.min(width, screenH) * 0.34
@@ -682,6 +692,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
               )
             })()}
           </AnimatePresence>
+          )}
 
           {/* screenshot flash */}
           <AnimatePresence>
@@ -695,8 +706,14 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
             )}
           </AnimatePresence>
 
-          {/* home indicator — clickable */}
-          {interactive && (
+          {/* home indicator — interactive in mock; in REAL mode it's DECORATIVE + pointer-events-none so it
+              never swallows a bottom-origin swipe (an upward swipe starts here). home() is a no-op in real
+              mode anyway — the page's Home quick-control drives the real device. */}
+          {interactive && (realMode ? (
+            <div className="pointer-events-none absolute bottom-0 left-1/2 z-30 -translate-x-1/2 px-4 py-1.5">
+              <div className="rounded-full bg-white/30" style={{ width: 84 * f, height: 4 }} />
+            </div>
+          ) : (
             <button
               type="button"
               aria-label="Home"
@@ -707,7 +724,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
             >
               <div className="rounded-full bg-white/30 transition-colors hover:bg-white/60" style={{ width: 84 * f, height: 4 }} />
             </button>
-          )}
+          ))}
         </div>
       </div>
     </div>
