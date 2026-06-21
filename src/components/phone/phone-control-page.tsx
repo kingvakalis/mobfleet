@@ -227,6 +227,11 @@ export function PhoneControlPage() {
   const confirmDestructive = useSettings(s => s.confirmDestructive)
   const stabilizePhone = useSettings(s => s.stabilizePhone)
   const updateSettings = useSettings(s => s.update)
+  // Live (supabase-mode) phone control defaults to STABILIZED — most accurate tap/drag coords — regardless
+  // of the persisted global setting; the header button toggles it (two-way) for this session. Non-supabase
+  // (demo/mock) keeps the global `stabilizePhone` workspace setting (also editable in Settings).
+  const [liveStabilized, setLiveStabilized] = useState(true)
+  const stabilized = useSupabaseCommands ? liveStabilized : stabilizePhone
   const [quality, setQuality]       = useState(defaultQuality)
   const [fps, setFps]               = useState(defaultFps)
   const [confirmingReboot, setConfirmingReboot] = useState(false)
@@ -922,25 +927,28 @@ export function PhoneControlPage() {
               <span className="font-mono text-[12px] text-white tabular-nums">{device.battery}%</span>
             </div>
             <div className="w-px h-4 bg-white/[0.08]" />
-            {/* Stabilize: stops decorative body tilt — screen controls unaffected */}
+            {/* Stabilize: stops decorative body tilt — screen controls unaffected. Truthful + two-way: shows
+                the EFFECTIVE state; in supabase-mode it toggles the session-local live default (stabilized),
+                otherwise the persisted workspace setting. */}
             <button
               type="button"
-              aria-pressed={stabilizePhone}
-              title={stabilizePhone ? 'Phone motion is stabilized — click to enable tilt' : 'Stabilize phone (stop tilt motion)'}
+              aria-pressed={stabilized}
+              title={stabilized ? 'Phone motion is stabilized — click to enable tilt' : 'Stabilize phone (stop tilt motion)'}
               onClick={() => {
-                const next = !stabilizePhone
-                updateSettings({ stabilizePhone: next })
+                const next = !stabilized
+                if (useSupabaseCommands) setLiveStabilized(next)
+                else updateSettings({ stabilizePhone: next })
                 addLog(next ? 'Phone motion stabilized' : 'Phone motion enabled')
               }}
               className={[
                 'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider transition-colors',
-                stabilizePhone
+                stabilized
                   ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
                   : 'text-white/40 border border-white/[0.08] hover:text-white/70',
               ].join(' ')}
             >
               <Anchor size={11} />
-              {stabilizePhone ? 'Stabilized' : 'Stabilize'}
+              {stabilized ? 'Stabilized' : 'Stabilize'}
             </button>
             {/* Live view: opt-in auto-refresh of the REAL device screenshot (supabase-mode). */}
             {useSupabaseCommands && canScreenshot && (
@@ -971,14 +979,13 @@ export function PhoneControlPage() {
             </div>
           )}
 
-          {/* Live interactive phone. The Stabilize toggle is AUTHORITATIVE here (it must actually work):
-              `stabilized` follows the button, in supabase-mode too. The frame clip that prevents the old
-              ghost is held independently of the tilt (transformStyle:flat + the overflow-hidden frame
-              viewport in live-phone), so the decorative cursor tilt can no longer push the frame outside the
-              shell. Tilt does introduce a few logical points of getBoundingClientRect skew on tap/drag, so
-              Stabilize stays the recommended mode for precise real-device control — but it's the operator's
-              choice, not forced. */}
-          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
+          {/* Live interactive phone. The Stabilize toggle is AUTHORITATIVE and TRUTHFUL: `stabilized` is the
+              effective value (supabase-mode defaults stabilized for accurate coords; the button enables/disables
+              tilt). The frame clip that prevents the old ghost is held independently of the tilt
+              (transformStyle:flat + the overflow-hidden frame viewport in live-phone), so the decorative cursor
+              tilt can never push the frame outside the shell. Tilt adds a few logical points of
+              getBoundingClientRect skew on tap/drag, hence stabilized-by-default for precise control. */}
+          <PhoneStage statusColor={meta.color} stabilized={stabilized}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
               {/* supabase-mode: the "pending" banner is shown ONLY until a REAL frame
                   arrives — once LivePhone renders the captured device_screenshots frame,
