@@ -971,13 +971,14 @@ export function PhoneControlPage() {
             </div>
           )}
 
-          {/* Live interactive phone. In supabase-mode (real-device control) the decorative cursor tilt is
-              force-stabilized: the 3D (preserve-3d) transform would skew getBoundingClientRect → inexact
-              tap/drag coords (and contributed to frame ghosting). Stabilizing the whole supabase-mode
-              session — not just when a frame is present — keeps coords exact with no spring-settle race and
-              no placeholder wobble. (The frame clip itself is held unconditionally by transformStyle:flat
-              + the overflow-hidden frame viewport in live-phone.) */}
-          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone || useSupabaseCommands}>
+          {/* Live interactive phone. The Stabilize toggle is AUTHORITATIVE here (it must actually work):
+              `stabilized` follows the button, in supabase-mode too. The frame clip that prevents the old
+              ghost is held independently of the tilt (transformStyle:flat + the overflow-hidden frame
+              viewport in live-phone), so the decorative cursor tilt can no longer push the frame outside the
+              shell. Tilt does introduce a few logical points of getBoundingClientRect skew on tap/drag, so
+              Stabilize stays the recommended mode for precise real-device control — but it's the operator's
+              choice, not forced. */}
+          <PhoneStage statusColor={meta.color} stabilized={stabilizePhone}>
             <div className="hud-corners p-5" style={{ ['--hud-c' as string]: `${meta.color}55`, ['--hud-len' as string]: '16px' }}>
               {/* supabase-mode: the "pending" banner is shown ONLY until a REAL frame
                   arrives — once LivePhone renders the captured device_screenshots frame,
