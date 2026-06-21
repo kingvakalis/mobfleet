@@ -18,6 +18,7 @@
  * Transport is injected (AgentTransport) so the network is mocked in tests; the
  * real transport (HTTP poll + WS) lives in agent-transport.ts.
  */
+import sharp from 'sharp'
 import type { DeviceControlAdapter } from './device-adapter'
 import { WdaPortAllocator } from './wda-port-allocator'
 import { CommandExecutor } from './command-executor'
@@ -88,6 +89,22 @@ export function stripScreenshotBytes(result: ExecResult): ExecResult {
   const rest = { ...(s as Record<string, unknown>) }
   delete rest.base64
   return { ...result, result: { ...(r as Record<string, unknown>), screenshot: rest } }
+}
+
+/** Downscale a captured frame to a small JPEG before transport. Full-res PNG frames
+ *  (~1.9 MB) are slow to upload and saturate the agent's HTTP connection pool, which
+ *  makes poll/heartbeat/control requests time out (stale screen + unresponsive controls).
+ *  A ~540px-wide JPEG is ~40-90 KB. `width`/`height` are device LOGICAL points (for tap
+ *  mapping) and are PRESERVED — only the pixel payload shrinks. Best-effort: on any sharp
+ *  error, fall back to the original frame. */
+async function shrinkFrame(frame: ScreenshotFrame): Promise<ScreenshotFrame> {
+  try {
+    const input = Buffer.from(frame.base64, 'base64')
+    const out = await sharp(input).resize({ width: 540, withoutEnlargement: true }).jpeg({ quality: 55 }).toBuffer()
+    return { base64: out.toString('base64'), format: 'jpeg', width: frame.width, height: frame.height }
+  } catch {
+    return frame
+  }
 }
 
 export interface AgentRuntimeOptions {
@@ -292,8 +309,9 @@ export class AgentRuntime {
     // failure never blocks the ack (the command still completed on the device).
     const shot = extractScreenshotFrame(frame.action, result)
     if (shot && slot.transport.putScreenshot) {
+      const small = await shrinkFrame(shot)
       await slot.transport
-        .putScreenshot(frame.commandId, shot)
+        .putScreenshot(frame.commandId, small)
         .catch((err) => this.log('agent.screenshot.upload_error', { udid, commandId: frame.commandId, error: errMsg(err) }))
     }
     await slot.transport
@@ -309,8 +327,12 @@ export class AgentRuntime {
     void this.discoverOnce()
     this.timers.push(setInterval(wrap(() => this.discoverOnce(), 'discovery'), this.opts.discoveryIntervalMs))
     this.timers.push(setInterval(wrap(() => this.checkWdaOnce(), 'wda'), this.opts.wdaCheckIntervalMs))
+    // Command poll drives control latency — independent of the heartbeat but easy on Supabase.
+    // (No agent-side capture loop: it overloads Supabase AND the client doesn't read pushed
+    //  frames continuously — live-screen refresh must be fixed client-side.)
+    const pollMs = Number(process.env.COMMAND_POLL_INTERVAL_MS) || 2000
     this.timers.push(setInterval(wrap(() => this.heartbeatOnce(), 'heartbeat'), this.opts.heartbeatIntervalMs))
-    this.timers.push(setInterval(wrap(() => this.pollOnce(), 'poll'), this.opts.heartbeatIntervalMs))
+    this.timers.push(setInterval(wrap(() => this.pollOnce(), 'poll'), pollMs))
     for (const t of this.timers) if (typeof t.unref === 'function') t.unref()
     this.log('agent.started', { version: this.version })
     return async () => {
