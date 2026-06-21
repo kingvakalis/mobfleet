@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { motion, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, AlertTriangle,
@@ -196,6 +196,14 @@ function PhoneStage({ statusColor, stabilized, children }: {
   )
 }
 
+// Responsive phone size: MEASURE the center column's height and subtract the status bar + bottom action bar
+// (both measured at runtime — the status bar WRAPS, so its height varies) plus the fixed stage chrome, then
+// size the phone glass to the remaining height so the whole phone + action bar fit without scrolling.
+// Clamped to stay polished. Width drives the rendered glass + f-scale + screenH in LivePhone, and pointer
+// mapping uses the rendered rect — so it stays exact at any width and the aspect is preserved (no scale).
+const PHONE_W_MIN = 270, PHONE_W_MAX = 330
+const PHONE_STAGE_CHROME = 128 // center py-5(40) + status mb-4(16) + action mt-5(20) + hud p-5(40) + shell(12); excludes the measured bars
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export function PhoneControlPage() {
   const { jobs } = useFleet()
@@ -260,6 +268,29 @@ export function PhoneControlPage() {
   const [frame, setFrame] = useState<LiveFrame | null>(null)
   const [frameLatency, setFrameLatency] = useState<number | null>(null)
   const [liveView, setLiveView] = useState(false)
+  // Phone width sized so the full phone + bottom action bar fit the center column without scrolling.
+  const centerRef = useRef<HTMLDivElement>(null)
+  const statusBarRef = useRef<HTMLDivElement>(null)
+  const actionsRef = useRef<HTMLDivElement>(null)
+  const [phoneWidth, setPhoneWidth] = useState(PHONE_W_MAX)
+  const hasFrame = !!frame
+  const frameAspect = frame && frame.width && frame.height ? frame.height / frame.width : 1.95
+  const measureFit = useCallback(() => {
+    const c = centerRef.current
+    if (!c) return
+    const sb = statusBarRef.current?.offsetHeight ?? 0
+    const ab = actionsRef.current?.offsetHeight ?? 0
+    const banner = useSupabaseCommands && !hasFrame ? 34 : 0 // the "pending" banner only shows before the first frame
+    const avail = c.clientHeight - sb - ab - PHONE_STAGE_CHROME - banner - 8 // 8px breathing room
+    setPhoneWidth(Math.max(PHONE_W_MIN, Math.min(PHONE_W_MAX, Math.floor(avail / frameAspect))))
+  }, [useSupabaseCommands, hasFrame, frameAspect])
+  useLayoutEffect(() => {
+    measureFit()
+    const ro = new ResizeObserver(() => measureFit()) // re-fit when the column resizes or the status bar re-wraps
+    for (const el of [centerRef.current, statusBarRef.current, actionsRef.current]) if (el) ro.observe(el)
+    window.addEventListener('resize', measureFit)
+    return () => { ro.disconnect(); window.removeEventListener('resize', measureFit) }
+  }, [measureFit])
   const deviceIdRef = useRef<string | undefined>(undefined)
   // Live command-status watchers (watchCommand cancels). Tracked so they can be torn
   // down on device-switch/unmount — otherwise an orphaned poller would keep writing a
@@ -894,11 +925,11 @@ export function PhoneControlPage() {
         {/* ── CENTER COLUMN ───────────────────────────────────────────────────── */}
         {/* min-w-0 lets this flex column shrink below the status bar's intrinsic width so the bar wraps
             within the center column instead of overflowing under the side panels. */}
-        <div className="flex-1 min-w-0 flex flex-col items-center overflow-y-auto py-5 px-4">
+        <div ref={centerRef} className="flex-1 min-w-0 flex flex-col items-center overflow-y-auto py-5 px-4">
 
           {/* Status bar — compact + responsive: wraps to a 2nd row and stays within the center column
               (never under the side panels) via flex-wrap + max-w-full (the center column carries min-w-0). */}
-          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 mb-4 px-3 py-1 rounded-xl border border-white/[0.08] bg-[#111318] max-w-full">
+          <div ref={statusBarRef} className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 mb-4 px-3 py-1 rounded-xl border border-white/[0.08] bg-[#111318] max-w-full">
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 5px ${meta.color}` }} />
               <span className="text-[11px]" style={{ color: meta.color }}>{meta.label}</span>
@@ -1003,7 +1034,7 @@ export function PhoneControlPage() {
                 ref={phoneRef}
                 device={device}
                 job={job}
-                width={330}
+                width={phoneWidth}
                 gesture={gesture}
                 readOnly={readOnly}
                 onLog={phoneLog}
@@ -1015,7 +1046,7 @@ export function PhoneControlPage() {
           </PhoneStage>
 
           {/* Bottom action bar */}
-          <div className="flex gap-2 mt-5">
+          <div ref={actionsRef} className="flex gap-2 mt-5">
             <button
               onClick={() => launchAppCmd('Instagram')}
               disabled={!canControl || isBusy('launch:Instagram')}
