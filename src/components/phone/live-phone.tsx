@@ -1,5 +1,5 @@
 import {
-  forwardRef, useImperativeHandle, useState, useEffect, useMemo, useCallback,
+  forwardRef, useImperativeHandle, useState, useEffect, useMemo, useCallback, useRef,
 } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Power, TriangleAlert, Lock as LockIcon, Camera } from 'lucide-react'
@@ -28,22 +28,35 @@ export interface LivePhoneHandle {
 interface Ripple { x: number; y: number; id: number }
 interface SwipeViz { dir: SwipeDir; id: number }
 
-/** A REAL captured device frame (supabase-mode). `src` is a data: URL; `width`/`height`
- *  are the device LOGICAL size (points) used to map a tap on the displayed frame to
- *  device coordinates. Absent (`undefined`) → the legacy simulated screen is shown. */
+/** A REAL captured device frame (supabase-mode). `src` is a data: URL (png/jpeg/webp);
+ *  `width`/`height` are the device LOGICAL size (points) used to map a pointer gesture on
+ *  the displayed frame to device coordinates. Absent (`undefined`) → legacy simulated screen. */
 export interface LiveFrame { src: string; capturedAt: number; width: number | null; height: number | null }
 
-/** Map a click within the glass (`object-fit: contain` letterboxed) to device logical
- *  points. Returns null when the click landed on a letterbox bar (outside the frame). */
-function mapTapToDevice(x: number, y: number, glassW: number, glassH: number, devW: number, devH: number): { x: number; y: number } | null {
-  const scale = Math.min(glassW / devW, glassH / devH)
-  const dispW = devW * scale, dispH = devH * scale
-  const ix = x - (glassW - dispW) / 2, iy = y - (glassH - dispH) / 2
-  if (ix < 0 || iy < 0 || ix > dispW || iy > dispH) return null
+/** A pointer gesture on the REAL device screen, in device LOGICAL points. */
+export type PhoneGesture =
+  | { type: 'tap'; x: number; y: number }
+  | { type: 'swipe'; x1: number; y1: number; x2: number; y2: number; dir: SwipeDir; durationMs: number }
+  | { type: 'scroll'; x1: number; y1: number; x2: number; y2: number; dir: SwipeDir; durationMs: number }
+  | { type: 'long_press'; x: number; y: number; durationMs: number }
+
+// Pointer-gesture thresholds (glass px / ms).
+const TAP_MOVE_PX = 10
+const LONG_PRESS_MS = 500
+
+/** Linear map of a glass point to device LOGICAL points. The glass is sized to the frame's
+ *  aspect ratio (object-fit: cover with matched aspect → no letterbox, no crop), so this is
+ *  exact. Clamped to device bounds. */
+function mapPointToDevice(x: number, y: number, glassW: number, glassH: number, devW: number, devH: number): { x: number; y: number } {
   return {
-    x: Math.max(0, Math.min(devW, Math.round(ix / scale))),
-    y: Math.max(0, Math.min(devH, Math.round(iy / scale))),
+    x: Math.max(0, Math.min(devW, Math.round((x / glassW) * devW))),
+    y: Math.max(0, Math.min(devH, Math.round((y / glassH) * devH))),
   }
+}
+
+/** Dominant 4-way direction of a drag delta (device points). */
+function dragDir(dx: number, dy: number): SwipeDir {
+  return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'down' : 'up')
 }
 
 function useClock(): string {
@@ -294,9 +307,16 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
    *  demo / me-mode, unchanged). `null` → real device, no frame captured yet (honest
    *  placeholder). A value → render the actual device screenshot. */
   frame?: LiveFrame | null
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame }, ref) {
+  /** REAL-FRAME pointer gestures (tap / swipe / scroll / long_press) in device LOGICAL
+   *  points — the parent maps them to control commands. Only fired in real-frame mode. */
+  onGesture?: (g: PhoneGesture) => void
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture }, ref) {
   const f = width / 260
-  const screenH = Math.round(width * 1.95)
+  // REAL-frame mode: size the glass to the captured frame's aspect ratio so object-fit: cover
+  // fills it with NO black side bars, and pointer→device mapping stays a clean linear scale.
+  // Falls back to the classic 1.95 phone ratio for the mock/legacy screen.
+  const frameAspect = frame && frame.width && frame.height ? frame.height / frame.width : 1.95
+  const screenH = Math.round(width * frameAspect)
   const clock = useClock()
   // When `frame` is provided at all (null or a value) we are driving a REAL device:
   // show the captured screenshot (never the simulated springboard) and suppress the
@@ -310,6 +330,9 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   const [flash, setFlash] = useState(false)
   const [ripple, setRipple] = useState<Ripple | null>(null)
   const [swipeViz, setSwipeViz] = useState<SwipeViz | null>(null)
+  // Real-screen pointer-gesture tracking (down → move → up): start point (glass + device),
+  // start time, and whether it crossed the move threshold (tap vs drag).
+  const ptrRef = useRef<{ gx: number; gy: number; dx: number; dy: number; t: number; moved: boolean } | null>(null)
 
   const statusColor = STATUS[device.status].color
   // In real mode the device's awake/lock state lives on the physical phone (shown in the
@@ -390,32 +413,63 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
     // real mode: need the device's logical size to send an accurate center tap.
     if (!frame || !frame.width || !frame.height) { onLog('warn', 'tap ignored — device screen size unknown'); return }
     setRipple({ x: Math.round(width / 2), y: Math.round(screenH / 2), id: Date.now() })
-    onTap?.(Math.round(frame.width / 2), Math.round(frame.height / 2))
-  }, [readOnly, realMode, awake, lock, onLog, width, screenH, onTap, frame])
+    const cx = Math.round(frame.width / 2), cy = Math.round(frame.height / 2)
+    if (onGesture) onGesture({ type: 'tap', x: cx, y: cy }); else onTap?.(cx, cy)
+  }, [readOnly, realMode, awake, lock, onLog, width, screenH, onTap, onGesture, frame])
 
   useImperativeHandle(ref, () => ({ home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter }),
     [home, back, lock, screenshot, switcher, launchApp, swipe, tapCenter])
 
+  // ── REAL-screen pointer gestures (supabase-mode): tap / long-press / swipe / scroll ──
+  // Driven by pointer events so a drag (down → move → up) becomes a real swipe/scroll with
+  // start/end device coordinates, and a hold becomes a long-press. Device LOGICAL points are
+  // emitted via onGesture; the parent owns sending the command (we stay visual-only).
+  const onScreenPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!realMode) return
+    if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
+    if (!frame || !frame.width || !frame.height) { onLog('warn', 'gesture ignored — device screen size unknown'); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    const gx = e.clientX - r.left, gy = e.clientY - r.top
+    const dev = mapPointToDevice(gx, gy, width, screenH, frame.width, frame.height)
+    ptrRef.current = { gx, gy, dx: dev.x, dy: dev.y, t: Date.now(), moved: false }
+    setRipple({ x: gx, y: gy, id: Date.now() })
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture is best-effort */ }
+  }
+  const onScreenPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = ptrRef.current
+    if (!realMode || !p) return
+    const r = e.currentTarget.getBoundingClientRect()
+    if (!p.moved && Math.hypot((e.clientX - r.left) - p.gx, (e.clientY - r.top) - p.gy) > TAP_MOVE_PX) p.moved = true
+  }
+  const onScreenPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = ptrRef.current
+    ptrRef.current = null
+    if (!realMode || !p || !frame || !frame.width || !frame.height) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const end = mapPointToDevice(e.clientX - r.left, e.clientY - r.top, width, screenH, frame.width, frame.height)
+    const dur = Date.now() - p.t
+    if (!p.moved) {
+      if (dur >= LONG_PRESS_MS) onGesture?.({ type: 'long_press', x: p.dx, y: p.dy, durationMs: dur })
+      else onGesture?.({ type: 'tap', x: p.dx, y: p.dy })
+      return
+    }
+    const dir = dragDir(end.x - p.dx, end.y - p.dy)
+    setSwipeViz({ dir, id: Date.now() })
+    onGesture?.({ type: gesture === 'scroll' ? 'scroll' : 'swipe', x1: p.dx, y1: p.dy, x2: end.x, y2: end.y, dir, durationMs: dur })
+  }
+  const onScreenPointerCancel = () => { ptrRef.current = null }
+
+  // Mock/legacy screen tap (onClick). Real-frame mode is handled by the pointer gestures above.
   const tap = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (realMode) return
     if (readOnly) { onLog('warn', 'control denied — view-only access'); return }
     const r = e.currentTarget.getBoundingClientRect()
     const x = Math.round(e.clientX - r.left)
     const y = Math.round(e.clientY - r.top)
-    if (!realMode) {
-      if (!awake) { lock(); return }
-      setRipple({ x, y, id: Date.now() })
-      onLog('info', `${gesture} (${x}, ${y})`)
-      onTap?.(x, y) // parent sends the tap control command (we stay visual-only)
-      return
-    }
-    // real mode: an accurate tap needs the device's logical size. If the frame or its
-    // dims are unknown, SUPPRESS the tap rather than send mis-scaled glass pixels as
-    // device points (truthful: don't issue a tap we can't place correctly).
-    if (!frame || !frame.width || !frame.height) { onLog('warn', 'tap ignored — device screen size unknown'); return }
-    const dev = mapTapToDevice(x, y, width, screenH, frame.width, frame.height)
-    if (!dev) return // tap landed on a letterbox bar
+    if (!awake) { lock(); return }
     setRipple({ x, y, id: Date.now() })
-    onTap?.(dev.x, dev.y)
+    onLog('info', `${gesture} (${x}, ${y})`)
+    onTap?.(x, y) // parent sends the tap control command (we stay visual-only)
   }
 
   const activeAppDef = useMemo(
@@ -453,7 +507,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
           alt={`${device.name} live screen`}
           draggable={false}
           className="pointer-events-none h-full w-full select-none"
-          style={{ objectFit: 'contain', background: '#000' }}
+          style={{ objectFit: 'cover', display: 'block' }}
         />
       )
     } else {
@@ -509,18 +563,23 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         <div className="absolute rounded-l bg-[#222227]" style={{ left: -2.5, top: 104 * f, width: 2.5, height: 26 * f }} />
         <div className="absolute rounded-r bg-[#222227]" style={{ right: -2.5, top: 86 * f, width: 2.5, height: 42 * f }} />
 
-        {/* glass */}
+        {/* glass — a real frame renders CLEAN (no scanline/reflection overlay) so the
+            screenshot is bright + pixel-faithful; the mock screen keeps its CRT styling. */}
         <div
-          className="scanlines relative cursor-pointer overflow-hidden bg-[#050507]"
-          style={{ width, height: screenH, borderRadius: 30 * f }}
+          className={`relative overflow-hidden bg-[#050507] ${frame ? '' : 'scanlines'} ${interactive ? 'cursor-pointer' : ''}`}
+          style={{ width, height: screenH, borderRadius: 30 * f, touchAction: 'none' }}
           onClick={tap}
+          onPointerDown={onScreenPointerDown}
+          onPointerMove={onScreenPointerMove}
+          onPointerUp={onScreenPointerUp}
+          onPointerCancel={onScreenPointerCancel}
           role="button"
           aria-label={`${device.name} screen`}
         >
           <AnimatePresence mode="wait">
             <motion.div
               key={realMode
-                ? `real-${device.status}-${frame ? frame.capturedAt : 'none'}`
+                ? `real-${device.status}-${frame ? 'frame' : 'none'}`
                 : `${awake}-${device.status}-${activeApp ?? (device.status === 'busy' && job ? 'job' : 'board')}`}
               className="absolute inset-0"
               initial={{ opacity: 0 }}
@@ -576,14 +635,16 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
             )}
           </AnimatePresence>
 
-          {/* glass reflection */}
-          <div
-            className="pointer-events-none absolute inset-0 z-20"
-            style={{
-              borderRadius: 30 * f,
-              background: 'linear-gradient(118deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.015) 28%, transparent 44%)',
-            }}
-          />
+          {/* glass reflection (mock screen only — never tint a real captured frame) */}
+          {!frame && (
+            <div
+              className="pointer-events-none absolute inset-0 z-20"
+              style={{
+                borderRadius: 30 * f,
+                background: 'linear-gradient(118deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.015) 28%, transparent 44%)',
+              }}
+            />
+          )}
 
           {/* tap ripple */}
           <AnimatePresence>
@@ -640,6 +701,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
               type="button"
               aria-label="Home"
               onClick={(e) => { e.stopPropagation(); home() }}
+              onPointerDown={(e) => e.stopPropagation()}
               className="absolute bottom-0 left-1/2 z-30 -translate-x-1/2 px-4 py-1.5"
               tabIndex={-1}
             >

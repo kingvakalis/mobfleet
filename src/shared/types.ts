@@ -29,7 +29,7 @@ export interface QueuedCommand {
  */
 export type ControlCommand =
   | { type: 'tap'; deviceId: string; x: number; y: number }
-  | { type: 'swipe'; deviceId: string; dir: 'up' | 'down' | 'left' | 'right' }
+  | { type: 'swipe'; deviceId: string; dir: 'up' | 'down' | 'left' | 'right'; x1?: number; y1?: number; x2?: number; y2?: number; durationMs?: number; scroll?: boolean }
   | { type: 'key'; deviceId: string; key: 'home' | 'back' | 'lock' | 'switcher' }
   | { type: 'launch_app'; deviceId: string; appName: string }
   | { type: 'screenshot'; deviceId: string }

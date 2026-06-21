@@ -110,8 +110,9 @@ export class SupabaseAgentTransport implements AgentTransport {
   }
 
   /** Upload a captured screenshot frame (device-key RPC → device_screenshots). The
-   *  base64 PNG bytes ride the RPC body; the dashboard reads the row over RLS. */
-  async putScreenshot(commandId: string, frame: ScreenshotFrame): Promise<void> {
+   *  compressed image bytes ride the RPC body; the dashboard reads the row over RLS.
+   *  `commandId` is null for continuous-capture frames (not tied to a queued command). */
+  async putScreenshot(commandId: string | null, frame: ScreenshotFrame): Promise<void> {
     await this.rpc('put_device_screenshot', {
       p_command_id: commandId,
       p_image_base64: frame.base64,
@@ -119,6 +120,14 @@ export class SupabaseAgentTransport implements AgentTransport {
       p_width: frame.width,
       p_height: frame.height,
     })
+  }
+
+  /** How many fps a dashboard viewer currently wants (0 = none) — device-key RPC →
+   *  device_viewer_fps. Gates the runtime's continuous capture loop. */
+  async viewerFps(): Promise<number> {
+    const v = await this.rpc('device_viewer_fps', {})
+    const n = typeof v === 'number' ? v : Number(v)
+    return Number.isFinite(n) ? n : 0
   }
 
   async sendHeartbeat(hb: { status: 'online' | 'busy' | 'warming' | 'offline' | 'error'; battery: number | null; cpuUsage: number | null; memoryUsage: number | null }): Promise<void> {

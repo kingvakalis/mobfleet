@@ -5,11 +5,11 @@ import {
   Lock, Home, CornerDownLeft, Grid2x2,
   Camera, RefreshCw, Power,
   Send, Copy, X, Rocket, FileText,
-  Video, Zap, Shield, BatteryMedium, Gauge, Anchor,
+  Video, Zap, Shield, BatteryMedium, Gauge, Anchor, Radio,
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
 } from 'lucide-react'
 import type { AppDef } from '@/components/phone/app-catalog'
-import { LivePhone, type LivePhoneHandle, type LiveFrame } from '@/components/phone/live-phone'
+import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
 import type { LogLevel } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
@@ -25,7 +25,7 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
-import { enqueueCommand, watchCommand, getLatestScreenshot } from '@/services/device-commands'
+import { enqueueCommand, watchCommand, getLatestScreenshot, markDeviceViewer } from '@/services/device-commands'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -34,6 +34,9 @@ function uid() { return Math.random().toString(36).slice(2, 9) }
 // Module-scope so the impure clock read is never analyzed as a render-phase call
 // (mirrors uid()); these timings are only taken at event time (enqueue / ack).
 function nowMs() { return Date.now() }
+// Live-view target frame rate: the client read cadence AND the fps requested from the agent
+// (the agent runs its continuous capture loop at this rate while a viewer is active).
+const LIVE_FPS = 4
 function fmt(d: Date) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -244,6 +247,8 @@ export function PhoneControlPage() {
   // (honest placeholder); we pass `undefined` to LivePhone outside supabase-mode so the
   // legacy simulated screen is unchanged (mock/demo/me-mode + device-drawer).
   const [frame, setFrame] = useState<LiveFrame | null>(null)
+  const [frameLatency, setFrameLatency] = useState<number | null>(null)
+  const [liveView, setLiveView] = useState(false)
   const deviceIdRef = useRef<string | undefined>(undefined)
   // Live command-status watchers (watchCommand cancels). Tracked so they can be torn
   // down on device-switch/unmount — otherwise an orphaned poller would keep writing a
@@ -261,14 +266,14 @@ export function PhoneControlPage() {
     addLog(text, type)
   }, [addLog])
 
-  // Decorative compact status-bar jitter (LATENCY/FPS) — runs in all modes. The REAL device
-  // screen still arrives independently via the screenshot pipeline (frame), so this is purely
-  // the visual bar, not telemetry the controls depend on.
   useEffect(() => {
+    // supabase-mode surfaces REAL refresh metrics (frameLatency/frame), so the simulated
+    // latency/FPS jitter only runs in mock/demo/me-mode — never presented as real telemetry.
+    if (useSupabaseCommands) return
     const id1 = setInterval(() => setLatency(v => Math.min(80, Math.max(20, v + (Math.random() - 0.5) * 14))), 1200)
     const id2 = setInterval(() => setLiveFps(v => Math.min(32, Math.max(15, v + (Math.random() - 0.5) * 3 | 0))), 2000)
     return () => { clearInterval(id1); clearInterval(id2) }
-  }, [])
+  }, [useSupabaseCommands])
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -324,11 +329,14 @@ export function PhoneControlPage() {
     watchersRef.current.clear()
   }, [])
 
-  // Loads a data: URL from the latest REAL frame the agent uploaded for this device.
+  // Loads a data: URL from the latest REAL frame the agent uploaded for this device, and records
+  // the read round-trip as the truthful REFRESH metric (a real network read, not a fabricated ping).
   const refreshFrame = useCallback(async (id: string) => {
+    const t0 = nowMs()
     try {
       const s = await getLatestScreenshot(id)
-      if (!s || id !== deviceIdRef.current) return // device switched mid-request
+      if (id !== deviceIdRef.current) return // device switched mid-request
+      if (!s) return // no frame captured yet — keep the placeholder
       const ts = Date.parse(s.capturedAt)
       // Allow-list the MIME at the sink too (defense in depth): never interpolate an
       // untrusted value into the data: URL even if the DB row somehow carried one.
@@ -339,8 +347,22 @@ export function PhoneControlPage() {
         width: s.width,
         height: s.height,
       })
+      setFrameLatency(nowMs() - t0)
     } catch { /* keep the prior frame; never crash the page */ }
   }, [])
+
+  // Viewer presence: while Phone Control is open, tell the agent a viewer is watching and at what
+  // fps (LIVE_FPS while GO LIVE, else 0 = present but not streaming). The agent (device-key) reads
+  // device_viewer_fps and runs its continuous capture loop ONLY for recently-active viewers — so
+  // live frames flow WITHOUT a screenshot command per frame (the slow path). Heartbeat is well
+  // inside the server's viewer window so a brief tab stall never tears the stream down.
+  useEffect(() => {
+    if (!useSupabaseCommands || !deviceId) return
+    const fps = liveView ? LIVE_FPS : 0
+    void markDeviceViewer(deviceId, fps)
+    const id = setInterval(() => { void markDeviceViewer(deviceId, fps) }, 4000)
+    return () => clearInterval(id)
+  }, [useSupabaseCommands, deviceId, liveView])
 
   // Reset + load the latest existing frame when the device changes (no new capture).
   useEffect(() => {
@@ -348,12 +370,30 @@ export function PhoneControlPage() {
     deviceIdRef.current = deviceId
     if (!useSupabaseCommands || !deviceId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFrame(null)
+    setFrame(null); setFrameLatency(null)
     void refreshFrame(deviceId)
   }, [deviceId, useSupabaseCommands, refreshFrame, cancelAllWatchers])
 
   // Stop every in-flight watcher when the page unmounts (no detached polling / state writes).
   useEffect(() => () => cancelAllWatchers(), [cancelAllWatchers])
+
+  // Live view: while GO LIVE + reachable, fast-READ the latest agent-pushed frame (the agent is
+  // capturing continuously via viewer presence — NO screenshot command per frame). Paced to
+  // ~LIVE_FPS; sequential so reads never pile up.
+  useEffect(() => {
+    const online = device?.status === 'online' || device?.status === 'busy'
+    if (!liveView || !useSupabaseCommands || !deviceId || !online) return
+    let active = true
+    const run = async () => {
+      while (active) {
+        await refreshFrame(deviceId)
+        if (!active) break
+        await new Promise<void>((r) => setTimeout(r, Math.round(1000 / LIVE_FPS)))
+      }
+    }
+    void run()
+    return () => { active = false }
+  }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame])
 
   if (!canView) return (
     <AccessDenied
@@ -370,6 +410,8 @@ export function PhoneControlPage() {
 
   const GESTURES = ['Tap','Precise Tap','Double Tap','Long Press','Swipe','Scroll','Pinch / Rotate']
   const latColor = latency < 50 ? '#4ade80' : latency < 70 ? '#fbbf24' : '#f87171'
+  // supabase-mode: the REAL screenshot round-trip (capture → ack), seconds-scale not a ping.
+  const refreshColor = frameLatency == null ? '#6b7280' : frameLatency < 2500 ? '#4ade80' : frameLatency < 6000 ? '#fbbf24' : '#f87171'
   const meta = STATUS[device.status]
 
   const quickControls = [
@@ -428,7 +470,8 @@ export function PhoneControlPage() {
         if (status === 'running') addLog(`▶ ${label} — running`, 'command')
         else if (status === 'acked') {
           addLog(`✓ ${label} — done`, 'command')
-          // A real screenshot just landed — pull the uploaded frame onto the screen.
+          // A real screenshot just landed — pull the uploaded frame onto the screen (which also
+          // records the read round-trip as the REFRESH metric).
           if (wire.action === 'screenshot') { void refreshFrame(wire.deviceId) }
         }
         else if (status === 'failed') addLog(`✗ ${label} — failed${error ? ': ' + error : ''}`, 'error')
@@ -514,6 +557,27 @@ export function PhoneControlPage() {
     if (!canScreenshot) { denyAction('screenshot'); return }
     phoneRef.current?.screenshot()
     sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot')
+  }
+
+  // Real-screen pointer gestures → real control commands. Truthful lifecycle (queued→running→
+  // done/failed via watchCommand); no fake success. Swipe/scroll use the existing agent 'swipe'
+  // action (directional) and carry the start/end LOGICAL coordinates; long-press has no agent
+  // action yet → truthful log, no command sent.
+  const handleGesture = (g: PhoneGesture) => {
+    switch (g.type) {
+      case 'tap':
+        sendControl({ type: 'tap', deviceId: device.id, x: g.x, y: g.y }, undefined, `Tap (${g.x}, ${g.y})`)
+        break
+      case 'swipe':
+        sendControl({ type: 'swipe', deviceId: device.id, dir: g.dir, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, durationMs: g.durationMs }, undefined, `Swipe ${g.dir} (${g.x1},${g.y1} → ${g.x2},${g.y2})`)
+        break
+      case 'scroll':
+        sendControl({ type: 'swipe', deviceId: device.id, dir: g.dir, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, durationMs: g.durationMs, scroll: true }, undefined, `Scroll ${g.dir} (${g.x1},${g.y1} → ${g.x2},${g.y2})`)
+        break
+      case 'long_press':
+        addLog(`Long-press (${g.durationMs}ms) at ${g.x}, ${g.y} — device agent has no long-press action yet; not sent`, 'gesture')
+        break
+    }
   }
 
   const avatarLetters = device.name.slice(0, 2).toUpperCase()
@@ -720,18 +784,24 @@ export function PhoneControlPage() {
             </div>
             <div className="flex items-center gap-1.5">
               <Zap size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">LATENCY</span>
-              <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">{useSupabaseCommands ? 'REFRESH' : 'LATENCY'}</span>
+              {useSupabaseCommands
+                ? <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: refreshColor }}>{frameLatency == null ? '—' : `${Math.round(frameLatency)}ms`}</span>
+                : <span className="font-mono text-[12px] font-bold tabular-nums" style={{ color: latColor }}>{Math.round(latency)}ms</span>}
             </div>
             <div className="flex items-center gap-1.5">
               <Gauge size={11} className="text-white/35" />
-              <span className="text-[11px] text-white/40 uppercase tracking-wider">FPS</span>
-              <span className="font-mono text-[12px] font-bold text-white tabular-nums">{liveFps}</span>
+              <span className="text-[11px] text-white/40 uppercase tracking-wider">{useSupabaseCommands ? 'FRAME' : 'FPS'}</span>
+              {useSupabaseCommands
+                ? <span className="font-mono text-[12px] font-bold text-white tabular-nums">{frame ? fmt(new Date(frame.capturedAt)) : '—'}</span>
+                : <span className="font-mono text-[12px] font-bold text-white tabular-nums">{liveFps}</span>}
             </div>
             <div className="flex items-center gap-1.5">
               <Shield size={11} className="text-white/35" />
               <span className="text-[11px] text-white/40 uppercase tracking-wider">STREAM</span>
-              <span className="font-mono text-[12px] text-green-400">Stable</span>
+              {useSupabaseCommands
+                ? <span className="font-mono text-[12px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snapshot' : 'Idle'}</span>
+                : <span className="font-mono text-[12px] text-green-400">Stable</span>}
             </div>
             <div className="flex items-center gap-1.5">
               <BatteryMedium size={11} className="text-white/35" />
@@ -759,6 +829,25 @@ export function PhoneControlPage() {
               <Anchor size={11} />
               {stabilizePhone ? 'Stabilized' : 'Stabilize'}
             </button>
+            {/* Live view: opt-in auto-refresh of the REAL device screenshot (supabase-mode). */}
+            {useSupabaseCommands && canScreenshot && (
+              <button
+                type="button"
+                aria-pressed={liveView}
+                title={liveView ? 'Stop auto-refreshing the live screen' : 'Auto-refresh the live screen every few seconds'}
+                disabled={device.status === 'offline' || device.status === 'error'}
+                onClick={() => { const next = !liveView; setLiveView(next); addLog(next ? 'Live view on — auto-refreshing screen' : 'Live view off') }}
+                className={[
+                  'flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  liveView
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] border border-[var(--accent-border)]'
+                    : 'text-white/40 border border-white/[0.08] hover:text-white/70',
+                ].join(' ')}
+              >
+                <Radio size={11} />
+                {liveView ? 'Live' : 'Go Live'}
+              </button>
+            )}
           </div>
 
           {/* Read-only banner — viewer/scoped user without control permission */}
@@ -791,6 +880,7 @@ export function PhoneControlPage() {
                 onLog={phoneLog}
                 onTap={(x, y) => sendControl({ type: 'tap', deviceId: device.id, x, y })}
                 frame={useSupabaseCommands ? frame : undefined}
+                onGesture={useSupabaseCommands ? handleGesture : undefined}
               />
             </div>
           </PhoneStage>

@@ -12,7 +12,8 @@ class FakeTransport implements AgentTransport {
   readonly deviceId: string
   heartbeats: Array<{ status: string; battery: number | null }> = []
   acks: Array<{ commandId: string; result: ExecResult }> = []
-  screenshots: Array<{ commandId: string; frame: ScreenshotFrame }> = []
+  screenshots: Array<{ commandId: string | null; frame: ScreenshotFrame }> = []
+  fps = 0
   private queue: AgentCommandFrame[] = []
   private pushHandler: ((f: AgentCommandFrame) => void) | null = null
 
@@ -30,8 +31,11 @@ class FakeTransport implements AgentTransport {
   async ackCommand(commandId: string, result: ExecResult): Promise<void> {
     this.acks.push({ commandId, result })
   }
-  async putScreenshot(commandId: string, frame: ScreenshotFrame): Promise<void> {
+  async putScreenshot(commandId: string | null, frame: ScreenshotFrame): Promise<void> {
     this.screenshots.push({ commandId, frame })
+  }
+  async viewerFps(): Promise<number> {
+    return this.fps
   }
   onPushedCommand(handler: (f: AgentCommandFrame) => void): void {
     this.pushHandler = handler
@@ -228,4 +232,37 @@ test('a non-screenshot command never calls putScreenshot', async () => {
   transports.get('udid-1')!.enqueue(frame('h1', 'home'))
   await runtime.pollOnce()
   assert.equal(transports.get('udid-1')!.screenshots.length, 0)
+})
+
+// ── continuous (GO LIVE) capture loop, gated by viewer presence ───────────────
+
+test('captureTickOnce streams a frame when a viewer wants fps — no command, null commandId', async () => {
+  const { adapter, runtime, transports } = build()
+  adapter.attach(ID)
+  await runtime.discoverOnce()
+  const orig = adapter.execute.bind(adapter)
+  adapter.execute = (async (u, c) => {
+    if (c.kind === 'screenshot') return { result: { screenshot: { base64: 'PNGBYTES', format: 'png', width: 390, height: 844 } } }
+    return orig(u, c)
+  }) as typeof adapter.execute
+  const t = transports.get('udid-1')!
+  t.fps = 4
+  await runtime.viewerCheckOnce()   // agent caches the requested fps from viewer presence
+  await runtime.captureTickOnce()    // due immediately (lastCaptureAt = 0)
+  assert.equal(t.screenshots.length, 1, 'one frame captured + uploaded')
+  assert.equal(t.screenshots[0].commandId, null, 'continuous frame has no command id')
+  assert.equal(t.screenshots[0].frame.base64, 'PNGBYTES')
+  assert.equal(t.screenshots[0].frame.width, 390, 'device LOGICAL width preserved for coord mapping')
+  assert.equal(t.acks.length, 0, 'continuous capture does NOT enqueue/ack a command')
+})
+
+test('captureTickOnce does NOT capture when no viewer is active (fps 0)', async () => {
+  const { adapter, runtime, transports } = build()
+  adapter.attach(ID)
+  await runtime.discoverOnce()
+  const t = transports.get('udid-1')!
+  t.fps = 0
+  await runtime.viewerCheckOnce()
+  await runtime.captureTickOnce()
+  assert.equal(t.screenshots.length, 0, 'no viewer → no continuous capture (DB/CPU bounded)')
 })

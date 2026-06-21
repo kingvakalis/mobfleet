@@ -144,7 +144,7 @@ export type AgentCommandBody = z.infer<typeof agentCommandBody>
  */
 export const controlCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('tap'), deviceId: z.string().min(1).max(128), x: z.number().finite(), y: z.number().finite() }),
-  z.object({ type: z.literal('swipe'), deviceId: z.string().min(1).max(128), dir: swipeDirSchema }),
+  z.object({ type: z.literal('swipe'), deviceId: z.string().min(1).max(128), dir: swipeDirSchema, x1: z.number().finite().optional(), y1: z.number().finite().optional(), x2: z.number().finite().optional(), y2: z.number().finite().optional(), durationMs: z.number().finite().optional(), scroll: z.boolean().optional() }),
   z.object({ type: z.literal('key'), deviceId: z.string().min(1).max(128), key: keyNameSchema }),
   z.object({ type: z.literal('launch_app'), deviceId: z.string().min(1).max(128), appName: z.string().trim().min(1).max(120) }),
   z.object({ type: z.literal('screenshot'), deviceId: z.string().min(1).max(128) }),

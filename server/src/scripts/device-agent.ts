@@ -156,6 +156,12 @@ async function main(): Promise<void> {
     discoveryIntervalMs: intervalMs('DISCOVERY_INTERVAL_MS'),
     heartbeatIntervalMs: intervalMs('HEARTBEAT_INTERVAL_MS'),
     wdaCheckIntervalMs: intervalMs('WDA_CHECK_INTERVAL_MS'),
+    // Faster command pickup + the live-capture loop cadence (supabase-mode). Unset → defaults
+    // (poll 500ms, viewer-check 2s, capture tick 200ms). Frame compression comes from
+    // FRAME_WIDTH / FRAME_QUALITY / FRAME_FORMAT (see frame-compress.ts).
+    commandPollIntervalMs: intervalMs('COMMAND_POLL_INTERVAL_MS'),
+    viewerCheckIntervalMs: intervalMs('VIEWER_CHECK_INTERVAL_MS'),
+    captureTickIntervalMs: intervalMs('CAPTURE_TICK_INTERVAL_MS'),
   })
   const stop = runtime.start()
   log('agent.boot', { version: runtime.version, transport: TRANSPORT, devices: deviceMap.size })

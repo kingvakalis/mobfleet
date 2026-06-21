@@ -26,7 +26,22 @@ export function controlCommandToWire(command: ControlCommand): AgentCommandWire 
     case 'tap':
       return { deviceId: command.deviceId, action: 'tap', payload: { x: command.x, y: command.y } }
     case 'swipe':
-      return { deviceId: command.deviceId, action: 'swipe', payload: { dir: command.dir } }
+      return {
+        deviceId: command.deviceId,
+        action: 'swipe',
+        // The existing agent executes a directional `mobile: swipe {dir}`. Optional start/end
+        // LOGICAL coordinates + duration from a real screen drag ride along (payload extra keys
+        // are tolerated) for logs + a future coordinate-aware (dragFromToForDuration) agent;
+        // `scroll` marks a scroll-mode drag (still a directional swipe on iOS).
+        payload: {
+          dir: command.dir,
+          ...(command.x1 != null && command.y1 != null && command.x2 != null && command.y2 != null
+            ? { x1: command.x1, y1: command.y1, x2: command.x2, y2: command.y2 }
+            : {}),
+          ...(command.durationMs != null ? { durationMs: command.durationMs } : {}),
+          ...(command.scroll ? { scroll: true } : {}),
+        },
+      }
     case 'key':
       // home | back | lock | switcher are themselves top-level wire actions.
       return { deviceId: command.deviceId, action: command.key }

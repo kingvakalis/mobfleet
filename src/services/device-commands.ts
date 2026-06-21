@@ -65,6 +65,17 @@ export async function getLatestScreenshot(deviceId: string): Promise<DeviceScree
   return { imageBase64: r.image_base64, format: r.format ?? 'png', width: r.width, height: r.height, capturedAt: r.captured_at, commandId: r.command_id }
 }
 
+/** Mark the signed-in user as an active VIEWER of a device, with a desired frame rate
+ *  (0 = present but not live-streaming). The agent (device-key) reads device_viewer_fps and
+ *  runs its continuous capture loop only while a recent viewer wants frames — so live frames
+ *  flow WITHOUT a screenshot command per frame. Best-effort: never throws to the UI. */
+export async function markDeviceViewer(deviceId: string, fps: number): Promise<void> {
+  if (!supabase) return
+  try {
+    await sb().rpc('mark_device_viewer', { p_device_id: deviceId, p_fps: Math.max(0, Math.round(fps)) })
+  } catch { /* presence is best-effort — never block or crash the page */ }
+}
+
 /** Mint a one-time pairing token (admin/writer) the agent redeems via claim_device. */
 export async function createPairingToken(o: { teamId: string; userId: string }): Promise<{ token: string; expiresAt: string }> {
   const { data, error } = await sb().from('device_pairing_tokens').insert({ team_id: o.teamId, created_by: o.userId }).select('token,expires_at').single()
