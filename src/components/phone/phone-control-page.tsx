@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
-import { motion, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
+import { motion, AnimatePresence, useMotionValue, useSpring, useReducedMotion } from 'framer-motion'
 import {
-  ChevronLeft, ChevronRight, AlertTriangle,
+  ChevronLeft, ChevronRight, ChevronDown, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
   Camera, RefreshCw, Power,
   Send, Copy, X, Rocket, FileText,
@@ -141,15 +141,58 @@ function DPadButton({ icon, label, onClick, className = '', center, disabled }: 
 }
 
 // ─── Card wrapper ─────────────────────────────────────────────────────────────
-function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
+// `collapsible` is OPT-IN: only the cards that pass it get a header toggle. Every
+// other Card renders exactly as before (header div + always-visible body). State is
+// session-local (component-internal useState) — no global/persisted settings added.
+function Card({ title, children, className = '', collapsible = false, defaultOpen = true }: {
+  title?: string; children: React.ReactNode; className?: string; collapsible?: boolean; defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  if (!collapsible) {
+    return (
+      <div className={`rounded-xl border border-white/[0.08] bg-[#111318] ${className}`}>
+        {title && (
+          <div className="px-4 py-3 border-b border-white/[0.06]">
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+          </div>
+        )}
+        <div className="p-4">{children}</div>
+      </div>
+    )
+  }
+
+  // Collapsible: identical shell + header (same padding/typography/border) — only the
+  // BODY collapses, so the card shrinks and the left column needs less vertical space.
   return (
     <div className={`rounded-xl border border-white/[0.08] bg-[#111318] ${className}`}>
-      {title && (
-        <div className="px-4 py-3 border-b border-white/[0.06]">
-          <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
-        </div>
-      )}
-      <div className="p-4">{children}</div>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors ${open ? 'border-b border-white/[0.06]' : ''}`}
+      >
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+        <ChevronDown
+          size={14}
+          color="rgba(255,255,255,0.45)"
+          style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s ease' }}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="p-4">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -802,7 +845,7 @@ export function PhoneControlPage() {
         <div className="w-[280px] shrink-0 flex flex-col gap-3 p-3 overflow-y-auto" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
 
           {/* Device Info */}
-          <Card title="Device Info">
+          <Card title="Device Info" collapsible defaultOpen>
             <div className="flex flex-col">
               {[
                 { label: 'PHONE',    value: device.name },
@@ -834,7 +877,7 @@ export function PhoneControlPage() {
           </Card>
 
           {/* Quality Settings */}
-          <Card title="Quality Settings">
+          <Card title="Quality Settings" collapsible defaultOpen={false}>
             <p className="text-[11px] text-white/35 mb-4 leading-relaxed">Higher quality and FPS improve visibility but may increase latency.</p>
             <div className="mb-4">
               <div className="flex justify-between items-center">
