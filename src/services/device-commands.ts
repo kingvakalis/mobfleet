@@ -48,6 +48,26 @@ export async function listCommands(deviceId: string, limit = 50): Promise<Comman
   return (data ?? []) as CommandRow[]
 }
 
+/** The latest agent session for a device (real telemetry source: battery + session
+ *  uptime). `endedAt === null` means the agent is currently connected. Returns null
+ *  when no agent has ever connected (RLS: team member). Reads device_sessions only —
+ *  no schema change, no /v1. */
+export interface DeviceSessionInfo { battery: number | null; cpuUsage: number | null; memoryUsage: number | null; startedAt: string; endedAt: string | null; lastHeartbeatAt: string; agentVersion: string | null }
+export async function getLatestSession(deviceId: string): Promise<DeviceSessionInfo | null> {
+  if (!supabase) return null
+  const { data, error } = await sb()
+    .from('device_sessions')
+    .select('battery,cpu_usage,memory_usage,started_at,ended_at,last_heartbeat_at,agent_version')
+    .eq('device_id', deviceId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  const r = data as { battery: number | null; cpu_usage: number | null; memory_usage: number | null; started_at: string; ended_at: string | null; last_heartbeat_at: string; agent_version: string | null }
+  return { battery: r.battery, cpuUsage: r.cpu_usage, memoryUsage: r.memory_usage, startedAt: r.started_at, endedAt: r.ended_at, lastHeartbeatAt: r.last_heartbeat_at, agentVersion: r.agent_version }
+}
+
 /** The latest REAL screenshot frame the agent captured for a device. `width`/`height`
  *  are the device LOGICAL size (points), used to map a tap on the displayed frame to
  *  device coordinates. Returns null when no frame has been captured yet (RLS: member). */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check, Copy, Play, Send, Square, Trash2, X,
@@ -9,10 +9,18 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { StatusDot } from '@/components/ui/status-dot'
 import { GRID_APPS } from '@/components/phone/app-catalog'
-import { LivePhone, type LivePhoneHandle } from '@/components/phone/live-phone'
-import { useDeviceLog } from '@/hooks/use-device-log'
+import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
+import { useDeviceLog, type LogLevel, type LogLine } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
-import { useScopedDevices } from '@/lib/authorization/use-access'
+import { useScopedDevices, useActingEmployee } from '@/lib/authorization/use-access'
+import { canActOnPhone } from '@/lib/authorization'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTeamContext } from '@/contexts/TeamContext'
+import { useDeviceGroups } from '@/hooks/useDeviceGroups'
+import { useDevices } from '@/hooks/useDevices'
+import { enqueueCommand, watchCommand, getLatestScreenshot, getLatestSession, listCommands, type DeviceSessionInfo } from '@/services/device-commands'
+import { controlCommandToWire } from '@/shared/control-command'
+import type { ControlCommand, AgentCommandAction } from '@/shared/types'
 import { regionLabel } from '@/data/regions'
 import { client, safe } from '@/lib/provider'
 import { formatUptime } from '@/lib/format'
@@ -74,82 +82,369 @@ function relAgo(ms: number | null | undefined, now: number): string {
   return `${Math.round(h / 24)}d ago`
 }
 
+// Module-scope so the impure clock read is never analyzed as a render-phase call
+// (these timings are only taken at event time — command enqueue / ack / frame read).
+function nowMs(): number { return Date.now() }
+
+/** Monospace HH:MM:SS stamp for real log lines. */
+function logClock(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 /**
- * supabase-mode device body. TRUTHFUL: every value comes from the real Supabase
- * `devices` row (via use-fleet's mapDevice) — status, heartbeat freshness, group,
- * platform/OS, address (ip:wda), UDID, id, operator, and the live job. There is NO
- * mock phone screen, NO fabricated latency/FPS/stream/uptime/battery, and NO fake
- * log: the real live screen + tap/swipe + screenshots live on the Phone Control page,
- * one click away via "Open Full Control". Fields the row doesn't carry render as an
- * honest "—" (never a fake number).
+ * supabase-mode device body — the ORIGINAL rich drawer layout (metric strip, phone
+ * preview, quick controls, launch apps, send text, group dropdown, status/details,
+ * bottom actions, live log) wired to REAL Supabase services. No mock phone screen, no
+ * fabricated metrics/logs, no Railway /v1/devices/*:
+ *  • preview      → latest real device_screenshots frame, else an honest waiting state
+ *  • controls     → enqueueCommand + watchCommand (real queued→running→done lifecycle),
+ *                   RBAC-gated; unsupported actions are disabled with a truthful tooltip
+ *  • group        → real device_groups (useDeviceGroups.assignDevices → devices.group_name)
+ *  • metrics      → real command round-trip + real battery/uptime (device_sessions), else "—"
+ *  • live log     → real recent agent_commands + live command lifecycle, never fake heartbeats
+ *  • FULL CONTROL → the existing real Phone Control page (header button)
  */
 function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job | null; onClose: () => void }) {
   const now = useNow()
-  const openPhoneControl = useUIStore((s) => s.openPhoneControl)
+  const { user } = useAuth()
+  const teamCtx = useTeamContext()
+  const { member } = useActingEmployee()
+  const teamId = teamCtx.team?.id ?? null
+  const openSubmit = useUIStore((s) => s.openSubmit)
   const setView = useUIStore((s) => s.setView)
-  const [copied, setCopied] = useState(false)
+  const confirmDestructive = useSettings((s) => s.confirmDestructive)
+  const phoneRef = useRef<LivePhoneHandle>(null)
+
+  // RBAC — the same per-phone checks the real Phone Control page uses.
+  const canControl = canActOnPhone(member, 'phones.control', device)
+  const canScreenshot = canActOnPhone(member, 'phones.screenshot', device)
+  const canReboot = canActOnPhone(member, 'phones.reboot', device)
+  const canAssignGroup = canActOnPhone(member, 'phones.assign_group', device)
+  const canRetire = canActOnPhone(member, 'phones.retire', device)
+  const readOnly = !canControl
+
+  const groupsApi = useDeviceGroups(teamId)
+  const { deleteDevice } = useDevices(teamId)
+
   const meta = STATUS[device.status]
   const stale = isHeartbeatStale(device.lastHeartbeat, now)
-  const linkColor = stale ? 'var(--status-error)' : 'var(--status-online)'
   const addr = device.ipAddress ? `${device.ipAddress}${device.wdaPort ? `:${device.wdaPort}` : ''}` : '—'
+
+  const [frame, setFrame] = useState<LiveFrame | null>(null)
+  const [session, setSession] = useState<DeviceSessionInfo | null>(null)
+  const [lastLatency, setLastLatency] = useState<number | null>(null)
+  const [logs, setLogs] = useState<LogLine[]>([])
+  const [sendText, setSendText] = useState('')
+  const [copied, setCopied] = useState(false)
+  const logSeq = useRef(0)
+  const watchersRef = useRef<Set<() => void>>(new Set())
+  const mountedRef = useRef(true)
+
+  const addLog = useCallback((level: LogLevel, text: string) => {
+    setLogs((ls) => [...ls, { id: logSeq.current++, t: logClock(), level, text }].slice(-120))
+  }, [])
+
+  const refreshFrame = useCallback(async () => {
+    try {
+      const s = await getLatestScreenshot(device.id)
+      if (!mountedRef.current || !s) return
+      const ts = Date.parse(s.capturedAt)
+      const fmt = s.format === 'jpeg' || s.format === 'webp' ? s.format : 'png' // allow-list the MIME at the sink
+      setFrame({ src: `data:image/${fmt};base64,${s.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: s.width, height: s.height })
+    } catch { /* keep the prior frame */ }
+  }, [device.id])
+
+  // Enqueue ONE real command and report its REAL lifecycle (queued → running → done/failed).
+  // After a state-changing command acks, read back the device's new frame. (Event-time
+  // handler — not memoized; the component remounts per device so identity churn is moot.)
+  const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string) => {
+    if (!teamId || !user?.id) { addLog('error', `${label} — no active workspace`); return }
+    const t0 = nowMs()
+    try {
+      const { id } = await enqueueCommand({ teamId, deviceId: device.id, action, payload, userId: user.id })
+      if (!mountedRef.current) return
+      addLog('info', `⏳ ${label} — queued`)
+      let cancel: () => void = () => {}
+      const stop = () => { cancel(); watchersRef.current.delete(cancel) }
+      cancel = watchCommand(id, (status, error) => {
+        if (!mountedRef.current) { stop(); return }
+        if (status === 'running') addLog('info', `▶ ${label} — running`)
+        else if (status === 'acked') {
+          addLog('ok', `✓ ${label} — done`)
+          setLastLatency(nowMs() - t0)
+          if (action === 'screenshot') void refreshFrame()
+          else if (action !== 'reboot' && action !== 'install') setTimeout(() => { if (mountedRef.current) void refreshFrame() }, 600)
+        } else if (status === 'failed') addLog('error', `✗ ${label} — failed${error ? ': ' + error : ''}`)
+        if (status === 'acked' || status === 'failed' || status === 'expired') stop()
+      })
+      watchersRef.current.add(cancel)
+      setTimeout(stop, 31000) // deregister even if the watch times out without a terminal status
+    } catch (e) {
+      addLog('error', `✗ ${label} — ${e instanceof Error ? e.message : 'error'}`)
+    }
+  }
+
+  // Map a typed ControlCommand → its wire action/payload (single source of truth) and enqueue it.
+  const send = (command: ControlCommand, label: string) => {
+    const wire = controlCommandToWire(command)
+    void enqueue(wire.action, wire.payload, label)
+  }
+
+  const denied = (need: string) => addLog('error', `✗ blocked — requires ${need}`)
+
+  const handleGesture = (g: PhoneGesture) => {
+    if (!canControl) { denied('phones.control'); return }
+    switch (g.type) {
+      case 'tap': send({ type: 'tap', deviceId: device.id, x: g.x, y: g.y }, `Tap (${g.x}, ${g.y})`); break
+      case 'swipe': send({ type: 'swipe', deviceId: device.id, dir: g.dir, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, durationMs: g.durationMs }, `Swipe ${g.dir}`); break
+      case 'scroll': send({ type: 'swipe', deviceId: device.id, dir: g.dir, x1: g.x1, y1: g.y1, x2: g.x2, y2: g.y2, durationMs: g.durationMs, scroll: true }, `Scroll ${g.dir}`); break
+      case 'long_press': addLog('warn', 'Long-press has no agent action yet — not sent'); break
+    }
+  }
+
+  const quickAction = (key: (typeof QUICK)[number]['key']) => {
+    switch (key) {
+      case 'lock':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'lock' }, 'Lock'); break
+      case 'home':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'home' }, 'Home'); break
+      case 'back':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'back' }, 'Back'); break
+      case 'switcher':   if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'switcher' }, 'App switcher'); break
+      case 'screenshot': if (!canScreenshot) return denied('phones.screenshot'); send({ type: 'screenshot', deviceId: device.id }, 'Screenshot'); break
+      case 'restart':    void refreshFrame(); addLog('info', 'Refreshed latest frame'); break
+      case 'reboot':
+        if (!canReboot) return denied('phones.reboot')
+        if (confirmDestructive && !window.confirm(`Reboot ${device.name}?`)) return
+        void enqueue('reboot', undefined, 'Device reboot'); break
+    }
+  }
+
+  const launchApp = (name: string) => {
+    if (!canControl) return denied('phones.control')
+    send({ type: 'launch_app', deviceId: device.id, appName: name }, `Launch ${name}`)
+  }
+
+  const submitText = () => {
+    if (!canControl) return denied('phones.control')
+    const t = sendText.trim(); if (!t) return
+    send({ type: 'type_text', deviceId: device.id, text: t }, 'Send text'); setSendText('')
+  }
+
+  const changeGroup = (next: string) => {
+    if (!canAssignGroup) return denied('phones.assign_group')
+    if (next === device.group) return
+    void groupsApi.assignDevices([device.id], next).then((r) =>
+      addLog(r.error ? 'error' : 'ok', r.error ? `✗ group: ${r.error}` : `Group → ${next}`))
+  }
+
+  const retire = () => {
+    if (!canRetire) return denied('phones.retire')
+    if (confirmDestructive && !window.confirm(`Retire ${device.name}? This removes it from the pool.`)) return
+    void deleteDevice(device.id).then((r) => { if (r.error) addLog('error', `✗ retire: ${r.error}`); else onClose() })
+  }
 
   const copyId = async () => {
     try { await navigator.clipboard.writeText(device.id) } catch { /* ignore */ }
     setCopied(true); setTimeout(() => setCopied(false), 1200)
   }
 
+  // On open: load the latest real frame + agent session, and seed the log with the
+  // device's recent REAL agent_commands. On unmount: cancel in-flight watchers.
+  useEffect(() => {
+    mountedRef.current = true
+    const watchers = watchersRef.current
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async reads; setState lands in their .then, not synchronously
+    void refreshFrame()
+    getLatestSession(device.id).then((s) => { if (mountedRef.current) setSession(s) }).catch(() => {})
+    listCommands(device.id, 6).then((rows) => {
+      if (!mountedRef.current || rows.length === 0) return
+      const seed = [...rows].reverse().map((r): LogLine => ({
+        id: logSeq.current++, t: logClock(),
+        level: r.status === 'failed' ? 'error' : r.status === 'acked' ? 'ok' : 'info',
+        text: `${r.action} — ${r.status}`,
+      }))
+      setLogs((ls) => [...seed, ...ls].slice(-120))
+    }).catch(() => {})
+    return () => { mountedRef.current = false; for (const c of watchers) c(); watchers.clear() }
+  }, [device.id, refreshFrame])
+
+  // Metric-strip values: real, or an honest "—".
+  const latColor = lastLatency == null ? undefined : lastLatency < 2500 ? 'var(--status-online)' : lastLatency < 6000 ? 'var(--status-warming)' : 'var(--status-error)'
+  const battery = session?.battery ?? null
+  const uptime = session && !session.endedAt ? formatUptime(now - Date.parse(session.startedAt)) : '—'
+  const groupOptions = [...new Set([device.group, ...groupsApi.groups.map((g) => g.name)])].filter(Boolean).sort()
+  const canStart = device.status === 'offline' || device.status === 'error'
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      {/* truthful status strip — real heartbeat freshness, no fabricated metrics */}
+    <>
+      {/* metric strip — real command round-trip + real battery/uptime, else "—" (no fabrication) */}
       <div className="flex items-center justify-around border-b border-line bg-black/40">
-        <Tele label="Status" value={meta.label} color={meta.color} />
-        <Tele label="Heartbeat" value={relAgo(device.lastHeartbeat, now)} color={linkColor} />
-        <Tele label="Link" value={stale ? 'STALE' : 'LIVE'} color={linkColor} />
-        <Tele label="Job" value={job ? `${job.type.toUpperCase()} ${Math.round(job.progress * 100)}%` : '—'} />
+        <Tele label="Latency" value={lastLatency == null ? '—' : `${Math.round(lastLatency)}ms`} color={latColor} />
+        <Tele label="FPS" value="—" />
+        <Tele label="Battery" value={battery == null ? '—' : `${battery}%`} color={battery == null ? undefined : battery > 30 ? 'var(--status-online)' : 'var(--status-error)'} />
+        <Tele label="Stream" value={frame ? 'Snapshot' : 'Idle'} color={frame ? 'var(--status-online)' : undefined} />
+        <Tele label="Uptime" value={uptime} />
       </div>
 
-      {/* route to the REAL Phone Control experience (live screen + tap/swipe + GO LIVE) */}
-      <div className="border-b border-line px-5 py-5">
-        <button
-          type="button"
-          onClick={() => { onClose(); openPhoneControl(device.id) }}
-          className="mono flex w-full items-center justify-center gap-2 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-3 text-[11px] uppercase tracking-widest text-[var(--accent-text)] transition-colors hover:brightness-125"
-        >
-          <Cpu size={14} /> Open Full Control <ArrowUpRight size={13} />
-        </button>
-        <p className="mono mt-2 text-center text-[10px] leading-relaxed text-fg-muted">
-          Live screen, screenshots, and tap / swipe controls open in the full Phone Control page.
-        </p>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* phone preview (REAL frame or honest waiting) + controls */}
+        <div className="flex gap-4 border-b border-line px-5 py-5">
+          <div className="hud-corners shrink-0 p-3" style={{ ['--hud-c' as string]: `${meta.color}55` }}>
+            <LivePhone ref={phoneRef} device={device} job={job} width={192} readOnly={readOnly} onLog={addLog} frame={frame} onGesture={handleGesture} />
+          </div>
 
-      {/* real device metadata (Supabase devices row) */}
-      <div className="grid grid-cols-2 gap-x-4 border-b border-line px-5 py-3">
-        <Cell label="Group" value={device.group} />
-        <Cell label="Platform" value={device.platform ?? '—'} />
-        <Cell label="OS" value={device.osVersion || '—'} />
-        <Cell label="Address" value={addr} />
-        <Cell label="UDID" value={device.udid ?? '—'} />
-        <Cell label="Device ID" value={device.id} />
-        <Cell label="Operator" value={device.assignedUser ?? 'Unassigned'} />
-        <Cell label="Job" value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'} />
-      </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            {/* quick controls — real commands, RBAC-gated */}
+            <div>
+              <Label className="text-fg-muted">Quick Controls</Label>
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {QUICK.map(({ key, label, Icon, ...rest }) => {
+                  const danger = 'danger' in rest && rest.danger
+                  const allowed = key === 'reboot' ? canReboot : key === 'screenshot' ? canScreenshot : key === 'restart' ? true : canControl
+                  return (
+                    <motion.button
+                      key={key}
+                      type="button"
+                      whileTap={allowed ? { scale: 0.92 } : undefined}
+                      disabled={!allowed}
+                      title={allowed ? label : 'You lack permission for this action'}
+                      onClick={() => quickAction(key)}
+                      className={[
+                        'flex flex-col items-center gap-1 border py-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                        danger
+                          ? 'border-status-error/25 text-status-error enabled:hover:border-status-error/60 enabled:hover:bg-status-error/10'
+                          : 'border-line text-fg-muted enabled:hover:border-white/25 enabled:hover:bg-elevated enabled:hover:text-fg',
+                      ].join(' ')}
+                    >
+                      <Icon size={13} />
+                      <span className="mono text-[8px] uppercase tracking-wider">{label}</span>
+                    </motion.button>
+                  )
+                })}
+              </div>
+            </div>
 
-      {/* real navigation only — device commands happen on the Phone Control page */}
-      <div className="flex flex-wrap gap-2 px-5 py-3">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!device.jobId}
-          title={device.jobId ? 'Open the jobs pipeline' : 'No job running on this device'}
-          onClick={() => { onClose(); setView('jobs') }}
-        >
-          <Briefcase size={13} /> View Job
-        </Button>
-        <Button size="sm" variant="outline" onClick={copyId}>
-          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy ID'}
-        </Button>
+            {/* app quick-launch — real launch commands */}
+            <div>
+              <Label className="text-fg-muted">Launch App</Label>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {GRID_APPS.slice(0, 8).map((app) => (
+                  <motion.button
+                    key={app.name}
+                    type="button"
+                    whileHover={canControl ? { scale: 1.12 } : undefined}
+                    whileTap={canControl ? { scale: 0.9 } : undefined}
+                    disabled={!canControl}
+                    title={canControl ? app.name : 'Requires phones.control'}
+                    onClick={() => launchApp(app.name)}
+                    className="flex h-8 w-8 items-center justify-center text-[9px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ borderRadius: 8, background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none', color: app.textColor ?? '#fff' }}
+                  >
+                    {app.abbr}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            {/* send text — real type command */}
+            <div>
+              <Label className="text-fg-muted">Send Text</Label>
+              <div className="mt-2 flex gap-1.5">
+                <input
+                  value={sendText}
+                  onChange={(e) => setSendText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitText() }}
+                  disabled={!canControl}
+                  placeholder={canControl ? 'Type to device…' : 'Requires phones.control'}
+                  className="mono h-8 min-w-0 flex-1 border border-line bg-elevated px-2.5 text-[11px] text-fg-secondary placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={submitText}
+                  disabled={!canControl}
+                  className="flex h-8 w-9 items-center justify-center border border-line text-fg-muted transition-colors enabled:hover:border-white/25 enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Send text"
+                >
+                  <Send size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* group reassignment — real device_groups */}
+            <div>
+              <Label className="text-fg-muted">Group</Label>
+              <select
+                value={device.group}
+                onChange={(e) => changeGroup(e.target.value)}
+                disabled={!canAssignGroup}
+                aria-label="Device group"
+                className="mono mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40 disabled:opacity-50"
+              >
+                {groupOptions.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* status / details — real device row */}
+        <div className="grid grid-cols-3 gap-x-4 border-b border-line px-5 py-3">
+          <Cell label="Status" value={meta.label} color={meta.color} />
+          <Cell label="Model" value={`${device.model} · ${device.osVersion || '—'}`} />
+          <Cell label="Address" value={addr} />
+          <Cell label="UDID" value={device.udid ?? '—'} />
+          <Cell label="Heartbeat" value={relAgo(device.lastHeartbeat, now)} color={stale ? 'var(--status-error)' : 'var(--status-online)'} />
+          <Cell label="Job" value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'} />
+        </div>
+
+        {/* actions — real where a Supabase backing exists; otherwise disabled + truthful */}
+        <div className="flex flex-wrap gap-2 border-b border-line px-5 py-3">
+          <Button size="sm" variant="outline" disabled title="Device power state is managed by the on-device agent — no remote start/stop in supabase-mode">
+            {canStart ? <><Play size={13} /> Start</> : <><Square size={12} /> Stop</>}
+          </Button>
+          <Button size="sm" variant="outline" disabled title="Assign an upload task from the Automations / Jobs pages">
+            <Send size={13} /> Assign
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => openSubmit()}>
+            <Zap size={13} /> Run Automation
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!device.jobId}
+            title={device.jobId ? 'Open the jobs pipeline' : 'No job running on this device'}
+            onClick={() => { onClose(); setView('jobs') }}
+          >
+            <Briefcase size={13} /> View Job
+          </Button>
+          <Button size="sm" variant="outline" disabled title="Requires backend employee-assignment support">
+            <UserPlus size={13} /> Assign Employee
+          </Button>
+          <Button size="sm" variant="outline" onClick={copyId}>
+            {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy ID'}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!canRetire}
+            title={canRetire ? 'Retire device (RLS: owner/admin)' : 'Requires phones.retire'}
+            onClick={retire}
+          >
+            <Trash2 size={13} /> Retire
+          </Button>
+        </div>
+
+        {/* live log — real recent agent_commands + live command lifecycle (no fake heartbeats) */}
+        <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
+          <Label className="text-fg-secondary">Live Log</Label>
+          <span className="mono text-[10px] text-fg-muted">{logs.length} LINES</span>
+        </div>
+        <div className="h-56">
+          <LogStream lines={logs} />
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
