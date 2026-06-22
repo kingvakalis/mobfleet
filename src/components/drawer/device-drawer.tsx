@@ -20,6 +20,11 @@ import { EXPO_OUT } from '@/lib/motion'
 import { STATUS } from '@/lib/status'
 import { useUIStore } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
+import { AUTH_SOURCE } from '@/auth/auth-source'
+import { isSupabaseConfigured } from '@/lib/supabase'
+import { isHeartbeatStale } from '@/shared/heartbeat'
+import { useNow } from '@/hooks/use-now'
+import type { Device, Job } from '@/lib/provider/types'
 import { LogStream } from './log-stream'
 
 function Cell({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -59,6 +64,95 @@ const QUICK = [
   { key: 'reboot',     label: 'Reboot',   Icon: Power, danger: true },
 ] as const
 
+/** Relative age of an epoch-ms timestamp against a live clock (null → never). */
+function relAgo(ms: number | null | undefined, now: number): string {
+  if (ms == null) return 'never'
+  const s = Math.max(0, Math.round((now - ms) / 1000))
+  if (s < 60) return `${s}s ago`
+  const m = Math.round(s / 60); if (m < 60) return `${m}m ago`
+  const h = Math.round(m / 60); if (h < 24) return `${h}h ago`
+  return `${Math.round(h / 24)}d ago`
+}
+
+/**
+ * supabase-mode device body. TRUTHFUL: every value comes from the real Supabase
+ * `devices` row (via use-fleet's mapDevice) — status, heartbeat freshness, group,
+ * platform/OS, address (ip:wda), UDID, id, operator, and the live job. There is NO
+ * mock phone screen, NO fabricated latency/FPS/stream/uptime/battery, and NO fake
+ * log: the real live screen + tap/swipe + screenshots live on the Phone Control page,
+ * one click away via "Open Full Control". Fields the row doesn't carry render as an
+ * honest "—" (never a fake number).
+ */
+function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job | null; onClose: () => void }) {
+  const now = useNow()
+  const openPhoneControl = useUIStore((s) => s.openPhoneControl)
+  const setView = useUIStore((s) => s.setView)
+  const [copied, setCopied] = useState(false)
+  const meta = STATUS[device.status]
+  const stale = isHeartbeatStale(device.lastHeartbeat, now)
+  const linkColor = stale ? 'var(--status-error)' : 'var(--status-online)'
+  const addr = device.ipAddress ? `${device.ipAddress}${device.wdaPort ? `:${device.wdaPort}` : ''}` : '—'
+
+  const copyId = async () => {
+    try { await navigator.clipboard.writeText(device.id) } catch { /* ignore */ }
+    setCopied(true); setTimeout(() => setCopied(false), 1200)
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* truthful status strip — real heartbeat freshness, no fabricated metrics */}
+      <div className="flex items-center justify-around border-b border-line bg-black/40">
+        <Tele label="Status" value={meta.label} color={meta.color} />
+        <Tele label="Heartbeat" value={relAgo(device.lastHeartbeat, now)} color={linkColor} />
+        <Tele label="Link" value={stale ? 'STALE' : 'LIVE'} color={linkColor} />
+        <Tele label="Job" value={job ? `${job.type.toUpperCase()} ${Math.round(job.progress * 100)}%` : '—'} />
+      </div>
+
+      {/* route to the REAL Phone Control experience (live screen + tap/swipe + GO LIVE) */}
+      <div className="border-b border-line px-5 py-5">
+        <button
+          type="button"
+          onClick={() => { onClose(); openPhoneControl(device.id) }}
+          className="mono flex w-full items-center justify-center gap-2 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-3 text-[11px] uppercase tracking-widest text-[var(--accent-text)] transition-colors hover:brightness-125"
+        >
+          <Cpu size={14} /> Open Full Control <ArrowUpRight size={13} />
+        </button>
+        <p className="mono mt-2 text-center text-[10px] leading-relaxed text-fg-muted">
+          Live screen, screenshots, and tap / swipe controls open in the full Phone Control page.
+        </p>
+      </div>
+
+      {/* real device metadata (Supabase devices row) */}
+      <div className="grid grid-cols-2 gap-x-4 border-b border-line px-5 py-3">
+        <Cell label="Group" value={device.group} />
+        <Cell label="Platform" value={device.platform ?? '—'} />
+        <Cell label="OS" value={device.osVersion || '—'} />
+        <Cell label="Address" value={addr} />
+        <Cell label="UDID" value={device.udid ?? '—'} />
+        <Cell label="Device ID" value={device.id} />
+        <Cell label="Operator" value={device.assignedUser ?? 'Unassigned'} />
+        <Cell label="Job" value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'} />
+      </div>
+
+      {/* real navigation only — device commands happen on the Phone Control page */}
+      <div className="flex flex-wrap gap-2 px-5 py-3">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!device.jobId}
+          title={device.jobId ? 'Open the jobs pipeline' : 'No job running on this device'}
+          onClick={() => { onClose(); setView('jobs') }}
+        >
+          <Briefcase size={13} /> View Job
+        </Button>
+        <Button size="sm" variant="outline" onClick={copyId}>
+          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy ID'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /** Per-device content — keyed by deviceId so logs/telemetry reseed when the
  *  selection moves to another phone (the panel shell itself stays mounted). */
 function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
@@ -68,6 +162,10 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
   const scopedDevices = useScopedDevices()
   const device = scopedDevices.find((d) => d.id === deviceId)
   const job = device?.jobId ? snapshot.jobs.find((j) => j.id === device.jobId) ?? null : null
+  // supabase-mode (production): render a TRUTHFUL body (real Supabase data + route to
+  // the real Phone Control page) instead of the mock phone/controls/log, which only
+  // make sense for the demo/me-mode in-memory provider. me-mode/demo keep the old body.
+  const supabaseMode = AUTH_SOURCE === 'supabase' && isSupabaseConfigured
   const { lines: logs, push } = useDeviceLog(deviceId)
   const phoneRef = useRef<LivePhoneHandle>(null)
   const [copied, setCopied] = useState(false)
@@ -78,18 +176,20 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
   const pinned = useUIStore((s) => s.drawerPinned)
   const togglePinned = useUIStore((s) => s.toggleDrawerPinned)
 
-  // Simulated stream telemetry — alive numbers, same spirit as the control page.
+  // Simulated stream telemetry — alive numbers for the demo/me-mode mock body only.
+  // In supabase-mode it never runs (that body shows REAL heartbeat freshness instead).
   const [latency, setLatency] = useState(41)
   const [fps, setFps] = useState(18)
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
+    if (supabaseMode) return
     const id = setInterval(() => {
       setLatency((v) => Math.round(Math.min(80, Math.max(20, v + (Math.random() - 0.5) * 14))))
       setFps((v) => Math.round(Math.min(30, Math.max(14, v + (Math.random() - 0.5) * 3))))
       setNow(Date.now())
     }, 1400)
     return () => clearInterval(id)
-  }, [])
+  }, [supabaseMode])
 
   const groupOptions = [...new Set(snapshot.devices.map((d) => d.group))].sort()
 
@@ -178,6 +278,9 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
       </div>
 
       {device && meta ? (
+        supabaseMode ? (
+          <SupabaseDeviceBody device={device} job={job} onClose={onClose} />
+        ) : (
         <>
           {/* live stream telemetry */}
           <div className="flex items-center justify-around border-b border-line bg-black/40">
@@ -376,6 +479,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
             </div>
           </div>
         </>
+        )
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
           <Label className="text-fg-muted">Device Retired</Label>
