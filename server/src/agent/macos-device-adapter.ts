@@ -21,7 +21,7 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome } from './device-adapter'
+import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome, AppInstallState } from './device-adapter'
 import type { DeviceIdentity, DeviceTelemetry } from './types'
 
 const run = promisify(execFile)
@@ -161,12 +161,20 @@ export class MacosDeviceControlAdapter implements DeviceControlAdapter {
         await this.wda(base, 'POST', '/wda/unlock')
         return {}
       case 'launch':
-        // Launching by app name requires a name→bundleId map maintained on the
-        // host; without it, surface a clear, non-retryable error.
-        throw Object.assign(new Error(`launch requires a bundleId mapping for "${command.appName}"`), { code: 'LAUNCH_UNMAPPED' })
+        // App launch/terminate/detection need the Appium adapter (--appium); the direct-WDA
+        // build can't reliably manage apps. Surface a clear, non-retryable error.
+        throw Object.assign(new Error(`app launch requires the Appium adapter (--appium) for "${command.bundleId ?? command.appName ?? ''}"`), { code: 'LAUNCH_UNSUPPORTED' })
+      case 'terminate':
+        throw Object.assign(new Error('app terminate requires the Appium adapter (--appium)'), { code: 'TERMINATE_UNSUPPORTED' })
       case 'install':
         throw Object.assign(new Error('install not supported by this adapter build'), { code: 'INSTALL_UNSUPPORTED' })
     }
+  }
+
+  /** The direct-WDA adapter can't reliably probe arbitrary bundle ids → report all as
+   *  not-installed (never fabricated). Use the Appium adapter (--appium) for detection. */
+  async queryInstalledApps(_udid: string, bundleIds: string[]): Promise<AppInstallState[]> {
+    return bundleIds.map((bundleId) => ({ bundleId, installed: false }))
   }
 
   private async wda(base: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {

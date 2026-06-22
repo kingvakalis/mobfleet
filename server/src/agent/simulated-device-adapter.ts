@@ -9,7 +9,7 @@
  *
  * It NEVER touches the OS, network, or filesystem.
  */
-import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome } from './device-adapter'
+import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome, AppInstallState } from './device-adapter'
 import type { DeviceIdentity, DeviceTelemetry } from './types'
 
 interface SimDevice {
@@ -113,5 +113,16 @@ export class SimulatedDeviceControlAdapter implements DeviceControlAdapter {
       return { result: { screenshot: `sim://${udid}/${Date.now()}` } }
     }
     return {}
+  }
+
+  /** Deterministic, OS-free app detection: Apple (com.apple.*) apps + Instagram are
+   *  "installed", everything else is not — so tests/sim show that only DETECTED apps
+   *  surface, never a fabricated full list. */
+  async queryInstalledApps(udid: string, bundleIds: string[]): Promise<AppInstallState[]> {
+    if (!this.devices.has(udid)) throw new Error(`device not attached: ${udid}`)
+    return bundleIds.map((bundleId) => ({
+      bundleId,
+      installed: bundleId.startsWith('com.apple.') || bundleId === 'com.burbn.instagram',
+    }))
   }
 }

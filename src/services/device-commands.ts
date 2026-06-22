@@ -113,6 +113,63 @@ export function subscribeDeviceScreenshots(deviceId: string, onFrame: (s: Device
   return () => { void client.removeChannel(ch) }
 }
 
+// ─── Installed-app inventory + per-user visibility ──────────────────────────────
+
+let appsSeq = 0
+
+/** A real installed app the agent detected on a device (device_apps, installed = true). */
+export interface DeviceApp { bundleId: string; name: string; abbr: string | null; iconColor: string | null; source: string; detectedAt: string }
+
+/** Installed apps for a device (RLS: team member). Only apps the agent CONFIRMED installed. */
+export async function listDeviceApps(deviceId: string): Promise<DeviceApp[]> {
+  if (!supabase) return []
+  const { data, error } = await sb()
+    .from('device_apps')
+    .select('bundle_id,name,abbr,icon_color,source,detected_at')
+    .eq('device_id', deviceId)
+    .eq('installed', true)
+    .order('name', { ascending: true })
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Array<{ bundle_id: string; name: string; abbr: string | null; icon_color: string | null; source: string; detected_at: string }>)
+    .map((r) => ({ bundleId: r.bundle_id, name: r.name, abbr: r.abbr, iconColor: r.icon_color, source: r.source, detectedAt: r.detected_at }))
+}
+
+/** The signed-in user's visibility prefs for a device (RLS auto-scopes to auth.uid()). */
+export interface AppPreference { bundleId: string; visible: boolean }
+export async function getAppPreferences(deviceId: string): Promise<AppPreference[]> {
+  if (!supabase) return []
+  const { data, error } = await sb().from('user_device_app_preferences').select('bundle_id,visible').eq('device_id', deviceId)
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as Array<{ bundle_id: string; visible: boolean }>).map((r) => ({ bundleId: r.bundle_id, visible: r.visible }))
+}
+
+/** Upsert the signed-in user's show/hide for one app on one device (RLS: own row + member). */
+export async function setAppVisibility(o: { userId: string; teamId: string; deviceId: string; bundleId: string; visible: boolean }): Promise<{ error?: string }> {
+  if (!supabase) return { error: 'Supabase is not configured' }
+  const { error } = await sb()
+    .from('user_device_app_preferences')
+    .upsert(
+      { user_id: o.userId, team_id: o.teamId, device_id: o.deviceId, bundle_id: o.bundleId, visible: o.visible },
+      { onConflict: 'user_id,device_id,bundle_id' },
+    )
+  if (error) return { error: error.message }
+  return {}
+}
+
+/** Subscribe to device_apps changes for a device (fires onChange after the agent re-detects).
+ *  Inert (and self-torn-down) if device_apps isn't in the realtime publication. */
+export function subscribeDeviceApps(deviceId: string, onChange: () => void): () => void {
+  if (!supabase) return () => {}
+  const client = sb()
+  const ch = client
+    .channel(`devapps:${deviceId}:${++appsSeq}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'device_apps', filter: `device_id=eq.${deviceId}` }, () => onChange())
+  ch.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') void client.removeChannel(ch)
+  })
+  return () => { void client.removeChannel(ch) }
+}
+
 /** Mint a one-time pairing token (admin/writer) the agent redeems via claim_device. */
 export async function createPairingToken(o: { teamId: string; userId: string }): Promise<{ token: string; expiresAt: string }> {
   const { data, error } = await sb().from('device_pairing_tokens').insert({ team_id: o.teamId, created_by: o.userId }).select('token,expires_at').single()

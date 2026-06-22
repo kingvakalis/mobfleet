@@ -93,9 +93,14 @@ export function formatCommandLog(action: AgentCommandAction, payload?: Record<st
       return `Typed ${n} character${n === 1 ? '' : 's'}`
     }
     case 'launch': {
-      const appName = str(p.appName)
+      const appName = str(p.appName) ?? str(p.bundleId)
       return appName ? `Opened app: ${appName}` : 'Opened app'
     }
+    case 'terminate': {
+      const bundleId = str(p.bundleId)
+      return bundleId ? `Closed app: ${bundleId}` : 'Closed app'
+    }
+    case 'refresh_apps': return 'Refreshed installed apps'
     case 'home': return 'Pressed Home'
     case 'back': return 'Pressed Back'
     case 'switcher': return 'Opened app switcher'

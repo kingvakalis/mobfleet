@@ -89,6 +89,7 @@ export const assignGroupBody = z.object({
 // `back`/`switcher` navigation keys driven by the live Phone Control surface.
 export const agentCommandActionSchema = z.enum([
   'screenshot', 'tap', 'swipe', 'type', 'home', 'back', 'lock', 'unlock', 'switcher', 'launch', 'install', 'reboot',
+  'terminate', 'refresh_apps',
 ])
 export type AgentCommandAction = z.infer<typeof agentCommandActionSchema>
 
@@ -128,11 +129,19 @@ export const agentCommandBody = z
         if (typeof p.text !== 'string' || p.text.length < 1) fail('type requires non-empty text')
         else if (p.text.length > MAX_TYPED_TEXT) fail(`text exceeds ${MAX_TYPED_TEXT} characters`)
         break
-      case 'launch':
-        if (typeof p.appName !== 'string' || p.appName.trim().length < 1) fail('launch requires a non-empty appName')
-        else if (p.appName.length > 120) fail('appName exceeds 120 characters')
+      case 'launch': {
+        const hasBundle = typeof p.bundleId === 'string' && p.bundleId.trim().length > 0
+        const hasName = typeof p.appName === 'string' && p.appName.trim().length > 0
+        if (!hasBundle && !hasName) fail('launch requires a bundleId or appName')
+        else if (hasBundle && (p.bundleId as string).length > 200) fail('bundleId exceeds 200 characters')
+        else if (hasName && (p.appName as string).length > 120) fail('appName exceeds 120 characters')
         break
-      // screenshot / home / back / lock / unlock / switcher / reboot / install: no payload required
+      }
+      case 'terminate':
+        if (typeof p.bundleId !== 'string' || p.bundleId.trim().length < 1) fail('terminate requires a non-empty bundleId')
+        else if (p.bundleId.length > 200) fail('bundleId exceeds 200 characters')
+        break
+      // screenshot/home/back/lock/unlock/switcher/reboot/install/refresh_apps: no payload required
     }
   })
 export type AgentCommandBody = z.infer<typeof agentCommandBody>

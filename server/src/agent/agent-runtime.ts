@@ -23,6 +23,7 @@ import { WdaPortAllocator } from './wda-port-allocator'
 import { CommandExecutor } from './command-executor'
 import { AGENT_VERSION } from './types'
 import type { AgentCommandFrame, DeviceIdentity, ExecResult, ManagedDevice } from './types'
+import { SUPPORTED_APPS, SUPPORTED_BUNDLE_IDS, appSource } from '../../../src/shared/supported-apps'
 import { compressFrame, compressionConfigFromEnv, type FrameCompressionConfig } from './frame-compress'
 
 /** The control-plane transport the agent talks to, for ONE device (one API key).
@@ -51,6 +52,9 @@ export interface AgentTransport {
    *  implements it (device-key RPC → device_screenshots) so the dashboard renders the
    *  actual device screen; me-mode has no counterpart and simply skips it. */
   putScreenshot?(commandId: string | null, frame: ScreenshotFrame): Promise<void>
+  /** Upload the device's detected installed-app inventory (optional). supabase-mode
+   *  implements it (device-key RPC → device_apps); me-mode skips it. */
+  putApps?(apps: DetectedApp[]): Promise<void>
 }
 
 /** A captured device screenshot ready for transport. `width`/`height` are the device
@@ -60,6 +64,16 @@ export interface ScreenshotFrame {
   format: string
   width: number | null
   height: number | null
+}
+
+/** One detected installed-app row the agent uploads (mirrors put_device_apps args). */
+export interface DetectedApp {
+  bundle_id: string
+  name: string
+  abbr: string | null
+  icon_color: string | null
+  installed: boolean
+  source: string
 }
 
 /** Pull a real screenshot frame out of a command's ExecResult (screenshot success
@@ -203,6 +217,31 @@ export class AgentRuntime {
     // Wire push delivery for this device's transport (if supported).
     transport.onPushedCommand?.((frame) => void this.handleCommand(udid, frame))
     this.log('agent.device.up', { udid, deviceId: transport.deviceId, port, wdaReady, agentVersion: this.version })
+    // Detect the installed-app inventory once the device is up (best-effort, async).
+    if (wdaReady) void this.refreshApps(udid)
+  }
+
+  /** Probe the supported catalog on a device → inventory rows (installed true/false). */
+  private async detectApps(udid: string): Promise<DetectedApp[]> {
+    const states = await this.adapter.queryInstalledApps(udid, [...SUPPORTED_BUNDLE_IDS])
+    const installed = new Map(states.map((s) => [s.bundleId, s.installed]))
+    return SUPPORTED_APPS.map((a) => ({
+      bundle_id: a.bundleId, name: a.name, abbr: a.abbr, icon_color: a.color,
+      installed: installed.get(a.bundleId) ?? false, source: appSource(a.bundleId),
+    }))
+  }
+
+  /** Detect installed apps + upload the inventory for one device (best-effort). */
+  async refreshApps(udid: string): Promise<void> {
+    const slot = this.slots.get(udid)
+    if (!slot || !slot.transport.putApps) return
+    try {
+      const apps = await this.detectApps(udid)
+      await slot.transport.putApps(apps)
+      this.log('agent.apps.detected', { udid, installed: apps.filter((a) => a.installed).length, total: apps.length })
+    } catch (err) {
+      this.log('agent.apps.detect_error', { udid, error: errMsg(err) })
+    }
   }
 
   private async tearDown(udid: string): Promise<void> {
@@ -284,6 +323,23 @@ export class AgentRuntime {
     if (frame.expiresAt && frame.expiresAt <= Date.now()) {
       this.log('agent.command.expired', { udid, commandId: frame.commandId })
       return // the server's reaper will fail it; don't execute a stale command
+    }
+    // App-inventory refresh is a META-command (not a device gesture): detect installed
+    // apps + upload the inventory, then ACK truthfully (running → done/failed).
+    if (frame.action === 'refresh_apps') {
+      await slot.transport.markRunning?.(frame.commandId).catch((err) => this.log('agent.markrunning.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
+      let result: ExecResult
+      try {
+        if (!slot.transport.putApps) throw Object.assign(new Error('app inventory not supported by this transport'), { code: 'APPS_UNSUPPORTED' })
+        if (!(await this.adapter.isWdaHealthy(udid))) throw Object.assign(new Error('WebDriverAgent is not healthy for this device'), { code: 'WDA_UNHEALTHY' })
+        await slot.transport.putApps(await this.detectApps(udid))
+        result = { success: true }
+      } catch (err) {
+        const code = (err as { code?: string }).code
+        result = { success: false, error: { code: typeof code === 'string' ? code : 'REFRESH_FAILED', message: errMsg(err), retryable: true } }
+      }
+      await slot.transport.ackCommand(frame.commandId, result).catch((err) => this.log('agent.ack.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
+      return
     }
     // Ack-start (optional): surface the command as running before we execute it.
     await slot.transport.markRunning?.(frame.commandId).catch((err) => this.log('agent.markrunning.error', { udid, commandId: frame.commandId, error: errMsg(err) }))

@@ -28,9 +28,17 @@ export type AdapterCommand =
   | { kind: 'switcher' }
   | { kind: 'lock' }
   | { kind: 'unlock' }
-  | { kind: 'launch'; appName: string }
+  | { kind: 'launch'; appName?: string; bundleId?: string }
+  | { kind: 'terminate'; bundleId: string }
   | { kind: 'install'; appName?: string }
   | { kind: 'reboot' }
+
+/** One supported app's install state on a device, as the agent detected it. */
+export interface AppInstallState {
+  bundleId: string
+  /** True ONLY when the agent confirmed the app is installed; unknown → false. */
+  installed: boolean
+}
 
 /** What an adapter returns from executing a command. `result` carries optional
  *  action output (e.g. a screenshot reference) — NEVER secrets or raw payloads. */
@@ -74,4 +82,12 @@ export interface DeviceControlAdapter {
 
   /** Execute one command against a device whose WDA is healthy. */
   execute(udid: string, command: AdapterCommand): Promise<AdapterExecOutcome>
+
+  /**
+   * Probe which of the given bundle ids are INSTALLED on the device. iOS has no
+   * unrestricted app listing, so this tests each supported bundle id individually
+   * (queryAppState). A bundle whose state can't be determined comes back
+   * installed:false — never fabricated as installed.
+   */
+  queryInstalledApps(udid: string, bundleIds: string[]): Promise<AppInstallState[]>
 }

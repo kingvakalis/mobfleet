@@ -12,6 +12,7 @@ export type DeviceStatus = 'online' | 'busy' | 'warming' | 'offline' | 'error'
  *  the navigation keys driven by the live Phone Control surface. */
 export type AgentCommandAction =
   | 'screenshot' | 'tap' | 'swipe' | 'type' | 'home' | 'back' | 'lock' | 'unlock' | 'switcher' | 'launch' | 'install' | 'reboot'
+  | 'terminate' | 'refresh_apps'
 
 /** Result of queueing a command (POST /v1/agent/command). */
 export interface QueuedCommand {

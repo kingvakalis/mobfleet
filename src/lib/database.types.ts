@@ -360,6 +360,81 @@ export interface Database {
           { foreignKeyName: 'device_screenshots_command_id_fkey'; columns: ['command_id']; referencedRelation: 'agent_commands'; referencedColumns: ['id'] },
         ]
       }
+      device_apps: {
+        Row: {
+          id: string
+          team_id: string
+          device_id: string
+          bundle_id: string
+          name: string
+          abbr: string | null
+          icon_color: string | null
+          installed: boolean
+          source: 'detected' | 'manual' | 'system'
+          detected_at: string
+        }
+        Insert: {
+          id?: string
+          team_id: string
+          device_id: string
+          bundle_id: string
+          name: string
+          abbr?: string | null
+          icon_color?: string | null
+          installed?: boolean
+          source?: 'detected' | 'manual' | 'system'
+          detected_at?: string
+        }
+        Update: {
+          id?: string
+          team_id?: string
+          device_id?: string
+          bundle_id?: string
+          name?: string
+          abbr?: string | null
+          icon_color?: string | null
+          installed?: boolean
+          source?: 'detected' | 'manual' | 'system'
+          detected_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: 'device_apps_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
+          { foreignKeyName: 'device_apps_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
+        ]
+      }
+      user_device_app_preferences: {
+        Row: {
+          user_id: string
+          team_id: string
+          device_id: string
+          bundle_id: string
+          visible: boolean
+          sort_order: number | null
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          team_id: string
+          device_id: string
+          bundle_id: string
+          visible?: boolean
+          sort_order?: number | null
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          team_id?: string
+          device_id?: string
+          bundle_id?: string
+          visible?: boolean
+          sort_order?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: 'user_device_app_preferences_team_id_fkey'; columns: ['team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
+          { foreignKeyName: 'user_device_app_preferences_device_id_fkey'; columns: ['device_id']; referencedRelation: 'devices'; referencedColumns: ['id'] },
+        ]
+      }
       activity_events: {
         Row: {
           id: string
@@ -515,6 +590,10 @@ export interface Database {
         Args: Record<string, never>
         Returns: boolean
       }
+      put_device_apps: {
+        Args: { p_device_key: string; p_apps: Json }
+        Returns: undefined
+      }
       put_device_screenshot: {
         Args: {
           p_device_key: string
@@ -567,6 +646,8 @@ export type AutomationJobRow = Database['public']['Tables']['automation_jobs']['
 export type AutomationJobInsert = Database['public']['Tables']['automation_jobs']['Insert']
 export type AgentCommandRow = Database['public']['Tables']['agent_commands']['Row']
 export type DeviceScreenshotRow = Database['public']['Tables']['device_screenshots']['Row']
+export type DeviceAppRow = Database['public']['Tables']['device_apps']['Row']
+export type UserDeviceAppPreferenceRow = Database['public']['Tables']['user_device_app_preferences']['Row']
 export type ActivityEventRow = Database['public']['Tables']['activity_events']['Row']
 export type AutomationRow = Database['public']['Tables']['automations']['Row']
 export type AutomationInsert = Database['public']['Tables']['automations']['Insert']

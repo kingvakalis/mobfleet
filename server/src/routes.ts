@@ -44,6 +44,8 @@ const PERMISSION_FOR_ACTION: Record<AgentCommandAction, PermissionKey> = {
   switcher: 'phones.control',
   launch: 'phones.control',
   install: 'phones.control',
+  terminate: 'phones.control',
+  refresh_apps: 'phones.view',
 }
 
 /** Authenticate an AGENT request by its per-device API key (Bearer). Unlike user

@@ -27,6 +27,8 @@ import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
 import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
 import { downloadScreenshot } from '@/lib/download-screenshot'
+import { useDeviceApps } from '@/hooks/useDeviceApps'
+import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -315,6 +317,7 @@ export function PhoneControlPage() {
   const [frame, setFrame] = useState<LiveFrame | null>(null)
   const [frameLatency, setFrameLatency] = useState<number | null>(null)
   const [liveView, setLiveView] = useState(false)
+  const [manageAppsOpen, setManageAppsOpen] = useState(false)
   // Phone width sized so the full phone + bottom action bar fit the center column without scrolling.
   const centerRef = useRef<HTMLDivElement>(null)
   const statusBarRef = useRef<HTMLDivElement>(null)
@@ -387,6 +390,8 @@ export function PhoneControlPage() {
   }, [logs, activeTab])
 
   const deviceId = device?.id
+  // Real installed-app inventory + this user's visibility prefs (supabase-mode only).
+  const deviceApps = useDeviceApps(deviceId ?? null, teamCtx.team?.id ?? null, user?.id ?? null, useSupabaseCommands)
   // Real command-log stream: subscribe to THIS device's logs over the provider's
   // existing socket (server `command_log` broadcast / mock echo). Clears and
   // resubscribes on device change; unsubscribes on unmount. No mock logs.
@@ -686,6 +691,21 @@ export function PhoneControlPage() {
     if (!canControl) { denyAction('phone control'); return }
     phoneRef.current?.launchApp(name) // visual
     sendControl({ type: 'launch_app', deviceId: device.id, appName: name }, `launch:${name}`, `Launch ${name}`)
+  }
+
+  // Real installed-app actions (supabase-mode): launch/terminate by bundle id + re-detect.
+  // Truthful lifecycle via enqueueSupabase; the post-command capture refreshes the preview.
+  const launchByBundle = (bundleId: string, name: string) => {
+    if (!canControl) { denyAction('phone control'); return }
+    guard(`launch:${bundleId}`, () => enqueueSupabase({ deviceId: device.id, action: 'launch', payload: { bundleId, name } }, `Launch ${name}`))
+  }
+  const stopByBundle = (bundleId: string, name: string) => {
+    if (!canControl) { denyAction('phone control'); return }
+    guard(`stop:${bundleId}`, () => enqueueSupabase({ deviceId: device.id, action: 'terminate', payload: { bundleId, name } }, `Stop ${name}`))
+  }
+  const refreshApps = () => {
+    if (!canControl) { denyAction('phone control'); return }
+    guard('refresh_apps', () => enqueueSupabase({ deviceId: device.id, action: 'refresh_apps' }, 'Refresh apps'))
   }
 
   const denyAction = (need: string) => {
@@ -1068,13 +1088,15 @@ export function PhoneControlPage() {
 
           {/* Bottom action bar */}
           <div ref={actionsRef} className="flex gap-2 mt-5">
+            {/* supabase-mode: the REAL launcher is the Apps tab (detected + visible apps); this button jumps
+                there + opens Manage Apps rather than launching a hardcoded app. Demo/me-mode keeps the quick launch. */}
             <button
-              onClick={() => launchAppCmd('Instagram')}
-              disabled={!canControl || isBusy('launch:Instagram')}
+              onClick={() => { if (useSupabaseCommands) { setActiveTab('apps'); setManageAppsOpen(true) } else { launchAppCmd('Instagram') } }}
+              disabled={useSupabaseCommands ? false : (!canControl || isBusy('launch:Instagram'))}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[12px] font-medium text-[#0d1117] transition-colors enabled:hover:bg-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: '#2dd4bf' }}
             >
-              <Rocket size={14} />Launch App
+              <Rocket size={14} />{useSupabaseCommands ? 'Manage Apps' : 'Launch App'}
             </button>
             <button
               onClick={() => { if (!canScreenshot) { denyAction('screenshot'); return } captureScreenshot() }}
@@ -1184,24 +1206,76 @@ export function PhoneControlPage() {
             <div className="p-3 flex-1 overflow-y-auto">
               {/* Apps tab */}
               {activeTab === 'apps' && (
-                <div className="grid grid-cols-2 gap-2">
-                  {INSTALLED_APPS.map(app => (
-                    <div key={app.name} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
-                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                        style={{ background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none' }}>
-                        {app.abbr}
-                      </div>
-                      <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
-                      <button
-                        onClick={() => launchAppCmd(app.name)}
-                        disabled={!canControl || isBusy(`launch:${app.name}`)}
-                        className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] enabled:hover:border enabled:hover:border-[#2dd4bf]/40 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Launch
+                useSupabaseCommands ? (
+                  // REAL inventory: only apps the agent detected installed on THIS device,
+                  // minus the ones this user hid. No hardcoded launcher.
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wider text-white/35">
+                        {deviceApps.visibleApps.length} visible app{deviceApps.visibleApps.length === 1 ? '' : 's'}
+                      </span>
+                      <button onClick={() => setManageAppsOpen(true)} className="flex items-center gap-1 text-[10px] text-[#2dd4bf] transition-colors hover:text-[#5eead4]">
+                        <Grid2x2 size={11} /> Manage Apps
                       </button>
                     </div>
-                  ))}
-                </div>
+                    {deviceApps.loading && deviceApps.installed.length === 0 ? (
+                      <div className="flex items-center justify-center py-6">
+                        <span className="text-[11px] text-white/30">Loading installed apps…</span>
+                      </div>
+                    ) : deviceApps.visibleApps.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center gap-2 py-6">
+                        <span className="text-[11px] text-white/30">No visible apps selected</span>
+                        <button onClick={() => setManageAppsOpen(true)} className="px-3 py-1.5 rounded-lg text-[11px] text-[#2dd4bf] border border-[#2dd4bf]/30 hover:bg-[#2dd4bf]/10 transition-colors">
+                          Manage Apps
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {deviceApps.visibleApps.map(app => (
+                          <div key={app.bundleId} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0" style={{ background: app.iconColor ?? '#3a3a40' }}>
+                              {app.abbr ?? app.name.slice(0, 2)}
+                            </div>
+                            <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
+                            <button
+                              onClick={() => launchByBundle(app.bundleId, app.name)}
+                              disabled={!canControl || isBusy(`launch:${app.bundleId}`)}
+                              className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Launch
+                            </button>
+                            <button
+                              onClick={() => stopByBundle(app.bundleId, app.name)}
+                              disabled={!canControl || isBusy(`stop:${app.bundleId}`)}
+                              className="text-[10px] text-white/40 shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Stop
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {INSTALLED_APPS.map(app => (
+                      <div key={app.name} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                          style={{ background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none' }}>
+                          {app.abbr}
+                        </div>
+                        <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
+                        <button
+                          onClick={() => launchAppCmd(app.name)}
+                          disabled={!canControl || isBusy(`launch:${app.name}`)}
+                          className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] enabled:hover:border enabled:hover:border-[#2dd4bf]/40 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Launch
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )
               )}
 
               {/* Automations tab */}
@@ -1269,6 +1343,20 @@ export function PhoneControlPage() {
 
         </div>
       </div>
+
+      {/* Manage Apps (supabase-mode): per-user show/hide of the REAL detected inventory + Refresh Apps. */}
+      {useSupabaseCommands && (
+        <ManageAppsModal
+          open={manageAppsOpen}
+          onClose={() => setManageAppsOpen(false)}
+          apps={deviceApps.installed}
+          isVisible={deviceApps.isVisible}
+          onToggle={deviceApps.setVisible}
+          onRefresh={refreshApps}
+          refreshing={isBusy('refresh_apps')}
+          canRefresh={canControl}
+        />
+      )}
     </div>
   )
 }

@@ -23,7 +23,7 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome } from './device-adapter'
+import type { DeviceControlAdapter, AdapterCommand, AdapterExecOutcome, AppInstallState } from './device-adapter'
 import type { DeviceIdentity, DeviceTelemetry } from './types'
 
 const run = promisify(execFile)
@@ -89,10 +89,13 @@ export function toAppiumAction(command: AdapterCommand, bundleMap: Record<string
     // No universal hardware "back" on iOS — emulate the left-edge swipe-right gesture.
     case 'back':       return { via: 'execute', script: 'mobile: dragFromToForDuration', args: [{ fromX: 2, fromY: 400, toX: 250, toY: 400, duration: 0.2 }] }
     case 'launch': {
-      const bundleId = resolveBundleId(command.appName, bundleMap)
-      if (!bundleId) throw Object.assign(new Error(`launch needs a bundleId for "${command.appName}" — set APPIUM_BUNDLE_MAP`), { code: 'LAUNCH_UNMAPPED', retryable: false })
+      // Prefer the explicit bundle id (real installed-app inventory carries it); fall back
+      // to resolving an app name via the map / reverse-DNS heuristic.
+      const bundleId = command.bundleId ?? (command.appName ? resolveBundleId(command.appName, bundleMap) : null)
+      if (!bundleId) throw Object.assign(new Error(`launch needs a bundleId for "${command.appName ?? ''}" — set APPIUM_BUNDLE_MAP`), { code: 'LAUNCH_UNMAPPED', retryable: false })
       return { via: 'execute', script: 'mobile: activateApp', args: [{ bundleId }] }
     }
+    case 'terminate':  return { via: 'execute', script: 'mobile: terminateApp', args: [{ bundleId: command.bundleId }] }
     // App install at scale is an ABM/MDM concern (supervised push), not Appium.
     case 'install':    throw Object.assign(new Error('install is handled by ABM/MDM, not the Appium adapter'), { code: 'INSTALL_UNSUPPORTED', retryable: false })
     default: {
@@ -222,6 +225,27 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
       case 'reboot':
         return {} // handled above
     }
+  }
+
+  /**
+   * Probe each bundle id with XCUITest `mobile: queryAppState`. Returns:
+   *   0 not installed · 1 not running · 2 bg suspended · 3 bg · 4 foreground
+   * installed = state >= 1. A probe that errors → installed:false (never fabricated).
+   */
+  async queryInstalledApps(udid: string, bundleIds: string[]): Promise<AppInstallState[]> {
+    const sid = this.sessions.get(udid)
+    if (!sid) throw Object.assign(new Error(`no Appium session for ${udid}`), { code: 'NO_SESSION', retryable: true })
+    const out: AppInstallState[] = []
+    for (const bundleId of bundleIds) {
+      try {
+        const res = await this.appium('POST', `/session/${sid}/execute/sync`, { script: 'mobile: queryAppState', args: [{ bundleId }] }) as { value?: unknown }
+        const state = typeof res?.value === 'number' ? res.value : Number(res?.value)
+        out.push({ bundleId, installed: Number.isFinite(state) && state >= 1 })
+      } catch {
+        out.push({ bundleId, installed: false })
+      }
+    }
+    return out
   }
 
   // ── HTTP plumbing ──

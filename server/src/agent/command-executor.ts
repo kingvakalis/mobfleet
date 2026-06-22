@@ -51,8 +51,15 @@ export function toAdapterCommand(action: AgentCommandAction, payload: unknown): 
       return typeof text === 'string' && text.length > 0 ? { kind: 'type', text } : null
     }
     case 'launch': {
-      const appName = p.appName
-      return typeof appName === 'string' && appName.trim().length > 0 ? { kind: 'launch', appName } : null
+      const bundleId = typeof p.bundleId === 'string' && p.bundleId.trim().length > 0 ? p.bundleId : undefined
+      const appName = typeof p.appName === 'string' && p.appName.trim().length > 0 ? p.appName : undefined
+      if (!bundleId && !appName) return null
+      // Omit absent keys (no `bundleId: undefined`) so the AdapterCommand stays a clean object.
+      return { kind: 'launch', ...(bundleId ? { bundleId } : {}), ...(appName ? { appName } : {}) }
+    }
+    case 'terminate': {
+      const bundleId = p.bundleId
+      return typeof bundleId === 'string' && bundleId.trim().length > 0 ? { kind: 'terminate', bundleId } : null
     }
     case 'install': {
       const appName = typeof p.appName === 'string' ? p.appName : undefined

@@ -13,7 +13,7 @@
  * device-key Realtime non-trivial); polling is the durable path. fetch is injectable
  * so the lifecycle is unit-tested without a network.
  */
-import type { AgentTransport, ScreenshotFrame } from './agent-runtime'
+import type { AgentTransport, ScreenshotFrame, DetectedApp } from './agent-runtime'
 import type { AgentCommandFrame, ExecResult } from './types'
 import { agentCommandActionSchema } from '../../../src/shared/schemas'
 
@@ -120,6 +120,11 @@ export class SupabaseAgentTransport implements AgentTransport {
       p_width: frame.width,
       p_height: frame.height,
     })
+  }
+
+  /** Upload the detected installed-app inventory (device-key RPC → device_apps). */
+  async putApps(apps: DetectedApp[]): Promise<void> {
+    await this.rpc('put_device_apps', { p_apps: apps })
   }
 
   async sendHeartbeat(hb: { status: 'online' | 'busy' | 'warming' | 'offline' | 'error'; battery: number | null; cpuUsage: number | null; memoryUsage: number | null }): Promise<void> {

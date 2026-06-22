@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { StatusDot } from '@/components/ui/status-dot'
 import { GRID_APPS } from '@/components/phone/app-catalog'
+import { useDeviceApps } from '@/hooks/useDeviceApps'
+import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
 import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
 import { useDeviceLog, type LogLevel, type LogLine } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
@@ -192,12 +194,12 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   // Enqueue ONE real command and report its REAL lifecycle (queued → running → done/failed).
   // After a state-changing command acks, capture a fresh frame. (Event-time handler — not
   // memoized; the component remounts per device so identity churn is moot.)
-  const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string, downloadName?: string) => {
-    if (!teamId || !user?.id) { addLog('error', `${label} — no active workspace`); return }
+  const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string, downloadName?: string, onSettled?: () => void) => {
+    if (!teamId || !user?.id) { addLog('error', `${label} — no active workspace`); onSettled?.(); return }
     const t0 = nowMs()
     try {
       const { id } = await enqueueCommand({ teamId, deviceId: device.id, action, payload, userId: user.id })
-      if (!mountedRef.current) return
+      if (!mountedRef.current) { onSettled?.(); return }
       addLog('info', `⏳ ${label} — queued`)
       let cancel: () => void = () => {}
       const stop = () => { cancel(); watchersRef.current.delete(cancel) }
@@ -213,12 +215,13 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
           if (action === 'screenshot') void refreshFrame(downloadName)
           else if (action !== 'reboot' && action !== 'install') scheduleCapture()
         } else if (status === 'failed') addLog('error', `✗ ${label} — failed${error ? ': ' + error : ''}`)
-        if (status === 'acked' || status === 'failed' || status === 'expired') stop()
+        if (status === 'acked' || status === 'failed' || status === 'expired') { stop(); onSettled?.() }
       })
       watchersRef.current.add(cancel)
-      setTimeout(stop, 31000) // deregister even if the watch times out without a terminal status
+      setTimeout(() => { stop(); onSettled?.() }, 31000) // deregister + settle even if the watch never sees a terminal status
     } catch (e) {
       addLog('error', `✗ ${label} — ${e instanceof Error ? e.message : 'error'}`)
+      onSettled?.()
     }
   }
 
@@ -250,9 +253,32 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
     }
   }
 
-  const launchApp = (name: string) => {
+  // Real installed-app inventory + this user's visibility prefs — the SAME source the Phone
+  // Control Apps tab uses (no second fake list). Only apps the agent detected installed appear.
+  const deviceApps = useDeviceApps(device.id, teamId, user?.id ?? null, true)
+  const [manageAppsOpen, setManageAppsOpen] = useState(false)
+  const [refreshingApps, setRefreshingApps] = useState(false)
+  const [appBusy, setAppBusy] = useState<Set<string>>(new Set())
+  const setBusy = (k: string, v: boolean) => { if (mountedRef.current) setAppBusy((s) => { const n = new Set(s); if (v) n.add(k); else n.delete(k); return n }) }
+  // Launch/terminate by REAL bundle id; truthful lifecycle via enqueue, which also refreshes the preview.
+  const launchByBundle = (bundleId: string, name: string) => {
     if (!canControl) return denied('phones.control')
-    send({ type: 'launch_app', deviceId: device.id, appName: name }, `Launch ${name}`)
+    if (appBusy.has(`launch:${bundleId}`)) return
+    setBusy(`launch:${bundleId}`, true)
+    void enqueue('launch', { bundleId, name }, `Launch ${name}`, undefined, () => setBusy(`launch:${bundleId}`, false))
+  }
+  const stopByBundle = (bundleId: string, name: string) => {
+    if (!canControl) return denied('phones.control')
+    if (appBusy.has(`stop:${bundleId}`)) return
+    setBusy(`stop:${bundleId}`, true)
+    void enqueue('terminate', { bundleId, name }, `Stop ${name}`, undefined, () => setBusy(`stop:${bundleId}`, false))
+  }
+  // Ask the agent to re-detect the installed inventory; useDeviceApps reloads via Realtime when it lands.
+  const refreshDeviceApps = () => {
+    if (!canControl) return denied('phones.control')
+    if (refreshingApps) return
+    setRefreshingApps(true)
+    void enqueue('refresh_apps', undefined, 'Refresh apps', undefined, () => { if (mountedRef.current) setRefreshingApps(false) })
   }
 
   const submitText = () => {
@@ -369,26 +395,37 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
               </div>
             </div>
 
-            {/* app quick-launch — real launch commands */}
+            {/* app launcher — REAL detected + visible inventory (no hardcoded apps). Same source as the
+                Phone Control Apps tab (useDeviceApps): only apps the agent confirmed installed, minus the
+                ones THIS user hid. Launch/Stop are real launch/terminate commands. */}
             <div>
-              <Label className="text-fg-muted">Launch App</Label>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {GRID_APPS.slice(0, 8).map((app) => (
-                  <motion.button
-                    key={app.name}
-                    type="button"
-                    whileHover={canControl ? { scale: 1.12 } : undefined}
-                    whileTap={canControl ? { scale: 0.9 } : undefined}
-                    disabled={!canControl}
-                    title={canControl ? app.name : 'Requires phones.control'}
-                    onClick={() => launchApp(app.name)}
-                    className="flex h-8 w-8 items-center justify-center text-[9px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ borderRadius: 8, background: app.bg, border: app.border ? `1px solid ${app.border}` : 'none', color: app.textColor ?? '#fff' }}
-                  >
-                    {app.abbr}
-                  </motion.button>
-                ))}
+              <div className="flex items-center justify-between">
+                <Label className="text-fg-muted">Launch App</Label>
+                <button type="button" onClick={() => setManageAppsOpen(true)} className="flex items-center gap-1 text-[10px] text-[#2dd4bf] transition-colors hover:text-[#5eead4]">
+                  <Grid2x2 size={11} /> Manage
+                </button>
               </div>
+              {deviceApps.loading && deviceApps.installed.length === 0 ? (
+                <div className="mt-2"><span className="mono text-[10px] text-fg-muted">Loading installed apps…</span></div>
+              ) : deviceApps.visibleApps.length === 0 ? (
+                <div className="mt-2 flex flex-col items-start gap-1.5">
+                  <span className="mono text-[10px] text-fg-muted">No visible apps selected</span>
+                  <button type="button" onClick={() => setManageAppsOpen(true)} className="border border-line px-2 py-1 text-[10px] text-fg-secondary transition-colors hover:border-white/25 hover:text-fg">Manage Apps</button>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-col gap-1">
+                  {deviceApps.visibleApps.map((app) => (
+                    <div key={app.bundleId} className="flex items-center gap-2 border border-line px-2 py-1.5">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[8px] font-bold text-white" style={{ background: app.iconColor ?? '#3a3a40' }}>
+                        {app.abbr ?? app.name.slice(0, 2)}
+                      </div>
+                      <span className="mono min-w-0 flex-1 truncate text-[11px] text-fg-secondary">{app.name}</span>
+                      <button type="button" onClick={() => launchByBundle(app.bundleId, app.name)} disabled={!canControl || appBusy.has(`launch:${app.bundleId}`)} className="text-[10px] text-[#2dd4bf] transition-colors enabled:hover:text-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40">Launch</button>
+                      <button type="button" onClick={() => stopByBundle(app.bundleId, app.name)} disabled={!canControl || appBusy.has(`stop:${app.bundleId}`)} className="text-[10px] text-fg-muted transition-colors enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-40">Stop</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* send text — real type command */}
@@ -489,6 +526,17 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
           <LogStream lines={logs} />
         </div>
       </div>
+
+      <ManageAppsModal
+        open={manageAppsOpen}
+        onClose={() => setManageAppsOpen(false)}
+        apps={deviceApps.installed}
+        isVisible={deviceApps.isVisible}
+        onToggle={deviceApps.setVisible}
+        onRefresh={refreshDeviceApps}
+        refreshing={refreshingApps}
+        canRefresh={canControl}
+      />
     </>
   )
 }
