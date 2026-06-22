@@ -18,7 +18,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { useDeviceGroups } from '@/hooks/useDeviceGroups'
 import { useDevices } from '@/hooks/useDevices'
-import { enqueueCommand, watchCommand, getLatestScreenshot, getLatestSession, listCommands, type DeviceSessionInfo } from '@/services/device-commands'
+import { enqueueCommand, watchCommand, getLatestScreenshot, getLatestSession, listCommands, subscribeDeviceScreenshots, type DeviceSessionInfo, type DeviceScreenshot } from '@/services/device-commands'
 import { controlCommandToWire } from '@/shared/control-command'
 import type { ControlCommand, AgentCommandAction } from '@/shared/types'
 import { regionLabel } from '@/data/regions'
@@ -141,6 +141,8 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   const logSeq = useRef(0)
   const watchersRef = useRef<Set<() => void>>(new Set())
   const mountedRef = useRef(true)
+  const captureBusyRef = useRef(false)
+  const captureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const addLog = useCallback((level: LogLevel, text: string) => {
     setLogs((ls) => [...ls, { id: logSeq.current++, t: logClock(), level, text }].slice(-120))
@@ -156,9 +158,39 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
     } catch { /* keep the prior frame */ }
   }, [device.id])
 
+  // Capture ONE fresh screenshot so the inline preview reflects the device's CURRENT screen.
+  // A state-changing command (home/tap/launch/…) does NOT upload a frame by itself, so we
+  // enqueue a real `screenshot` command and read the captured frame on its ACK. Strictly one
+  // in flight (captureBusyRef) — rapid commands never storm the queue. Needs screenshot scope.
+  const captureOnce = () => {
+    if (captureBusyRef.current || !canScreenshot || !teamId || !user?.id) return
+    captureBusyRef.current = true
+    let settled = false
+    let cancel: () => void = () => {}
+    const finish = () => { if (settled) return; settled = true; captureBusyRef.current = false; cancel(); watchersRef.current.delete(cancel) }
+    enqueueCommand({ teamId, deviceId: device.id, action: 'screenshot', userId: user.id })
+      .then(({ id: cmdId }) => {
+        if (!mountedRef.current) { finish(); return }
+        cancel = watchCommand(cmdId, (status) => {
+          if (!mountedRef.current) { finish(); return }
+          if (status === 'acked') { void refreshFrame(); addLog('ok', '↻ preview refreshed') }
+          if (status === 'acked' || status === 'failed' || status === 'expired') finish()
+        }, { intervalMs: 1000, timeoutMs: 12000 })
+        watchersRef.current.add(cancel)
+        setTimeout(finish, 13000) // resolve even if the watch never sees a terminal status
+      })
+      .catch(() => finish())
+  }
+
+  // Debounce post-command captures so a rapid gesture burst coalesces into ONE screenshot.
+  const scheduleCapture = () => {
+    if (captureTimerRef.current) clearTimeout(captureTimerRef.current)
+    captureTimerRef.current = setTimeout(() => { captureTimerRef.current = null; captureOnce() }, 500)
+  }
+
   // Enqueue ONE real command and report its REAL lifecycle (queued → running → done/failed).
-  // After a state-changing command acks, read back the device's new frame. (Event-time
-  // handler — not memoized; the component remounts per device so identity churn is moot.)
+  // After a state-changing command acks, capture a fresh frame. (Event-time handler — not
+  // memoized; the component remounts per device so identity churn is moot.)
   const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string) => {
     if (!teamId || !user?.id) { addLog('error', `${label} — no active workspace`); return }
     const t0 = nowMs()
@@ -174,8 +206,11 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
         else if (status === 'acked') {
           addLog('ok', `✓ ${label} — done`)
           setLastLatency(nowMs() - t0)
+          // A screenshot uploads its own frame → just read it. Any OTHER state-changing
+          // command doesn't capture, so enqueue a debounced follow-up screenshot to reflect
+          // the device's NEW screen. reboot/install are skipped.
           if (action === 'screenshot') void refreshFrame()
-          else if (action !== 'reboot' && action !== 'install') setTimeout(() => { if (mountedRef.current) void refreshFrame() }, 600)
+          else if (action !== 'reboot' && action !== 'install') scheduleCapture()
         } else if (status === 'failed') addLog('error', `✗ ${label} — failed${error ? ': ' + error : ''}`)
         if (status === 'acked' || status === 'failed' || status === 'expired') stop()
       })
@@ -211,7 +246,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
       case 'back':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'back' }, 'Back'); break
       case 'switcher':   if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'switcher' }, 'App switcher'); break
       case 'screenshot': if (!canScreenshot) return denied('phones.screenshot'); send({ type: 'screenshot', deviceId: device.id }, 'Screenshot'); break
-      case 'restart':    void refreshFrame(); addLog('info', 'Refreshed latest frame'); break
+      case 'restart':    if (!canScreenshot) return denied('phones.screenshot'); captureOnce(); break
       case 'reboot':
         if (!canReboot) return denied('phones.reboot')
         if (confirmDestructive && !window.confirm(`Reboot ${device.name}?`)) return
@@ -265,7 +300,21 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
       }))
       setLogs((ls) => [...seed, ...ls].slice(-120))
     }).catch(() => {})
-    return () => { mountedRef.current = false; for (const c of watchers) c(); watchers.clear() }
+    // Realtime: reflect any newly-uploaded frame for THIS device while the drawer is open.
+    // Graceful no-op if device_screenshots isn't in the realtime publication — the
+    // post-command capture + open-time read still drive the preview.
+    const unsub = subscribeDeviceScreenshots(device.id, (s: DeviceScreenshot) => {
+      if (!mountedRef.current || !s.imageBase64) return
+      const ts = Date.parse(s.capturedAt)
+      const fmt = s.format === 'jpeg' || s.format === 'webp' ? s.format : 'png'
+      setFrame({ src: `data:image/${fmt};base64,${s.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: s.width, height: s.height })
+    })
+    return () => {
+      mountedRef.current = false
+      for (const c of watchers) c(); watchers.clear()
+      if (captureTimerRef.current) { clearTimeout(captureTimerRef.current); captureTimerRef.current = null }
+      unsub()
+    }
   }, [device.id, refreshFrame])
 
   // Metric-strip values: real, or an honest "—".
