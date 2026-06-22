@@ -182,8 +182,8 @@ export function SettingsView() {
   const dirty = SETTING_KEYS.some((k) => draft[k] !== store[k])
   const valid =
     draft.workspaceName.trim().length > 0 &&
-    draft.defaultStreamQuality >= 0 && draft.defaultStreamQuality <= 100 &&
-    draft.defaultStreamFps >= 5 && draft.defaultStreamFps <= 60
+    draft.defaultStreamQuality >= 0 && draft.defaultStreamQuality <= 30 &&
+    draft.defaultStreamFps >= 5 && draft.defaultStreamFps <= 30
 
   useEffect(() => {
     if (!saved) return
@@ -454,10 +454,10 @@ export function SettingsView() {
           </Section>
 
           <Section icon={Gauge} title="Device Control" desc="Defaults applied when opening a phone-control session." locked={!canDevice}>
-            <Field label="Default stream quality" hint="0–100">
+            <Field label="Default stream quality" hint="0–30">
               <input
-                aria-label="Default stream quality (0 to 100)"
-                type="number" min={0} max={100}
+                aria-label="Default stream quality (0 to 30)"
+                type="number" min={0} max={30}
                 value={draft.defaultStreamQuality}
                 onChange={e => set('defaultStreamQuality', Number(e.target.value))}
                 className={[
@@ -466,15 +466,15 @@ export function SettingsView() {
                 ].join(' ')}
               />
             </Field>
-            <Field label="Default stream FPS" hint="5–60">
+            <Field label="Default stream FPS" hint="5–30">
               <input
-                aria-label="Default stream FPS (5 to 60)"
-                type="number" min={5} max={60}
+                aria-label="Default stream FPS (5 to 30)"
+                type="number" min={5} max={30}
                 value={draft.defaultStreamFps}
                 onChange={e => set('defaultStreamFps', Number(e.target.value))}
                 className={[
                   'mono h-8 w-20 rounded-control border bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors',
-                  draft.defaultStreamFps >= 5 && draft.defaultStreamFps <= 60 ? 'border-line focus:border-[var(--accent-border)]' : 'border-status-error',
+                  draft.defaultStreamFps >= 5 && draft.defaultStreamFps <= 30 ? 'border-line focus:border-[var(--accent-border)]' : 'border-status-error',
                 ].join(' ')}
               />
             </Field>

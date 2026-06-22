@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useMotionValue, useSpring, useReducedMotion } 
 import {
   ChevronLeft, ChevronRight, ChevronDown, AlertTriangle,
   Lock, Home, CornerDownLeft, Grid2x2,
-  Camera, RefreshCw, Power,
+  Camera,
   Send, Copy, X, Rocket, FileText,
   Video, Zap, Shield, BatteryMedium, Gauge, Anchor, Radio,
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
 import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
+import { downloadScreenshot } from '@/lib/download-screenshot'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -274,14 +275,12 @@ export function PhoneControlPage() {
   // ── Authorization (permission + per-phone scope) ──────────────────────────
   const canView       = can(member, 'phones.view')
   const canControl    = device ? canActOnPhone(member, 'phones.control', device) : false
-  const canReboot     = device ? canActOnPhone(member, 'phones.reboot', device) : false
   const canScreenshot = device ? canActOnPhone(member, 'phones.screenshot', device) : false
   const readOnly      = !canControl
 
   // UI state — stream defaults come from workspace settings
   const defaultQuality = useSettings(s => s.defaultStreamQuality)
   const defaultFps     = useSettings(s => s.defaultStreamFps)
-  const confirmDestructive = useSettings(s => s.confirmDestructive)
   const stabilizePhone = useSettings(s => s.stabilizePhone)
   const updateSettings = useSettings(s => s.update)
   // Live (supabase-mode) phone control defaults to STABILIZED — most accurate tap/drag coords — regardless
@@ -289,9 +288,8 @@ export function PhoneControlPage() {
   // (demo/mock) keeps the global `stabilizePhone` workspace setting (also editable in Settings).
   const [liveStabilized, setLiveStabilized] = useState(true)
   const stabilized = useSupabaseCommands ? liveStabilized : stabilizePhone
-  const [quality, setQuality]       = useState(defaultQuality)
-  const [fps, setFps]               = useState(defaultFps)
-  const [confirmingReboot, setConfirmingReboot] = useState(false)
+  const [quality, setQuality]       = useState(Math.min(30, defaultQuality))
+  const [fps, setFps]               = useState(Math.min(30, defaultFps))
   const [gesture, setGesture]       = useState('tap')
   const [sendText, setSendText]     = useState('')
   const [notes, setNotes]           = useState('')
@@ -440,7 +438,9 @@ export function PhoneControlPage() {
 
   // Loads a data: URL from the latest REAL frame the agent uploaded for this device, and records
   // the read round-trip as the truthful REFRESH metric (a real network read, not a fabricated ping).
-  const refreshFrame = useCallback(async (id: string) => {
+  // `downloadName` (the device name) is set ONLY when the user pressed Screenshot — after
+  // the real frame loads we save it to the user's PC. Auto/GO-LIVE refreshes pass nothing.
+  const refreshFrame = useCallback(async (id: string, downloadName?: string) => {
     const t0 = nowMs()
     try {
       const s = await getLatestScreenshot(id)
@@ -457,6 +457,7 @@ export function PhoneControlPage() {
         height: s.height,
       })
       setFrameLatency(nowMs() - t0)
+      if (downloadName) downloadScreenshot(downloadName, s.imageBase64, s.format)
     } catch { /* keep the prior frame; never crash the page */ }
   }, [])
 
@@ -616,15 +617,7 @@ export function PhoneControlPage() {
     { key: 'back',       label: 'Back',       icon: <CornerDownLeft size={18} /> },
     { key: 'switcher',   label: 'Switcher',   icon: <Grid2x2 size={18} /> },
     { key: 'screenshot', label: 'Screenshot', icon: <Camera size={18} /> },
-    { key: 'restart',    label: 'Restart',    icon: <RefreshCw size={18} /> },
-    { key: 'reboot',     label: 'Reboot',     icon: <Power size={18} />, danger: true },
   ]
-
-  // Stream-local lifecycle (for actions with no agent counterpart, e.g. restart stream).
-  const dispatchCommand = (label: string, ack: string) => {
-    addLog(`→ ${label} dispatched`)
-    setTimeout(() => addLog(`✓ ${ack}`, 'screenshot'), 450)
-  }
 
   // In-flight guard: ignore a repeat of the SAME keyed action while one is still
   // pending, and disable that control meanwhile. Gesture taps/swipes pass no key
@@ -650,7 +643,7 @@ export function PhoneControlPage() {
   // only FAILURES here — never a fake "executed" success.
   // supabase-mode: enqueue through Supabase (RLS) + report the REAL lifecycle (queued →
   // running → done/failed) via watchCommand. No fake success; a queue failure is surfaced too.
-  const enqueueSupabase = async (wire: { deviceId: string; action: AgentCommandAction; payload?: Record<string, unknown> }, label: string) => {
+  const enqueueSupabase = async (wire: { deviceId: string; action: AgentCommandAction; payload?: Record<string, unknown> }, label: string, downloadName?: string) => {
     const teamId = teamCtx.team?.id, userId = user?.id
     if (!teamId || !userId) { addLog(`✗ ${label} failed: no active workspace`, 'error'); return }
     try {
@@ -669,7 +662,7 @@ export function PhoneControlPage() {
           // Reflect the device's new screen: a screenshot reads its own uploaded frame; any OTHER
           // state-changing command (tap/swipe/home/back/switcher/launch/type/lock/unlock) schedules ONE
           // debounced follow-up capture so the browser updates within ~1–2s. reboot/install are skipped.
-          if (wire.action === 'screenshot') void refreshFrame(wire.deviceId)
+          if (wire.action === 'screenshot') void refreshFrame(wire.deviceId, downloadName)
           else if (wire.action !== 'reboot' && wire.action !== 'install') scheduleFrameRefresh()
         }
         else if (status === 'failed') addLog(`✗ ${label} — failed${error ? ': ' + error : ''}`, 'error')
@@ -682,19 +675,11 @@ export function PhoneControlPage() {
     }
   }
 
-  const sendControl = (command: ControlCommand, gateKey?: string, label?: string) =>
+  const sendControl = (command: ControlCommand, gateKey?: string, label?: string, downloadName?: string) =>
     guard(gateKey, async () => {
-      if (useSupabaseCommands) { await enqueueSupabase(controlCommandToWire(command), label ?? command.type); return }
+      if (useSupabaseCommands) { await enqueueSupabase(controlCommandToWire(command), label ?? command.type, downloadName); return }
       await client.sendControlCommand(command).catch((e) =>
         addLog(`✗ ${label ?? command.type} failed: ${e instanceof Error ? e.message : 'error'}`, 'error'))
-    })
-
-  // Reboot has no ControlCommand counterpart — it stays on the generic queue call.
-  const sendReboot = () =>
-    guard('reboot', async () => {
-      if (useSupabaseCommands) { await enqueueSupabase({ deviceId: device.id, action: 'reboot' }, 'Device reboot'); return }
-      await client.sendCommand(device.id, { action: 'reboot' }).catch((e) =>
-        addLog(`✗ Device reboot failed: ${e instanceof Error ? e.message : 'error'}`, 'error'))
     })
 
   const launchAppCmd = (name: string) => {
@@ -727,25 +712,9 @@ export function PhoneControlPage() {
         if (!canControl) { denyAction('phone control'); return }
         p?.switcher(); sendControl({ type: 'key', deviceId: device.id, key: 'switcher' }, 'switcher', 'App switcher')
         break
-      case 'restart':
-        // Stream-local only — no agent counterpart.
-        if (!canControl) { denyAction('phone control'); return }
-        dispatchCommand('Restart stream', 'Stream re-established')
-        break
       case 'screenshot':
         if (!canScreenshot) { denyAction('screenshot'); return }
-        p?.screenshot(); sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot')
-        break
-      case 'reboot':
-        if (!canReboot) { denyAction('reboot'); return }
-        if (confirmDestructive && !confirmingReboot) {
-          setConfirmingReboot(true)
-          setTimeout(() => setConfirmingReboot(false), 3000)
-          return
-        }
-        setConfirmingReboot(false)
-        sendReboot()
-        logAudit({ actor: employee.name, action: 'phone.rebooted', target: device.name, result: 'success' })
+        p?.screenshot(); sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot', device.name)
         break
     }
   }
@@ -754,7 +723,7 @@ export function PhoneControlPage() {
   const captureScreenshot = () => {
     if (!canScreenshot) { denyAction('screenshot'); return }
     phoneRef.current?.screenshot()
-    sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot')
+    sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot', device.name)
   }
 
   // Real-screen pointer gestures → real control commands. Truthful lifecycle (queued→running→
@@ -884,14 +853,14 @@ export function PhoneControlPage() {
                 <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">QUALITY</span>
                 <span className="font-mono text-[13px] font-semibold text-white">{quality}</span>
               </div>
-              <TealSlider value={quality} min={0} max={100} onChange={setQuality} />
+              <TealSlider value={quality} min={0} max={30} onChange={setQuality} />
             </div>
             <div>
               <div className="flex justify-between items-center">
                 <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">FPS</span>
                 <span className="font-mono text-[13px] font-semibold text-white">{fps}</span>
               </div>
-              <TealSlider value={fps} min={5} max={60} onChange={setFps} />
+              <TealSlider value={fps} min={5} max={30} onChange={setFps} />
             </div>
           </Card>
 
@@ -1127,13 +1096,6 @@ export function PhoneControlPage() {
             >
               <FileText size={14} />Open Logs
             </button>
-            <button
-              onClick={() => { if (!canControl) { denyAction('phone control'); return } addLog('Stream restarted') }}
-              disabled={!canControl}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[12px] text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/30 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <RefreshCw size={14} />Restart Stream
-            </button>
           </div>
         </div>
 
@@ -1143,9 +1105,8 @@ export function PhoneControlPage() {
           {/* Quick Controls */}
           <Card title="Quick Controls">
             <div className="grid grid-cols-4 gap-2">
-              {quickControls.map(({ key, label: rawLabel, icon, danger }) => {
-                const label = key === 'reboot' && confirmingReboot ? 'Confirm?' : rawLabel
-                const need = key === 'reboot' ? canReboot : key === 'screenshot' ? canScreenshot : canControl
+              {quickControls.map(({ key, label, icon }) => {
+                const need = key === 'screenshot' ? canScreenshot : canControl
                 return (
                 <button
                   key={key}
@@ -1155,18 +1116,18 @@ export function PhoneControlPage() {
                   className="flex flex-col items-center gap-1.5 py-3 rounded-lg border transition-all disabled:cursor-not-allowed disabled:opacity-35"
                   style={{
                     background: 'rgba(255,255,255,0.03)',
-                    borderColor: danger ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.08)',
-                    color: danger ? '#f87171' : 'rgba(255,255,255,0.6)',
+                    borderColor: 'rgba(255,255,255,0.08)',
+                    color: 'rgba(255,255,255,0.6)',
                   }}
                   onMouseEnter={e => {
                     if (!need) return
                     const el = e.currentTarget as HTMLElement
-                    el.style.borderColor = danger ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.25)'
-                    el.style.background = danger ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.07)'
+                    el.style.borderColor = 'rgba(255,255,255,0.25)'
+                    el.style.background = 'rgba(255,255,255,0.07)'
                   }}
                   onMouseLeave={e => {
                     const el = e.currentTarget as HTMLElement
-                    el.style.borderColor = danger ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.08)'
+                    el.style.borderColor = 'rgba(255,255,255,0.08)'
                     el.style.background = 'rgba(255,255,255,0.03)'
                   }}
                 >

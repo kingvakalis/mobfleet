@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check, Copy, Play, Send, Square, Trash2, X,
-  Lock, Home, CornerDownLeft, Grid2x2, Camera, RefreshCw, Power,
+  Lock, Home, CornerDownLeft, Grid2x2, Camera,
   Cpu, ArrowUpRight, Pin, PinOff, Zap, Briefcase, UserPlus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import { useTeamContext } from '@/contexts/TeamContext'
 import { useDeviceGroups } from '@/hooks/useDeviceGroups'
 import { useDevices } from '@/hooks/useDevices'
 import { enqueueCommand, watchCommand, getLatestScreenshot, getLatestSession, listCommands, subscribeDeviceScreenshots, type DeviceSessionInfo, type DeviceScreenshot } from '@/services/device-commands'
+import { downloadScreenshot } from '@/lib/download-screenshot'
 import { controlCommandToWire } from '@/shared/control-command'
 import type { ControlCommand, AgentCommandAction } from '@/shared/types'
 import { regionLabel } from '@/data/regions'
@@ -68,8 +69,6 @@ const QUICK = [
   { key: 'back',       label: 'Back',     Icon: CornerDownLeft },
   { key: 'switcher',   label: 'Switch',   Icon: Grid2x2 },
   { key: 'screenshot', label: 'Shot',     Icon: Camera },
-  { key: 'restart',    label: 'Stream',   Icon: RefreshCw },
-  { key: 'reboot',     label: 'Reboot',   Icon: Power, danger: true },
 ] as const
 
 /** Relative age of an epoch-ms timestamp against a live clock (null → never). */
@@ -120,7 +119,6 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   // RBAC — the same per-phone checks the real Phone Control page uses.
   const canControl = canActOnPhone(member, 'phones.control', device)
   const canScreenshot = canActOnPhone(member, 'phones.screenshot', device)
-  const canReboot = canActOnPhone(member, 'phones.reboot', device)
   const canAssignGroup = canActOnPhone(member, 'phones.assign_group', device)
   const canRetire = canActOnPhone(member, 'phones.retire', device)
   const readOnly = !canControl
@@ -148,13 +146,16 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
     setLogs((ls) => [...ls, { id: logSeq.current++, t: logClock(), level, text }].slice(-120))
   }, [])
 
-  const refreshFrame = useCallback(async () => {
+  // `downloadName` (device name) is set ONLY when the user pressed Screenshot — after the
+  // real frame loads we save it to the user's PC. Auto/post-command refreshes pass nothing.
+  const refreshFrame = useCallback(async (downloadName?: string) => {
     try {
       const s = await getLatestScreenshot(device.id)
       if (!mountedRef.current || !s) return
       const ts = Date.parse(s.capturedAt)
       const fmt = s.format === 'jpeg' || s.format === 'webp' ? s.format : 'png' // allow-list the MIME at the sink
       setFrame({ src: `data:image/${fmt};base64,${s.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: s.width, height: s.height })
+      if (downloadName) downloadScreenshot(downloadName, s.imageBase64, s.format)
     } catch { /* keep the prior frame */ }
   }, [device.id])
 
@@ -191,7 +192,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   // Enqueue ONE real command and report its REAL lifecycle (queued → running → done/failed).
   // After a state-changing command acks, capture a fresh frame. (Event-time handler — not
   // memoized; the component remounts per device so identity churn is moot.)
-  const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string) => {
+  const enqueue = async (action: AgentCommandAction, payload: Record<string, unknown> | undefined, label: string, downloadName?: string) => {
     if (!teamId || !user?.id) { addLog('error', `${label} — no active workspace`); return }
     const t0 = nowMs()
     try {
@@ -209,7 +210,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
           // A screenshot uploads its own frame → just read it. Any OTHER state-changing
           // command doesn't capture, so enqueue a debounced follow-up screenshot to reflect
           // the device's NEW screen. reboot/install are skipped.
-          if (action === 'screenshot') void refreshFrame()
+          if (action === 'screenshot') void refreshFrame(downloadName)
           else if (action !== 'reboot' && action !== 'install') scheduleCapture()
         } else if (status === 'failed') addLog('error', `✗ ${label} — failed${error ? ': ' + error : ''}`)
         if (status === 'acked' || status === 'failed' || status === 'expired') stop()
@@ -222,9 +223,9 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   }
 
   // Map a typed ControlCommand → its wire action/payload (single source of truth) and enqueue it.
-  const send = (command: ControlCommand, label: string) => {
+  const send = (command: ControlCommand, label: string, downloadName?: string) => {
     const wire = controlCommandToWire(command)
-    void enqueue(wire.action, wire.payload, label)
+    void enqueue(wire.action, wire.payload, label, downloadName)
   }
 
   const denied = (need: string) => addLog('error', `✗ blocked — requires ${need}`)
@@ -245,12 +246,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
       case 'home':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'home' }, 'Home'); break
       case 'back':       if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'back' }, 'Back'); break
       case 'switcher':   if (!canControl) return denied('phones.control'); send({ type: 'key', deviceId: device.id, key: 'switcher' }, 'App switcher'); break
-      case 'screenshot': if (!canScreenshot) return denied('phones.screenshot'); send({ type: 'screenshot', deviceId: device.id }, 'Screenshot'); break
-      case 'restart':    if (!canScreenshot) return denied('phones.screenshot'); captureOnce(); break
-      case 'reboot':
-        if (!canReboot) return denied('phones.reboot')
-        if (confirmDestructive && !window.confirm(`Reboot ${device.name}?`)) return
-        void enqueue('reboot', undefined, 'Device reboot'); break
+      case 'screenshot': if (!canScreenshot) return denied('phones.screenshot'); send({ type: 'screenshot', deviceId: device.id }, 'Screenshot', device.name); break
     }
   }
 
@@ -349,7 +345,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
               <div className="mt-2 grid grid-cols-4 gap-1.5">
                 {QUICK.map(({ key, label, Icon, ...rest }) => {
                   const danger = 'danger' in rest && rest.danger
-                  const allowed = key === 'reboot' ? canReboot : key === 'screenshot' ? canScreenshot : key === 'restart' ? true : canControl
+                  const allowed = key === 'screenshot' ? canScreenshot : canControl
                   return (
                     <motion.button
                       key={key}
@@ -558,11 +554,6 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
       case 'back':       p?.back(); break
       case 'switcher':   p?.switcher(); break
       case 'screenshot': p?.screenshot(); break
-      case 'restart':    push('info', 'stream restarted'); break
-      case 'reboot':
-        if (confirmDestructive && !window.confirm('Reboot this device?')) return
-        push('warn', 'device reboot dispatched')
-        break
     }
   }
 

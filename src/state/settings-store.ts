@@ -36,9 +36,9 @@ export interface WorkspaceSettings {
   sidebarMode: SidebarMode
   /** Stop decorative phone-body motion (tilt/parallax) on the control page. */
   stabilizePhone: boolean
-  /** Default stream quality (0–100) applied when opening phone control. */
+  /** Default stream quality (0–30) applied when opening phone control. */
   defaultStreamQuality: number
-  /** Default stream FPS applied when opening phone control. */
+  /** Default stream FPS (5–30) applied when opening phone control. */
   defaultStreamFps: number
   /** Ask for confirmation before reboot / retire. */
   confirmDestructive: boolean
@@ -74,14 +74,31 @@ interface SettingsState extends WorkspaceSettings {
   reset: () => void
 }
 
+/** Stream quality + FPS are capped at 30. Clamp any value (UI input or older persisted
+ *  state) into range so a previously-saved 100/60 can never come back above 30. */
+const STREAM_MAX = 30
+function clampStream(patch: Partial<WorkspaceSettings>): Partial<WorkspaceSettings> {
+  const next = { ...patch }
+  if (next.defaultStreamQuality != null) next.defaultStreamQuality = Math.max(0, Math.min(STREAM_MAX, next.defaultStreamQuality))
+  if (next.defaultStreamFps != null) next.defaultStreamFps = Math.max(0, Math.min(STREAM_MAX, next.defaultStreamFps))
+  return next
+}
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       ...DEFAULT_SETTINGS,
-      update: (patch) => set(patch),
+      update: (patch) => set(clampStream(patch)),
       reset: () => set(DEFAULT_SETTINGS),
     }),
-    { name: 'mobfleet-settings' },
+    {
+      name: 'mobfleet-settings',
+      // Clamp persisted quality/FPS down to 30 on every rehydrate (older saves may hold 100/60).
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<WorkspaceSettings>
+        return { ...current, ...p, ...clampStream(p as WorkspaceSettings) }
+      },
+    },
   ),
 )
 
