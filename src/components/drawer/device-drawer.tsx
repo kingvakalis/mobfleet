@@ -11,6 +11,7 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { GRID_APPS } from '@/components/phone/app-catalog'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
+import { AppRow } from '@/components/phone/app-row'
 import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
 import { useDeviceLog, type LogLevel, type LogLine } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
@@ -412,16 +413,18 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                   <button type="button" onClick={() => setManageAppsOpen(true)} className="border border-line px-2 py-1 text-[10px] text-fg-secondary transition-colors hover:border-white/25 hover:text-fg">Manage Apps</button>
                 </div>
               ) : (
-                <div className="mt-2 flex flex-col gap-1">
+                // ONE app per row (shared AppRow) — identical to the Phone Control Apps tab.
+                <div className="mt-2 flex flex-col">
                   {deviceApps.visibleApps.map((app) => (
-                    <div key={app.bundleId} className="flex items-center gap-2 border border-line px-2 py-1.5">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[8px] font-bold text-white" style={{ background: app.iconColor ?? '#3a3a40' }}>
-                        {app.abbr ?? app.name.slice(0, 2)}
-                      </div>
-                      <span className="mono min-w-0 flex-1 truncate text-[11px] text-fg-secondary">{app.name}</span>
-                      <button type="button" onClick={() => launchByBundle(app.bundleId, app.name)} disabled={!canControl || appBusy.has(`launch:${app.bundleId}`)} className="text-[10px] text-[#2dd4bf] transition-colors enabled:hover:text-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40">Launch</button>
-                      <button type="button" onClick={() => stopByBundle(app.bundleId, app.name)} disabled={!canControl || appBusy.has(`stop:${app.bundleId}`)} className="text-[10px] text-fg-muted transition-colors enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-40">Stop</button>
-                    </div>
+                    <AppRow
+                      key={app.bundleId}
+                      app={app}
+                      canControl={canControl}
+                      launching={appBusy.has(`launch:${app.bundleId}`)}
+                      stopping={appBusy.has(`stop:${app.bundleId}`)}
+                      onLaunch={() => launchByBundle(app.bundleId, app.name)}
+                      onStop={() => stopByBundle(app.bundleId, app.name)}
+                    />
                   ))}
                 </div>
               )}

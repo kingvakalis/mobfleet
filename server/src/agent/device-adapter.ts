@@ -21,7 +21,10 @@ import type { DeviceIdentity, DeviceTelemetry } from './types'
 export type AdapterCommand =
   | { kind: 'screenshot' }
   | { kind: 'tap'; x: number; y: number }
-  | { kind: 'swipe'; dir: 'up' | 'down' | 'left' | 'right' }
+  // Optional start/end LOGICAL points + duration → an EXACT finger drag (mobile: dragFromToForDuration),
+  // which avoids iOS edge-gesture hijack (a canned "swipe up" near the bottom triggers the home indicator).
+  // Falls back to the coarse directional swipe when coords are absent.
+  | { kind: 'swipe'; dir: 'up' | 'down' | 'left' | 'right'; x1?: number; y1?: number; x2?: number; y2?: number; durationMs?: number }
   | { kind: 'type'; text: string }
   | { kind: 'home' }
   | { kind: 'back' }

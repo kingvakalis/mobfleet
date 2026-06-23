@@ -29,6 +29,7 @@ import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScree
 import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
+import { AppRow } from '@/components/phone/app-row'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -1232,28 +1233,18 @@ export function PhoneControlPage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-2">
+                      // ONE app per row (shared AppRow) — same component the Fleet drawer uses.
+                      <div className="flex flex-col">
                         {deviceApps.visibleApps.map(app => (
-                          <div key={app.bundleId} className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] hover:border-white/[0.12] transition-colors">
-                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold text-white shrink-0" style={{ background: app.iconColor ?? '#3a3a40' }}>
-                              {app.abbr ?? app.name.slice(0, 2)}
-                            </div>
-                            <span className="text-[11px] text-white/70 truncate flex-1">{app.name}</span>
-                            <button
-                              onClick={() => launchByBundle(app.bundleId, app.name)}
-                              disabled={!canControl || isBusy(`launch:${app.bundleId}`)}
-                              className="text-[10px] text-[#2dd4bf] shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-[#5eead4] disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              Launch
-                            </button>
-                            <button
-                              onClick={() => stopByBundle(app.bundleId, app.name)}
-                              disabled={!canControl || isBusy(`stop:${app.bundleId}`)}
-                              className="text-[10px] text-white/40 shrink-0 transition-colors px-1 py-0.5 rounded enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              Stop
-                            </button>
-                          </div>
+                          <AppRow
+                            key={app.bundleId}
+                            app={app}
+                            canControl={canControl}
+                            launching={isBusy(`launch:${app.bundleId}`)}
+                            stopping={isBusy(`stop:${app.bundleId}`)}
+                            onLaunch={() => launchByBundle(app.bundleId, app.name)}
+                            onStop={() => stopByBundle(app.bundleId, app.name)}
+                          />
                         ))}
                       </div>
                     )}

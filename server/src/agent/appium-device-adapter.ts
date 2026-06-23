@@ -79,7 +79,17 @@ export function toAppiumAction(command: AdapterCommand, bundleMap: Record<string
     case 'type':       return { via: 'type', text: command.text }
     case 'reboot':     return { via: 'reboot' }
     case 'tap':        return { via: 'execute', script: 'mobile: tap', args: [{ x: command.x, y: command.y }] }
-    case 'swipe':      return { via: 'execute', script: 'mobile: swipe', args: [{ direction: command.dir }] }
+    case 'swipe': {
+      // Prefer an EXACT finger drag from the user's start→end LOGICAL points: a canned `mobile: swipe up`
+      // near the bottom is hijacked by iOS into the home-indicator gesture, so directional-only swipes
+      // (esp. UP) misfire. dragFromToForDuration replays the precise drag. Fall back to the coarse
+      // directional swipe only when coords are missing.
+      if (command.x1 != null && command.y1 != null && command.x2 != null && command.y2 != null) {
+        const duration = Math.min(2, Math.max(0.1, (command.durationMs ?? 250) / 1000)) // seconds, clamped sane
+        return { via: 'execute', script: 'mobile: dragFromToForDuration', args: [{ fromX: command.x1, fromY: command.y1, toX: command.x2, toY: command.y2, duration }] }
+      }
+      return { via: 'execute', script: 'mobile: swipe', args: [{ direction: command.dir }] }
+    }
     // iOS has no system app-switcher gesture exposed by XCUITest; the reference WDA
     // adapter treats home + switcher the same (go to the home screen).
     case 'home':

@@ -44,7 +44,13 @@ export function toAdapterCommand(action: AgentCommandAction, payload: unknown): 
     }
     case 'swipe': {
       const dir = p.dir
-      return dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right' ? { kind: 'swipe', dir } : null
+      if (dir !== 'up' && dir !== 'down' && dir !== 'left' && dir !== 'right') return null
+      // Carry the real start/end LOGICAL points + duration so the agent performs an EXACT finger drag
+      // (omit absent keys so the AdapterCommand stays clean). Both must be a complete pair to be used.
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+      const x1 = num(p.x1), y1 = num(p.y1), x2 = num(p.x2), y2 = num(p.y2), durationMs = num(p.durationMs)
+      const coords = x1 != null && y1 != null && x2 != null && y2 != null ? { x1, y1, x2, y2 } : {}
+      return { kind: 'swipe', dir, ...coords, ...(durationMs != null ? { durationMs } : {}) }
     }
     case 'type': {
       const text = p.text
