@@ -1,15 +1,18 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { X, RefreshCw, Eye, EyeOff } from 'lucide-react'
 import type { DeviceApp } from '@/services/device-commands'
+import type { RefreshStatus } from '@/hooks/useDeviceApps'
 
 /**
  * Per-user, per-device "which installed apps do I want to see" panel. Lists the REAL
  * detected inventory (device_apps) with a show/hide toggle each, plus "Refresh Apps"
  * (re-detect on the device). Shared by Phone Control + the Fleet drawer. Honest empty
- * state when nothing is detected — never a fabricated list.
+ * state when nothing is detected — never a fabricated list. Surfaces the REAL refresh
+ * lifecycle (queued → running → done/failed + the actual error) so a device-side failure
+ * (e.g. WDA not healthy) is visible, never silent.
  */
 export function ManageAppsModal({
-  open, onClose, apps, isVisible, onToggle, onRefresh, refreshing, canRefresh,
+  open, onClose, apps, isVisible, onToggle, onRefresh, refreshStatus, refreshError, canRefresh,
 }: {
   open: boolean
   onClose: () => void
@@ -17,9 +20,11 @@ export function ManageAppsModal({
   isVisible: (bundleId: string) => boolean
   onToggle: (bundleId: string, visible: boolean) => void
   onRefresh: () => void
-  refreshing: boolean
+  refreshStatus: RefreshStatus
+  refreshError: string | null
   canRefresh: boolean
 }) {
+  const refreshing = refreshStatus === 'queued' || refreshStatus === 'running'
   return (
     <AnimatePresence>
       {open && (
@@ -53,6 +58,27 @@ export function ManageAppsModal({
                 </button>
               </div>
             </div>
+
+            {/* Truthful refresh lifecycle — never silent, never stuck. A device-side failure (e.g. the
+                agent reporting WDA not healthy) is shown verbatim; the previous inventory is kept. */}
+            {refreshStatus !== 'idle' && (
+              <div
+                role="status"
+                className={[
+                  'mb-2 rounded-md border px-2.5 py-1.5 text-[10px]',
+                  refreshStatus === 'failed'
+                    ? 'border-amber-400/30 bg-amber-400/[0.07] text-amber-200/90'
+                    : refreshStatus === 'done'
+                      ? 'border-[#2dd4bf]/30 bg-[#2dd4bf]/[0.07] text-[#5eead4]'
+                      : 'border-white/[0.08] bg-white/[0.03] text-white/55',
+                ].join(' ')}
+              >
+                {refreshStatus === 'queued' && 'Refreshing… — queued'}
+                {refreshStatus === 'running' && 'Detecting installed apps on the device…'}
+                {refreshStatus === 'done' && 'Inventory updated.'}
+                {refreshStatus === 'failed' && `Refresh failed: ${refreshError ?? 'unknown error'}`}
+              </div>
+            )}
 
             {apps.length === 0 ? (
               <p className="py-8 text-center text-[11px] leading-relaxed text-white/35">

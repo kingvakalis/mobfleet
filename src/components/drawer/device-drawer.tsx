@@ -257,7 +257,6 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   // Control Apps tab uses (no second fake list). Only apps the agent detected installed appear.
   const deviceApps = useDeviceApps(device.id, teamId, user?.id ?? null, true)
   const [manageAppsOpen, setManageAppsOpen] = useState(false)
-  const [refreshingApps, setRefreshingApps] = useState(false)
   const [appBusy, setAppBusy] = useState<Set<string>>(new Set())
   const setBusy = (k: string, v: boolean) => { if (mountedRef.current) setAppBusy((s) => { const n = new Set(s); if (v) n.add(k); else n.delete(k); return n }) }
   // Launch/terminate by REAL bundle id; truthful lifecycle via enqueue, which also refreshes the preview.
@@ -273,12 +272,12 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
     setBusy(`stop:${bundleId}`, true)
     void enqueue('terminate', { bundleId, name }, `Stop ${name}`, undefined, () => setBusy(`stop:${bundleId}`, false))
   }
-  // Ask the agent to re-detect the installed inventory; useDeviceApps reloads via Realtime when it lands.
+  // Ask the agent to re-detect the installed inventory. The shared hook owns the truthful lifecycle
+  // (queued→running→done/failed + error, dedup, device-switch cancel) shown in the Manage Apps modal,
+  // and reloads the inventory on success (Realtime + explicit refetch).
   const refreshDeviceApps = () => {
     if (!canControl) return denied('phones.control')
-    if (refreshingApps) return
-    setRefreshingApps(true)
-    void enqueue('refresh_apps', undefined, 'Refresh apps', undefined, () => { if (mountedRef.current) setRefreshingApps(false) })
+    deviceApps.refreshApps()
   }
 
   const submitText = () => {
@@ -534,7 +533,8 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
         isVisible={deviceApps.isVisible}
         onToggle={deviceApps.setVisible}
         onRefresh={refreshDeviceApps}
-        refreshing={refreshingApps}
+        refreshStatus={deviceApps.refreshStatus}
+        refreshError={deviceApps.refreshError}
         canRefresh={canControl}
       />
     </>

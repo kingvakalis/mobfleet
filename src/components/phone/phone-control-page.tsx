@@ -703,9 +703,11 @@ export function PhoneControlPage() {
     if (!canControl) { denyAction('phone control'); return }
     guard(`stop:${bundleId}`, () => enqueueSupabase({ deviceId: device.id, action: 'terminate', payload: { bundleId, name } }, `Stop ${name}`))
   }
+  // Re-detect installed apps for the ACTIVE device. The shared hook owns the truthful lifecycle
+  // (queued→running→done/failed + error, dedup, device-switch cancel) shown in the Manage Apps modal.
   const refreshApps = () => {
     if (!canControl) { denyAction('phone control'); return }
-    guard('refresh_apps', () => enqueueSupabase({ deviceId: device.id, action: 'refresh_apps' }, 'Refresh apps'))
+    deviceApps.refreshApps()
   }
 
   const denyAction = (need: string) => {
@@ -1353,7 +1355,8 @@ export function PhoneControlPage() {
           isVisible={deviceApps.isVisible}
           onToggle={deviceApps.setVisible}
           onRefresh={refreshApps}
-          refreshing={isBusy('refresh_apps')}
+          refreshStatus={deviceApps.refreshStatus}
+          refreshError={deviceApps.refreshError}
           canRefresh={canControl}
         />
       )}
