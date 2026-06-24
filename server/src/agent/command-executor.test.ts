@@ -23,6 +23,8 @@ test('toAdapterCommand maps every action and rejects malformed payloads', () => 
   assert.deepEqual(toAdapterCommand('tap', { x: 5, y: 6 }), { kind: 'tap', x: 5, y: 6 })
   assert.equal(toAdapterCommand('tap', { x: 'a', y: 6 }), null)
   assert.deepEqual(toAdapterCommand('swipe', { dir: 'up' }), { kind: 'swipe', dir: 'up' })
+  assert.deepEqual(toAdapterCommand('swipe', { dir: 'up', x1: 10, y1: 400, x2: 10, y2: 100, durationMs: 300 }), { kind: 'swipe', dir: 'up', x1: 10, y1: 400, x2: 10, y2: 100, durationMs: 300 })
+  assert.deepEqual(toAdapterCommand('swipe', { dir: 'up', x1: 10, y1: 400 }), { kind: 'swipe', dir: 'up' }) // incomplete coord pair → directional fallback
   assert.equal(toAdapterCommand('swipe', { dir: 'sideways' }), null)
   assert.deepEqual(toAdapterCommand('type', { text: 'hi' }), { kind: 'type', text: 'hi' })
   assert.equal(toAdapterCommand('type', { text: '' }), null)

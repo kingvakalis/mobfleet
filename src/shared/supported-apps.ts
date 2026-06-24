@@ -19,7 +19,7 @@ export interface SupportedApp {
 
 export const SUPPORTED_APPS: readonly SupportedApp[] = [
   { bundleId: 'com.burbn.instagram',     name: 'Instagram', abbr: 'In', color: 'linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045)' },
-  { bundleId: 'ph.telegra.Telegraph',    name: 'Telegram',  abbr: 'Te', color: '#2aabee' },
+  { bundleId: 'ph.telegra.Telegraph',    name: 'Telegram',  abbr: 'Te', color: '#2aabee' }, // real Telegram iOS id (reverse-DNS of telegra.ph); NOT ph.telegram.Telegraph
   { bundleId: 'com.facebook.Facebook',   name: 'Facebook',  abbr: 'Fb', color: '#1877f2' },
   { bundleId: 'net.whatsapp.WhatsApp',   name: 'WhatsApp',  abbr: 'Wh', color: '#25d366' },
   { bundleId: 'com.zhiliaoapp.musically', name: 'TikTok',   abbr: 'Ti', color: '#000000' },
