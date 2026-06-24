@@ -16,8 +16,80 @@
 import type { AgentTransport, ScreenshotFrame, DetectedApp } from './agent-runtime'
 import type { AgentCommandFrame, ExecResult } from './types'
 import { agentCommandActionSchema } from '../../../src/shared/schemas'
+import https from 'node:https'
+import http from 'node:http'
 
 type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+
+// --- keep-alive-free fetch (live-agent wedge fix) --------------------------------
+// The recurring agent wedge — ~60s of healthy polling, then EVERY request times out at
+// 15s while curl to the same host stays ~0.15s — is undici reusing a pooled keep-alive
+// socket that Supabase/Cloudflare already closed on its side (Cloudflare drops idle
+// upstream sockets at ~60s). undici races on the half-closed socket and hangs until the
+// abort timeout, so the whole command/heartbeat loop stalls and the phone goes
+// uncontrollable while still showing ONLINE. Routing the Supabase RPCs through node:https
+// with keepAlive:false opens a FRESH socket per request, so a server-closed idle socket
+// can never be reused. Cost: one TLS handshake per request (~100ms at a 1-2s cadence,
+// negligible) in exchange for never wedging. Only the response fields the transport reads
+// ({ ok, status, text() }) are implemented. The undici global-dispatcher override was tried
+// first and is incompatible with Node's bundled fetch, so the fix lives at the transport.
+const noKeepAliveHttps = new https.Agent({ keepAlive: false, maxSockets: 8 })
+const noKeepAliveHttp = new http.Agent({ keepAlive: false, maxSockets: 8 })
+
+const keepAliveFreeFetch: FetchLike = (url, init = {}) =>
+  new Promise((resolve, reject) => {
+    let parsed: URL
+    try { parsed = new URL(url) } catch (e) { reject(e instanceof Error ? e : new Error('bad url')); return }
+    const isHttps = parsed.protocol === 'https:'
+    const lib = isHttps ? https : http
+    const bodyBuf = init.body != null ? Buffer.from(init.body) : null
+    const headers: Record<string, string> = { ...(init.headers ?? {}) }
+    if (bodyBuf) headers['Content-Length'] = String(bodyBuf.byteLength)
+    const signal = init.signal
+
+    const req = lib.request(parsed, {
+      method: init.method ?? 'GET',
+      headers,
+      agent: isHttps ? noKeepAliveHttps : noKeepAliveHttp,
+    })
+    const onAbort = () => req.destroy(new Error('The operation was aborted due to timeout'))
+
+    // Settle EXACTLY ONCE, and guarantee we settle on every terminal path. This is the
+    // load-bearing part of the wedge fix: the runtime polls inside `await pollCommands()`,
+    // so a promise that never settles silently halts the whole poll loop (no reject → no
+    // error logged → 0% CPU, hung forever). A connection that dies AFTER headers arrive
+    // surfaces on res 'error'/'aborted' or req 'close' — not req 'error' — so all of those
+    // must reject. req 'close' is the ultimate net: it always fires when a request ends or
+    // is destroyed, so the promise can never leak.
+    let settled = false
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      if (!req.destroyed) { try { req.destroy() } catch { /* already gone */ } }
+    }
+    const ok = (v: { ok: boolean; status: number; text(): Promise<string> }) => { if (settled) return; settled = true; cleanup(); resolve(v) }
+    const fail = (e: unknown) => { if (settled) return; settled = true; cleanup(); reject(e instanceof Error ? e : new Error(String(e))) }
+
+    req.on('response', (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => {
+        const status = res.statusCode ?? 0
+        const text = Buffer.concat(chunks).toString('utf8')
+        ok({ ok: status >= 200 && status < 300, status, text: async () => text })
+      })
+      res.on('error', (e) => fail(e))
+      res.on('aborted', () => fail(new Error('The operation was aborted due to timeout')))
+    })
+    req.on('error', (e) => fail(e))
+    req.on('close', () => fail(new Error('connection closed before response')))
+
+    if (signal) {
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+    if (bodyBuf) req.write(bodyBuf)
+    req.end()
+  })
 
 export interface SupabaseTransportConfig {
   supabaseUrl: string
@@ -65,7 +137,7 @@ export class SupabaseAgentTransport implements AgentTransport {
   constructor(cfg: SupabaseTransportConfig) {
     this.cfg = cfg
     this.deviceId = cfg.deviceId
-    this.fetchImpl = cfg.fetchImpl ?? (globalThis.fetch as unknown as FetchLike)
+    this.fetchImpl = cfg.fetchImpl ?? keepAliveFreeFetch
     this.log = cfg.log ?? (() => {})
   }
 

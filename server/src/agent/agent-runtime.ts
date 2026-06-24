@@ -292,6 +292,10 @@ export class AgentRuntime {
       }
       await slot.transport
         .sendHeartbeat({ status: slot.managed.wdaReady ? 'online' : 'warming', ...tel })
+        // Positive liveliness signal (~every heartbeatIntervalMs). The agent otherwise only
+        // logs failures, so a silent log is ambiguous (healthy vs wedged); the host watchdog
+        // uses the absence of this line to detect a SILENT wedge (loop stalled, no errors).
+        .then(() => this.log('agent.heartbeat.ok', { udid, status: slot.managed.wdaReady ? 'online' : 'warming' }))
         .catch((err) => this.log('agent.heartbeat.error', { udid, error: errMsg(err) }))
     }
   }

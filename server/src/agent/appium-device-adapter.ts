@@ -172,7 +172,7 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
       },
       firstMatch: [{}],
     }
-    const data = await this.appium('POST', '/session', { capabilities }) as { value?: { sessionId?: string }; sessionId?: string }
+    const data = await this.appium('POST', '/session', { capabilities }, 180_000) as { value?: { sessionId?: string }; sessionId?: string }
     const sessionId = data?.value?.sessionId ?? data?.sessionId
     if (!sessionId) throw Object.assign(new Error('Appium did not return a sessionId'), { code: 'APPIUM_NO_SESSION', retryable: true })
     this.sessions.set(udid, sessionId)
@@ -256,12 +256,15 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
     await this.appium('DELETE', `/session/${sessionId}`)
   }
 
-  private async appium(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
+  // timeoutMs defaults to 30s (snappy for taps/screenshots). Session creation passes a longer
+  // value: bringing WDA up on the device (install + launch, even prebuilt) routinely exceeds 30s,
+  // and Appium's own wdaLaunchTimeout is 120s — the agent must out-wait that, not abort at 30s.
+  private async appium(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, timeoutMs = 30_000): Promise<unknown> {
     const res = await fetch(`${this.appiumUrl}${path}`, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     const json = await res.json().catch(() => ({})) as { value?: { message?: string } }
     if (!res.ok) {
