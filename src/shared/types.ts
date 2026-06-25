@@ -33,7 +33,7 @@ export type ControlCommand =
   | { type: 'swipe'; deviceId: string; dir: 'up' | 'down' | 'left' | 'right'; x1?: number; y1?: number; x2?: number; y2?: number; durationMs?: number; scroll?: boolean }
   | { type: 'key'; deviceId: string; key: 'home' | 'back' | 'lock' | 'switcher' }
   | { type: 'launch_app'; deviceId: string; appName: string }
-  | { type: 'screenshot'; deviceId: string }
+  | { type: 'screenshot'; deviceId: string; quality?: number }
   | { type: 'type_text'; deviceId: string; text: string }
 
 /** One human-readable command-log line for a device, streamed to operators over

@@ -24,7 +24,7 @@ import { CommandExecutor } from './command-executor'
 import { AGENT_VERSION } from './types'
 import type { AgentCommandFrame, DeviceIdentity, ExecResult, ManagedDevice } from './types'
 import { SUPPORTED_APPS, SUPPORTED_BUNDLE_IDS, appSource } from '../../../src/shared/supported-apps'
-import { compressFrame, compressionConfigFromEnv, type FrameCompressionConfig } from './frame-compress'
+import { compressFrame, compressionConfigFromEnv, compressionForQualityLevel, type FrameCompressionConfig } from './frame-compress'
 
 /** The control-plane transport the agent talks to, for ONE device (one API key).
  *  A multi-device Mac Mini holds one transport per managed device (one key each). */
@@ -356,7 +356,11 @@ export class AgentRuntime {
     // failure never blocks the ack (the command still completed on the device).
     const shot = extractScreenshotFrame(frame.action, result)
     if (shot && slot.transport.putScreenshot) {
-      const small = await compressFrame(shot, this.opts.frameCompression)
+      // Per-command QUALITY: a screenshot command may carry a 0–30 level (the dashboard's Quality
+      // slider). Apply it to THIS frame's encode; absent → the agent's startup (env) config.
+      const pl = (frame.payload ?? {}) as Record<string, unknown>
+      const level = typeof pl.quality === 'number' ? pl.quality : undefined
+      const small = await compressFrame(shot, compressionForQualityLevel(level, this.opts.frameCompression))
       await slot.transport
         .putScreenshot(frame.commandId, small)
         .catch((err) => this.log('agent.screenshot.upload_error', { udid, commandId: frame.commandId, error: errMsg(err) }))

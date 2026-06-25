@@ -12,6 +12,7 @@
  *    is reduced to a character count — the text itself is never logged.
  */
 import type { AgentCommandAction, ControlCommand } from './types'
+import { clampQualityLevel } from './stream-quality'
 
 /** The wire shape consumed by POST /v1/agent/command (unchanged contract). */
 export interface AgentCommandWire {
@@ -48,7 +49,13 @@ export function controlCommandToWire(command: ControlCommand): AgentCommandWire 
     case 'launch_app':
       return { deviceId: command.deviceId, action: 'launch', payload: { appName: command.appName } }
     case 'screenshot':
-      return { deviceId: command.deviceId, action: 'screenshot' }
+      // Carry the 0–30 quality LEVEL so the agent encodes this frame at the requested fidelity
+      // (clamped here too — defense in depth). Omitted → the agent keeps its startup config.
+      return {
+        deviceId: command.deviceId,
+        action: 'screenshot',
+        payload: command.quality != null ? { quality: clampQualityLevel(command.quality) } : {},
+      }
     case 'type_text':
       return { deviceId: command.deviceId, action: 'type', payload: { text: command.text } }
   }

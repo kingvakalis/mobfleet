@@ -25,6 +25,7 @@ import { isSupabaseConfigured } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
+import { fpsToIntervalMs, clampQualityLevel, qualityLevelToEncoder, SCREENSHOT_DOWNLOAD_QUALITY } from '@/shared/stream-quality'
 import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
 import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
@@ -38,15 +39,16 @@ function uid() { return Math.random().toString(36).slice(2, 9) }
 // Module-scope so the impure clock read is never analyzed as a render-phase call
 // (mirrors uid()); these timings are only taken at event time (enqueue / ack).
 function nowMs() { return Date.now() }
-// Client-driven GO LIVE pacing (conservative — ~1 frame / 1.5s, well under any Supabase limit).
-// The capture loop enqueues AT MOST one screenshot command per LIVE_CAPTURE_INTERVAL_MS (sequential,
-// never overlapping); the display refreshes from the latest frame every LIVE_POLL_INTERVAL_MS as a
-// fallback for when Realtime is delayed/unavailable.
-const LIVE_CAPTURE_INTERVAL_MS = 1500
+// Client-driven GO LIVE pacing. The capture loop enqueues AT MOST one screenshot command per
+// max(LIVE_MIN_CAPTURE_GAP_MS, interval-derived-from-the-FPS-slider) — strictly SEQUENTIAL, never
+// overlapping; the display refreshes from the latest frame every LIVE_POLL_INTERVAL_MS as a fallback
+// for when Realtime is delayed/unavailable. The requested FPS sets the target interval; the EFFECTIVE
+// rate is whatever the sequential loop actually achieves (measured + shown — the Supabase
+// screenshot pipeline is ~1–2 fps, so high FPS is honestly capped, never faked or hammered).
 const LIVE_POLL_INTERVAL_MS = 1200
-// Hard floor between screenshot enqueues — bounds the capture rate even if the capture-loop effect
-// re-runs (e.g. a transient device online↔busy status flip) and calls captureOnce back-to-back.
-const LIVE_MIN_CAPTURE_GAP_MS = 1200
+// Hard floor between screenshot enqueues (transport-safe) — bounds the capture rate even at FPS 30 and
+// even if the capture-loop effect re-runs (e.g. a transient device online↔busy flip) back-to-back.
+const LIVE_MIN_CAPTURE_GAP_MS = 350
 function fmt(d: Date) {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -281,18 +283,21 @@ export function PhoneControlPage() {
   const canScreenshot = device ? canActOnPhone(member, 'phones.screenshot', device) : false
   const readOnly      = !canControl
 
-  // UI state — stream defaults come from workspace settings
-  const defaultQuality = useSettings(s => s.defaultStreamQuality)
-  const defaultFps     = useSettings(s => s.defaultStreamFps)
+  // Stream quality/FPS are the SOURCE OF TRUTH in the persisted workspace settings (zustand/persist →
+  // localStorage), so they survive refresh and the slider edits them directly. Refs let the live
+  // capture loop pick up changes WITHOUT restarting (no agent/Appium restart).
+  const quality        = useSettings(s => s.defaultStreamQuality)
+  const fps            = useSettings(s => s.defaultStreamFps)
   const stabilizePhone = useSettings(s => s.stabilizePhone)
   const updateSettings = useSettings(s => s.update)
+  const qualityRef = useRef(quality)
+  const fpsRef = useRef(fps)
+  useEffect(() => { qualityRef.current = quality; fpsRef.current = fps }, [quality, fps])
   // Live (supabase-mode) phone control defaults to STABILIZED — most accurate tap/drag coords — regardless
   // of the persisted global setting; the header button toggles it (two-way) for this session. Non-supabase
   // (demo/mock) keeps the global `stabilizePhone` workspace setting (also editable in Settings).
   const [liveStabilized, setLiveStabilized] = useState(true)
   const stabilized = useSupabaseCommands ? liveStabilized : stabilizePhone
-  const [quality, setQuality]       = useState(Math.min(30, defaultQuality))
-  const [fps, setFps]               = useState(Math.min(30, defaultFps))
   const [gesture, setGesture]       = useState('tap')
   const [sendText, setSendText]     = useState('')
   const [notes, setNotes]           = useState('')
@@ -308,6 +313,11 @@ export function PhoneControlPage() {
   // Live telemetry
   const [latency, setLatency] = useState(41)
   const [liveFps, setLiveFps] = useState(18)
+  // MEASURED effective live FPS (supabase-mode): distinct rendered frames over a trailing window — the
+  // truthful rate, never the requested number. Shown next to the FPS slider so requested≠effective is honest.
+  const [measuredFps, setMeasuredFps] = useState(0)
+  const frameTimesRef = useRef<number[]>([])
+  const lastCountedCapRef = useRef<number>(0)
   const logRef = useRef<HTMLDivElement>(null)
   const phoneRef = useRef<LivePhoneHandle>(null)
 
@@ -442,6 +452,20 @@ export function PhoneControlPage() {
     watchersRef.current.clear()
   }, [])
 
+  // Count a DISTINCT rendered frame (deduped by its captured-at) into a 5s trailing window and recompute
+  // the measured effective FPS. This is the truthful live rate (Realtime + poll dedupe to the same frame).
+  const markFrame = useCallback((capturedAt: number) => {
+    if (capturedAt && capturedAt === lastCountedCapRef.current) return // same frame via both Realtime + poll
+    lastCountedCapRef.current = capturedAt
+    const t = nowMs()
+    const arr = frameTimesRef.current
+    arr.push(t)
+    const cutoff = t - 5000
+    while (arr.length && arr[0] < cutoff) arr.shift()
+    const span = arr.length >= 2 ? (arr[arr.length - 1] - arr[0]) / 1000 : 0
+    setMeasuredFps(span > 0 ? Math.round(((arr.length - 1) / span) * 10) / 10 : 0)
+  }, [])
+
   // Loads a data: URL from the latest REAL frame the agent uploaded for this device, and records
   // the read round-trip as the truthful REFRESH metric (a real network read, not a fabricated ping).
   // `downloadName` (the device name) is set ONLY when the user pressed Screenshot — after
@@ -456,16 +480,18 @@ export function PhoneControlPage() {
       // Allow-list the MIME at the sink too (defense in depth): never interpolate an
       // untrusted value into the data: URL even if the DB row somehow carried one.
       const fmt = s.format === 'jpeg' || s.format === 'webp' ? s.format : 'png'
+      const cap = Number.isFinite(ts) ? ts : nowMs()
       setFrame({
         src: `data:image/${fmt};base64,${s.imageBase64}`,
-        capturedAt: Number.isFinite(ts) ? ts : nowMs(),
+        capturedAt: cap,
         width: s.width,
         height: s.height,
       })
       setFrameLatency(nowMs() - t0)
+      markFrame(cap)
       if (downloadName) downloadScreenshot(downloadName, s.imageBase64, s.format)
     } catch { /* keep the prior frame; never crash the page */ }
-  }, [])
+  }, [markFrame])
 
   // One live capture: enqueue ONE real screenshot command and, on its ACK, read+display the captured
   // frame (works whether or not GO LIVE is on). The shared `captureBusyRef` guard makes this strictly
@@ -500,7 +526,8 @@ export function PhoneControlPage() {
       if (pendingRefreshRef.current && !liveViewRef.current) { pendingRefreshRef.current = false; scheduleFrameRefreshRef.current() }
     }
     liveCaptureFinishRef.current = finish
-    enqueueCommand({ teamId, deviceId: id, action: 'screenshot', userId })
+    // Carry the live QUALITY level (clamped) so the agent encodes this frame at the requested fidelity.
+    enqueueCommand({ teamId, deviceId: id, action: 'screenshot', payload: { quality: clampQualityLevel(qualityRef.current) }, userId })
       .then(({ id: cmdId }) => {
         if (settled) return // stopped (GO LIVE off / device change) before the row landed
         cancel = watchCommand(cmdId, (status) => {
@@ -534,9 +561,10 @@ export function PhoneControlPage() {
     liveCaptureFinishRef.current() // release any in-flight forced/gesture capture, else captureBusyRef stays stuck → new device's captures all drop
     if (frameRefreshTimerRef.current) { clearTimeout(frameRefreshTimerRef.current); frameRefreshTimerRef.current = null } // drop a pending refresh for the old device
     deviceIdRef.current = deviceId
+    frameTimesRef.current = []; lastCountedCapRef.current = 0 // reset the effective-FPS window for the new device
     if (!useSupabaseCommands || !deviceId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFrame(null); setFrameLatency(null)
+    setFrame(null); setFrameLatency(null); setMeasuredFps(0)
     void refreshFrame(deviceId)
   }, [deviceId, useSupabaseCommands, refreshFrame, cancelAllWatchers])
 
@@ -556,7 +584,10 @@ export function PhoneControlPage() {
         const t0 = nowMs()
         await captureOnce()
         if (!active) break
-        await new Promise<void>((r) => setTimeout(r, Math.max(300, LIVE_CAPTURE_INTERVAL_MS - (nowMs() - t0))))
+        // Pace to the FPS-slider target interval (read via ref → changes apply WITHOUT restarting the
+        // loop/agent), floored at the transport-safe gap. The sequential await above already prevents
+        // overlap, so a high FPS request can never storm Supabase — it just shortens this sleep.
+        await new Promise<void>((r) => setTimeout(r, Math.max(LIVE_MIN_CAPTURE_GAP_MS, fpsToIntervalMs(fpsRef.current) - (nowMs() - t0))))
       }
     }
     void run()
@@ -578,7 +609,9 @@ export function PhoneControlPage() {
       lastRealtimeFrameRef.current = nowMs()
       const ts = Date.parse(sc.capturedAt)
       const fmt = sc.format === 'jpeg' || sc.format === 'webp' ? sc.format : 'png'
-      setFrame({ src: `data:image/${fmt};base64,${sc.imageBase64}`, capturedAt: Number.isFinite(ts) ? ts : nowMs(), width: sc.width, height: sc.height })
+      const cap = Number.isFinite(ts) ? ts : nowMs()
+      setFrame({ src: `data:image/${fmt};base64,${sc.imageBase64}`, capturedAt: cap, width: sc.width, height: sc.height })
+      markFrame(cap)
     }
     const unsub = subscribeDeviceScreenshots(deviceId, apply)
     const poll = setInterval(() => {
@@ -586,7 +619,7 @@ export function PhoneControlPage() {
       void refreshFrame(deviceId)
     }, LIVE_POLL_INTERVAL_MS)
     return () => { unsub(); clearInterval(poll) }
-  }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame])
+  }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame, markFrame])
 
   // If the device becomes unreachable while GO LIVE, turn GO LIVE OFF so the STREAM badge is truthful
   // (the loops already stop via their `online` guard; this keeps liveView state in sync, not 'Live').
@@ -737,7 +770,7 @@ export function PhoneControlPage() {
         break
       case 'screenshot':
         if (!canScreenshot) { denyAction('screenshot'); return }
-        p?.screenshot(); sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot', device.name)
+        p?.screenshot(); sendControl({ type: 'screenshot', deviceId: device.id, quality: SCREENSHOT_DOWNLOAD_QUALITY }, 'screenshot', 'Screenshot', device.name)
         break
     }
   }
@@ -746,7 +779,7 @@ export function PhoneControlPage() {
   const captureScreenshot = () => {
     if (!canScreenshot) { denyAction('screenshot'); return }
     phoneRef.current?.screenshot()
-    sendControl({ type: 'screenshot', deviceId: device.id }, 'screenshot', 'Screenshot', device.name)
+    sendControl({ type: 'screenshot', deviceId: device.id, quality: SCREENSHOT_DOWNLOAD_QUALITY }, 'screenshot', 'Screenshot', device.name)
   }
 
   // Real-screen pointer gestures → real control commands. Truthful lifecycle (queued→running→
@@ -876,14 +909,22 @@ export function PhoneControlPage() {
                 <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">QUALITY</span>
                 <span className="font-mono text-[13px] font-semibold text-white">{quality}</span>
               </div>
-              <TealSlider value={quality} min={0} max={30} onChange={setQuality} />
+              <TealSlider value={quality} min={0} max={30} onChange={v => updateSettings({ defaultStreamQuality: v })} />
+              {useSupabaseCommands && (() => { const enc = qualityLevelToEncoder(quality); return (
+                <p className="mt-1 font-mono text-[10px] text-white/30">≈ {enc.width}px · q{enc.quality} jpeg</p>
+              ) })()}
             </div>
             <div>
               <div className="flex justify-between items-center">
                 <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">FPS</span>
                 <span className="font-mono text-[13px] font-semibold text-white">{fps}</span>
               </div>
-              <TealSlider value={fps} min={5} max={30} onChange={setFps} />
+              <TealSlider value={fps} min={5} max={30} onChange={v => updateSettings({ defaultStreamFps: v })} />
+              {useSupabaseCommands && (
+                <p className="mt-1 font-mono text-[10px] text-white/30">
+                  requested {fps}/s · effective {liveView ? `~${measuredFps || '…'}/s` : 'off'} — Supabase preview caps at ~1–2 fps (30 fps needs WebRTC)
+                </p>
+              )}
             </div>
           </Card>
 

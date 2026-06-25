@@ -10,8 +10,20 @@
  * frame. Configurable via env (FRAME_WIDTH / FRAME_QUALITY / FRAME_FORMAT).
  */
 import type { ScreenshotFrame } from './agent-runtime'
+import { qualityLevelToEncoder } from '../../../src/shared/stream-quality'
 
 export interface FrameCompressionConfig { width: number; quality: number; format: 'jpeg' | 'webp' }
+
+/**
+ * Per-command override: map the UI 0–30 quality LEVEL (from a screenshot command's payload) onto the
+ * real encoder width+quality, keeping the agent's configured output format. No/NaN level → the
+ * startup (env) `base` config unchanged. PURE + tested. This is how the Quality slider reaches sharp.
+ */
+export function compressionForQualityLevel(level: number | undefined, base: FrameCompressionConfig): FrameCompressionConfig {
+  if (typeof level !== 'number' || !Number.isFinite(level)) return base
+  const enc = qualityLevelToEncoder(level)
+  return { width: enc.width, quality: enc.quality, format: base.format }
+}
 
 /** Parse FRAME_WIDTH / FRAME_QUALITY / FRAME_FORMAT into a clamped config. PURE + tested. */
 export function compressionConfigFromEnv(env: Record<string, string | undefined>): FrameCompressionConfig {

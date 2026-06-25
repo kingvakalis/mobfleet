@@ -60,8 +60,19 @@ test('controlCommandToWire maps each command to the wire shape', () => {
   assert.deepEqual(controlCommandToWire({ type: 'key', deviceId: D, key: 'back' }), { deviceId: D, action: 'back' })
   assert.deepEqual(controlCommandToWire({ type: 'key', deviceId: D, key: 'switcher' }), { deviceId: D, action: 'switcher' })
   assert.deepEqual(controlCommandToWire({ type: 'launch_app', deviceId: D, appName: 'X' }), { deviceId: D, action: 'launch', payload: { appName: 'X' } })
-  assert.deepEqual(controlCommandToWire({ type: 'screenshot', deviceId: D }), { deviceId: D, action: 'screenshot' })
+  assert.deepEqual(controlCommandToWire({ type: 'screenshot', deviceId: D }), { deviceId: D, action: 'screenshot', payload: {} })
   assert.deepEqual(controlCommandToWire({ type: 'type_text', deviceId: D, text: 'hi' }), { deviceId: D, action: 'type', payload: { text: 'hi' } })
+})
+
+test('controlCommandToWire carries + clamps the screenshot quality level', () => {
+  assert.deepEqual(controlCommandToWire({ type: 'screenshot', deviceId: D, quality: 22 }), { deviceId: D, action: 'screenshot', payload: { quality: 22 } })
+  assert.deepEqual(controlCommandToWire({ type: 'screenshot', deviceId: D, quality: 0 }), { deviceId: D, action: 'screenshot', payload: { quality: 0 } })
+  assert.deepEqual(controlCommandToWire({ type: 'screenshot', deviceId: D, quality: 99 }), { deviceId: D, action: 'screenshot', payload: { quality: 30 } }) // clamped
+  // the server validator accepts the quality-bearing screenshot, and rejects an out-of-range one
+  assert.equal(agentCommandBody.safeParse({ deviceId: D, action: 'screenshot', payload: { quality: 15 } }).success, true)
+  assert.equal(agentCommandBody.safeParse({ deviceId: D, action: 'screenshot', payload: { quality: 99 } }).success, false)
+  assert.equal(controlCommandSchema.safeParse({ type: 'screenshot', deviceId: D, quality: 15 }).success, true)
+  assert.equal(controlCommandSchema.safeParse({ type: 'screenshot', deviceId: D, quality: 31 }).success, false)
 })
 
 test('every controlCommandToWire output satisfies the server validator', () => {

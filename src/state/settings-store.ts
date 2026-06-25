@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ThemeId, AccentId } from '@/lib/themes'
+import { QUALITY_MIN, QUALITY_MAX, FPS_MIN, FPS_MAX } from '@/shared/stream-quality'
 
 /**
  * Workspace settings. Persisted locally (zustand/persist → localStorage).
@@ -74,13 +75,12 @@ interface SettingsState extends WorkspaceSettings {
   reset: () => void
 }
 
-/** Stream quality + FPS are capped at 30. Clamp any value (UI input or older persisted
- *  state) into range so a previously-saved 100/60 can never come back above 30. */
-const STREAM_MAX = 30
+/** Clamp stream quality (0–30) and FPS (5–30) into their real ranges so any UI input or older
+ *  persisted state (e.g. a saved 100/60, or a legacy fps below 5) can never come back out of range. */
 function clampStream(patch: Partial<WorkspaceSettings>): Partial<WorkspaceSettings> {
   const next = { ...patch }
-  if (next.defaultStreamQuality != null) next.defaultStreamQuality = Math.max(0, Math.min(STREAM_MAX, next.defaultStreamQuality))
-  if (next.defaultStreamFps != null) next.defaultStreamFps = Math.max(0, Math.min(STREAM_MAX, next.defaultStreamFps))
+  if (next.defaultStreamQuality != null) next.defaultStreamQuality = Math.max(QUALITY_MIN, Math.min(QUALITY_MAX, Math.round(next.defaultStreamQuality)))
+  if (next.defaultStreamFps != null) next.defaultStreamFps = Math.max(FPS_MIN, Math.min(FPS_MAX, Math.round(next.defaultStreamFps)))
   return next
 }
 
