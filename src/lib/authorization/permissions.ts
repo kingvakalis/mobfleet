@@ -43,6 +43,7 @@ export const PERMISSIONS = [
   { key: 'phones.reboot',         category: 'Phones', label: 'Reboot phones',        description: 'Remotely reboot phones within scope.', risk: 'high' },
   { key: 'phones.assign_group',   category: 'Phones', label: 'Assign phone groups',  description: 'Move phones between groups.', risk: 'medium' },
   { key: 'phones.assign_employee',category: 'Phones', label: 'Assign phone operator',description: 'Assign employees to phones.', risk: 'medium' },
+  { key: 'phones.rename',         category: 'Phones', label: 'Rename phones',        description: 'Change a phone’s display name. Owner/Admin by default; grant to other roles per member.', risk: 'medium' },
   { key: 'phones.retire',         category: 'Phones', label: 'Retire phones',        description: 'Permanently remove phones from the pool.', risk: 'critical' },
   { key: 'phones.provision',      category: 'Phones', label: 'Provision phones',     description: 'Provision new cloud devices into the fleet (billable on real providers).', risk: 'high' },
   { key: 'phones.import',         category: 'Phones', label: 'Import phones',        description: 'Bulk-import devices into the fleet.', risk: 'medium' },

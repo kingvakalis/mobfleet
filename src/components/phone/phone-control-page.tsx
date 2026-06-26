@@ -31,6 +31,7 @@ import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
 import { AppRow, AppRowsSkeleton } from '@/components/phone/app-row'
+import { InlineDeviceRename } from '@/components/phone/inline-device-rename'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -281,6 +282,9 @@ export function PhoneControlPage() {
   const canView       = can(member, 'phones.view')
   const canControl    = device ? canActOnPhone(member, 'phones.control', device) : false
   const canScreenshot = device ? canActOnPhone(member, 'phones.screenshot', device) : false
+  // Rename is a team-level permission (matches the server can_rename_device + the
+  // registry), not a per-phone scoped action like control/screenshot.
+  const canRename     = device ? can(member, 'phones.rename') : false
   const readOnly      = !canControl
 
   // Stream quality/FPS are the SOURCE OF TRUTH in the persisted workspace settings (zustand/persist →
@@ -847,7 +851,14 @@ export function PhoneControlPage() {
             {avatarLetters}
           </div>
           <div className="flex flex-col">
-            <span className="text-[13px] font-bold text-white leading-tight">{device.name}</span>
+            <InlineDeviceRename
+              key={device.id}
+              deviceId={device.id}
+              name={device.name}
+              canRename={canRename}
+              display={<span className="truncate text-[13px] font-bold text-white leading-tight">{device.name}</span>}
+              inputClassName="h-7 w-48 rounded-control border border-line bg-elevated px-2 text-[13px] font-bold text-white outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
+            />
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1">
                 <div className="w-1.5 h-1.5 rounded-full status-dot-pulse" style={{ background: meta.color, boxShadow: `0 0 4px ${meta.color}` }} />

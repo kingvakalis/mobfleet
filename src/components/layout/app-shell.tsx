@@ -8,6 +8,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { BrandLogo } from '@/components/brand/brand-logo'
+import { SignOutButton } from '@/components/auth/sign-out-button'
+import { useAuth } from '@/contexts/AuthContext'
 import { VIEWS, type ViewId } from '@/lib/views'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
@@ -48,6 +50,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   const stats   = useFleetStats()
   const workspaceName = useSettings((s) => s.workspaceName)
   const member  = useActingMember()
+  const { enabled: authEnabled } = useAuth()
   const [time, setTime] = useState(() => new Date())
 
   useEffect(() => {
@@ -135,6 +138,8 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
             {stats.total} DEVICES · {online} ONLINE
           </div>
         )}
+        {/* Sign Out — only with real auth (mock/demo build has no session to end). */}
+        {authEnabled && <SignOutButton variant="sidebar" collapsed={collapsed} />}
       </div>
     </>
   )

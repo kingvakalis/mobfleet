@@ -12,11 +12,12 @@ import { GRID_APPS } from '@/components/phone/app-catalog'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
 import { AppRow, AppRowsSkeleton } from '@/components/phone/app-row'
+import { InlineDeviceRename } from '@/components/phone/inline-device-rename'
 import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
 import { useDeviceLog, type LogLevel, type LogLine } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
 import { useScopedDevices, useActingEmployee } from '@/lib/authorization/use-access'
-import { canActOnPhone } from '@/lib/authorization'
+import { canActOnPhone, can } from '@/lib/authorization'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { useDeviceGroups } from '@/hooks/useDeviceGroups'
@@ -580,7 +581,10 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
   // SECURITY: resolve the device from the SCOPED set so the drawer can never be
   // opened against a phone outside the acting member's scope.
   const scopedDevices = useScopedDevices()
+  const { member } = useActingEmployee()
   const device = scopedDevices.find((d) => d.id === deviceId)
+  // Team-level permission (matches the server can_rename_device + the registry + Phone Control).
+  const canRename = device ? can(member, 'phones.rename') : false
   const job = device?.jobId ? snapshot.jobs.find((j) => j.id === device.jobId) ?? null : null
   // supabase-mode (production): render a TRUTHFUL body (real Supabase data + route to
   // the real Phone Control page) instead of the mock phone/controls/log, which only
@@ -653,7 +657,17 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
         <div className="flex min-w-0 items-center gap-2.5">
           {device && <StatusDot status={device.status} size={9} pulse={device.status !== 'offline'} />}
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-fg">{device ? device.name : deviceId}</div>
+            {device ? (
+              <InlineDeviceRename
+                deviceId={device.id}
+                name={device.name}
+                canRename={canRename}
+                display={<span className="truncate text-sm font-medium text-fg">{device.name}</span>}
+                inputClassName="h-7 w-44 rounded-control border border-line bg-elevated px-2 text-[13px] font-medium text-fg outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
+              />
+            ) : (
+              <div className="truncate text-sm font-medium text-fg">{deviceId}</div>
+            )}
             <div className="label mt-0.5 text-fg-muted">
               {device ? `${device.group} · ${meta!.label}` : 'DISCONNECTED'}
             </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, RotateCcw, Save, Gauge, Bell, Building2, Palette, PanelLeft, Anchor, Mail, SlidersHorizontal } from 'lucide-react'
+import { Check, RotateCcw, Save, Gauge, Bell, Building2, Palette, PanelLeft, Anchor, Mail, SlidersHorizontal, LogOut } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { THEMES, ACCENTS, appearanceStyle, type ThemeId, type AccentId } from '@/lib/themes'
 import {
@@ -9,6 +9,8 @@ import {
   type SurfaceStyle, type BackgroundIntensity, type Density, type SidebarMode,
 } from '@/state/settings-store'
 import { useActingEmployee } from '@/lib/authorization/use-access'
+import { useAuth } from '@/contexts/AuthContext'
+import { SignOutButton } from '@/components/auth/sign-out-button'
 import { can } from '@/lib/authorization'
 import { logAudit } from '@/services/audit'
 import { Section, Field, Toggle } from '@/components/settings/settings-primitives'
@@ -151,6 +153,7 @@ export function SettingsView() {
     return d as unknown as WorkspaceSettings
   })
   const [saved, setSaved] = useState(false)
+  const { enabled: authEnabled, user } = useAuth()
 
   // Derive the visible tab so access revoked mid-session (e.g. the dev "acting
   // as" switch dropping to a non-admin role) instantly falls back to General —
@@ -452,6 +455,20 @@ export function SettingsView() {
               />
             </Field>
           </Section>
+
+          {/* ── Account ───────────────────────────────────────────────────────
+              Only with real auth (the mock/demo build has no session). Never
+              `locked` — signing out must always be available to the signed-in user. */}
+          {authEnabled && (
+            <Section icon={LogOut} title="Account" desc="The signed-in user and session.">
+              <Field label="Signed in as">
+                <span className="mono text-[12px] text-fg-secondary">{user?.email ?? '—'}</span>
+              </Field>
+              <Field label="Session" hint="End your session and return to the login screen">
+                <SignOutButton variant="settings" />
+              </Field>
+            </Section>
+          )}
 
           <Section icon={Gauge} title="Device Control" desc="Defaults applied when opening a phone-control session." locked={!canDevice}>
             <Field label="Default stream quality" hint="0–30">

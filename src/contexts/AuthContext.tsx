@@ -23,7 +23,7 @@ interface AuthValue {
   user: User | null
   login: (email: string, password: string) => Promise<{ error?: string }>
   signup: (email: string, password: string, workspaceName?: string) => Promise<{ error?: string; needsConfirmation?: boolean }>
-  logout: () => Promise<void>
+  logout: () => Promise<{ error?: string }>
   /** Email a password-reset link (Supabase). The caller shows a GENERIC success
    *  regardless of the result so account existence is never revealed. */
   forgotPassword: (email: string) => Promise<{ error?: string }>
@@ -105,7 +105,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearPendingTeamName()
         clearPendingInvite()
         clearOnboardingProgress()
-        await supabase?.auth.signOut()
+        // signOut clears the Supabase session; onAuthStateChange then nulls `session`,
+        // which makes every ProtectedRoute redirect to /login (the authed app unmounts,
+        // so no stale workspace/device data stays on screen). Surface a truthful error.
+        const { error } = (await supabase?.auth.signOut()) ?? {}
+        return error ? { error: error.message } : {}
       },
       async forgotPassword(email) {
         if (!supabase) return { error: 'Authentication is not configured.' }

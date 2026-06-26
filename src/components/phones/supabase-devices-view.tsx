@@ -9,6 +9,9 @@ import { useNow } from '@/hooks/use-now'
 import { isHeartbeatStale } from '@/shared/heartbeat'
 import { useTeamContext } from '@/contexts/TeamContext'
 import { useUIStore } from '@/state/ui-store'
+import { useActingMember } from '@/lib/authorization/use-access'
+import { can } from '@/lib/authorization'
+import { InlineDeviceRename } from '@/components/phone/inline-device-rename'
 import type { DeviceStatusEnum } from '@/lib/database.types'
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -127,6 +130,11 @@ export function SupabaseDevicesView() {
   // (insert/update); devices_delete = is_team_admin = owner/admin only.
   const canWrite = role === 'owner' || role === 'admin' || role === 'operator'
   const canDelete = role === 'owner' || role === 'admin'
+  // Rename is its own permission (owner/admin by default, or a per-member grant) —
+  // resolved through the effective-access engine so an overridden grant counts, and
+  // matched server-side by the rename_device RPC + trigger (can_rename_device).
+  const member = useActingMember()
+  const canRename = can(member, 'phones.rename')
   const now = useNow() // ticks so heartbeat freshness self-updates
   const openPair = useUIStore((s) => s.openPair) // opens the (supabase-aware) DevicePairingModal
   const openPhoneControl = useUIStore((s) => s.openPhoneControl) // routes to the existing Phone Control view
@@ -438,7 +446,13 @@ export function SupabaseDevicesView() {
                       </td>
                     )}
                     <td className="px-3 py-3 whitespace-nowrap">
-                      <div className="mono text-white/75 text-[11px]">{d.name}</div>
+                      <InlineDeviceRename
+                        deviceId={d.id}
+                        name={d.name}
+                        canRename={canRename}
+                        display={<span className="mono text-white/75 text-[11px]">{d.name}</span>}
+                        inputClassName="mono h-7 w-40 rounded-control border border-line bg-elevated px-2 text-[11px] text-fg outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
+                      />
                       <div className="mono text-white/25 text-[9px] truncate max-w-[200px]">{d.udid ?? 'no udid'}</div>
                     </td>
                     <td className="px-3 py-3">

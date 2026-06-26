@@ -586,6 +586,14 @@ export interface Database {
         Args: { p_token: string }
         Returns: { team_id: string; role: TeamRole; team_name: string }
       }
+      rename_device: {
+        Args: { p_device_id: string; p_name: string }
+        Returns: Database['public']['Tables']['devices']['Row']
+      }
+      can_rename_device: {
+        Args: { p_team_id: string }
+        Returns: boolean
+      }
       has_any_membership: {
         Args: Record<string, never>
         Returns: boolean
