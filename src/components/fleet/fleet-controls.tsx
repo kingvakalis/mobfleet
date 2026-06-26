@@ -326,7 +326,7 @@ export function FleetControls({ filters, setFilters, locked, setLocked, onResetP
           disabled={!canSaveLayout}
           title={canSaveLayout ? 'Unpin all phones (everything rejoins the simulation)' : 'Requires save-layout permission'}
           onClick={() => graphBus.unpinAll?.()}
-          className="mono flex h-7 items-center rounded-lg px-2 text-[10px] text-white/40 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-7 items-center rounded-lg px-2 text-[10px] text-white/40 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Unpin all
         </button>

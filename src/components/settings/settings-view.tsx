@@ -79,7 +79,7 @@ function AppearancePreview({ draft }: { draft: WorkspaceSettings }) {
           {['Fleet', 'Phones', 'Team'].map((l, i) => (
             <div
               key={l}
-              className="mono mb-1 rounded-sm px-1.5 py-1 text-[8px] uppercase tracking-wider"
+              className="mb-1 rounded-sm px-1.5 py-1 text-[8px] uppercase tracking-wider"
               style={i === 0
                 ? { background: 'var(--accent-soft)', color: 'var(--accent-text)', borderLeft: '2px solid var(--accent)' }
                 : { color: 'rgba(255,255,255,0.35)' }}
@@ -110,12 +110,12 @@ function AppearancePreview({ draft }: { draft: WorkspaceSettings }) {
           <div className="flex items-center gap-2">
             <div className="flex-1 rounded-md border" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center justify-between border-b px-2 py-1" style={{ borderColor: 'var(--border)', background: 'var(--bg-surface)' }}>
-                <span className="mono text-[8px] uppercase tracking-wider text-white/30">Name</span>
-                <span className="mono text-[8px] uppercase tracking-wider text-white/30">Status</span>
+                <span className="text-[8px] uppercase tracking-wider text-white/30">Name</span>
+                <span className="text-[8px] uppercase tracking-wider text-white/30">Status</span>
               </div>
               <div className="flex items-center justify-between px-2 py-1.5" style={{ background: 'var(--bg-hover)' }}>
-                <span className="mono text-[9px] text-white/70">CAROLINA 1</span>
-                <span className="mono text-[8px]" style={{ color: '#4fc3f7' }}>BUSY</span>
+                <span className="text-[9px] text-white/70">CAROLINA 1</span>
+                <span className="text-[8px]" style={{ color: '#4fc3f7' }}>BUSY</span>
               </div>
             </div>
             <div
@@ -207,8 +207,8 @@ export function SettingsView() {
       {/* header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Settings</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Settings</h1>
         </div>
         <div className="flex items-center gap-2">
           {/* Sub-navigation. The Email tab only renders for Owner/Admin. */}
@@ -227,7 +227,7 @@ export function SettingsView() {
                   tabIndex={active ? 0 : -1}
                   onClick={() => setTab(id)}
                   className={[
-                    'mono flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+                    'flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
                     active ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/40 hover:text-white/70',
                   ].join(' ')}
                 >
@@ -244,7 +244,7 @@ export function SettingsView() {
                 {dirty && (
                   <motion.span
                     initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
-                    className="mono text-[10px] uppercase tracking-wider text-amber-400"
+                    className="text-[10px] uppercase tracking-wider text-amber-400"
                   >
                     Unsaved changes
                   </motion.span>
@@ -254,7 +254,7 @@ export function SettingsView() {
                 onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
                 disabled={!canEditAny}
                 title={canEditAny ? undefined : 'You do not have permission to edit settings'}
-                className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <RotateCcw size={11} /> Defaults
               </button>
@@ -262,7 +262,7 @@ export function SettingsView() {
                 onClick={save}
                 disabled={!dirty || !valid || !canEditAny}
                 title={!canEditAny ? 'You do not have permission to edit settings' : !valid ? 'Fix validation errors first' : undefined}
-                className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {saved ? <Check size={12} /> : <Save size={12} />} {saved ? 'Saved' : 'Save'}
               </button>
@@ -312,7 +312,7 @@ export function SettingsView() {
                             <span className="h-3.5 w-3.5 rounded-sm border border-white/15" style={{ background: t.vars.elevated }} />
                             <span className="h-3.5 w-3.5 rounded-sm border border-white/15" style={{ background: t.vars.hover }} />
                           </div>
-                          <div className={`mono text-[10px] uppercase tracking-wider ${on ? 'text-[var(--accent-text)]' : 'text-white/65'}`}>{t.label}</div>
+                          <div className={`text-[10px] uppercase tracking-wider ${on ? 'text-[var(--accent-text)]' : 'text-white/65'}`}>{t.label}</div>
                           <div className="mt-0.5 text-[9px] leading-snug text-white/30">{t.desc}</div>
                         </button>
                       )
@@ -340,7 +340,7 @@ export function SettingsView() {
                           ].join(' ')}
                         >
                           <span className="h-3 w-3 rounded-full" style={{ background: a.vars.accent }} />
-                          <span className={`mono text-[9px] uppercase tracking-wider ${on ? 'text-[var(--accent-text)]' : 'text-white/45'}`}>{a.label}</span>
+                          <span className={`text-[9px] uppercase tracking-wider ${on ? 'text-[var(--accent-text)]' : 'text-white/45'}`}>{a.label}</span>
                         </button>
                       )
                     })}
@@ -428,7 +428,7 @@ export function SettingsView() {
                 aria-label="Workspace name"
                 value={draft.workspaceName}
                 onChange={e => set('workspaceName', e.target.value)}
-                className="mono h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+                className="h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
               />
             </Field>
             <Field label="Operator name" hint="Used to attribute actions in the activity feed">
@@ -436,7 +436,7 @@ export function SettingsView() {
                 aria-label="Operator name"
                 value={draft.operatorName}
                 onChange={e => set('operatorName', e.target.value)}
-                className="mono h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+                className="h-8 w-44 rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
               />
             </Field>
             <Field label="Performance mode" hint="Caps 3D resolution and decorative rendering">
@@ -461,7 +461,7 @@ export function SettingsView() {
                 value={draft.defaultStreamQuality}
                 onChange={e => set('defaultStreamQuality', Number(e.target.value))}
                 className={[
-                  'mono h-8 w-20 rounded-control border bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors',
+                  'h-8 w-20 rounded-control border bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors',
                   draft.defaultStreamQuality >= 0 && draft.defaultStreamQuality <= 100 ? 'border-line focus:border-[var(--accent-border)]' : 'border-status-error',
                 ].join(' ')}
               />
@@ -473,7 +473,7 @@ export function SettingsView() {
                 value={draft.defaultStreamFps}
                 onChange={e => set('defaultStreamFps', Number(e.target.value))}
                 className={[
-                  'mono h-8 w-20 rounded-control border bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors',
+                  'h-8 w-20 rounded-control border bg-elevated px-2.5 text-[12px] text-fg outline-none transition-colors',
                   draft.defaultStreamFps >= 5 && draft.defaultStreamFps <= 30 ? 'border-line focus:border-[var(--accent-border)]' : 'border-status-error',
                 ].join(' ')}
               />
@@ -508,7 +508,7 @@ export function SettingsView() {
                 ['Enter', 'Open control for the selected fleet phone'],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between">
-                  <span className="mono rounded-control border border-line bg-black/40 px-2 py-1 text-[10px] text-white/60">{k}</span>
+                  <span className="rounded-control border border-line bg-black/40 px-2 py-1 text-[10px] text-white/60">{k}</span>
                   <span className="text-[11px] text-white/40">{v}</span>
                 </div>
               ))}

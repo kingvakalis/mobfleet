@@ -61,7 +61,7 @@ function Tele({ label, value, color }: { label: string; value: string; color?: s
       <span className="mono text-[12px] font-semibold tabular-nums" style={{ color: color ?? 'rgba(255,255,255,0.75)' }}>
         {value}
       </span>
-      <span className="mono text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
+      <span className="text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
     </div>
   )
 }
@@ -72,7 +72,7 @@ function TeleLoading({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center gap-1 px-3 py-2">
       <div className="shimmer rounded" style={{ width: 28, height: 12 }} />
-      <span className="mono text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
+      <span className="text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
     </div>
   )
 }
@@ -413,7 +413,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                       ].join(' ')}
                     >
                       <Icon size={13} />
-                      <span className="mono text-[8px] uppercase tracking-wider">{label}</span>
+                      <span className="text-[8px] uppercase tracking-wider">{label}</span>
                     </motion.button>
                   )
                 })}
@@ -435,7 +435,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                 <div className="mt-2"><AppRowsSkeleton rows={3} /></div>
               ) : deviceApps.visibleApps.length === 0 ? (
                 <div className="mt-2 flex flex-col items-start gap-1.5">
-                  <span className="mono text-[10px] text-fg-muted">No visible apps selected</span>
+                  <span className="text-[10px] text-fg-muted">No visible apps selected</span>
                   <button type="button" onClick={() => setManageAppsOpen(true)} className="border border-line px-2 py-1 text-[10px] text-fg-secondary transition-colors hover:border-white/25 hover:text-fg">Manage Apps</button>
                 </div>
               ) : (
@@ -466,7 +466,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                   onKeyDown={(e) => { if (e.key === 'Enter') submitText() }}
                   disabled={!canControl}
                   placeholder={canControl ? 'Type to device…' : 'Requires phones.control'}
-                  className="mono h-8 min-w-0 flex-1 border border-line bg-elevated px-2.5 text-[11px] text-fg-secondary placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
+                  className="h-8 min-w-0 flex-1 border border-line bg-elevated px-2.5 text-[11px] text-fg-secondary placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)] disabled:opacity-50"
                 />
                 <button
                   type="button"
@@ -488,7 +488,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                 onChange={(e) => changeGroup(e.target.value)}
                 disabled={!canAssignGroup}
                 aria-label="Device group"
-                className="mono mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40 disabled:opacity-50"
+                className="mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40 disabled:opacity-50"
               >
                 {groupOptions.map((g) => (
                   <option key={g} value={g}>{g}</option>
@@ -548,7 +548,7 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
         {/* live log — real recent agent_commands + live command lifecycle (no fake heartbeats) */}
         <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
           <Label className="text-fg-secondary">Live Log</Label>
-          <span className="mono text-[10px] text-fg-muted">{logs.length} LINES</span>
+          <span className="text-[10px] text-fg-muted">{logs.length} LINES</span>
         </div>
         <div className="h-56">
           <LogStream lines={logs} />
@@ -661,7 +661,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
             <button
               type="button"
               onClick={() => { onClose(); openPhoneControl(device.id) }}
-              className="mono flex h-8 items-center gap-1.5 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 text-[10px] uppercase tracking-widest text-[var(--accent-text)] transition-colors hover:brightness-125"
+              className="flex h-8 items-center gap-1.5 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 text-[10px] uppercase tracking-widest text-[var(--accent-text)] transition-colors hover:brightness-125"
             >
               <Cpu size={12} /> Full Control <ArrowUpRight size={11} />
             </button>
@@ -731,7 +731,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                           ].join(' ')}
                         >
                           <Icon size={13} />
-                          <span className="mono text-[8px] uppercase tracking-wider">{label}</span>
+                          <span className="text-[8px] uppercase tracking-wider">{label}</span>
                         </motion.button>
                       )
                     })}
@@ -778,7 +778,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                         }
                       }}
                       placeholder="Type to device…"
-                      className="mono h-8 min-w-0 flex-1 border border-line bg-elevated px-2.5 text-[11px] text-fg-secondary placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)]"
+                      className="h-8 min-w-0 flex-1 border border-line bg-elevated px-2.5 text-[11px] text-fg-secondary placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)]"
                     />
                     <button
                       type="button"
@@ -802,7 +802,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
                     value={device.group}
                     onChange={(e) => safe(client.assignGroup([device.id], e.target.value), 'Could not reassign group')}
                     aria-label="Device group"
-                    className="mono mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40"
+                    className="mt-2 h-8 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-accent/40"
                   >
                     {groupOptions.map((g) => (
                       <option key={g} value={g}>
@@ -884,7 +884,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
             {/* live log */}
             <div className="flex items-center justify-between border-b border-line px-5 py-2.5">
               <Label className="text-fg-secondary">Live Log</Label>
-              <span className="mono text-[10px] text-fg-muted">{logs.length} LINES</span>
+              <span className="text-[10px] text-fg-muted">{logs.length} LINES</span>
             </div>
             <div className="h-56">
               <LogStream lines={logs} />

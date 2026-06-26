@@ -25,7 +25,7 @@ const STATUS_COLOR: Record<AccountRecordStatus, string> = {
 
 function StatusPill({ status }: { status: AccountRecordStatus }) {
   return (
-    <span className="mono inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider"
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider"
       style={{ color: STATUS_COLOR[status], background: `color-mix(in srgb, ${STATUS_COLOR[status]} 12%, transparent)` }}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_COLOR[status] }} />{status}
     </span>
@@ -105,7 +105,7 @@ function AccountModal({ initial, onSave, onClose }: {
     onClose()
   }
 
-  const field = 'mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]'
+  const field = 'h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]'
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
       <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
@@ -120,7 +120,7 @@ function AccountModal({ initial, onSave, onClose }: {
           <button type="button" onClick={onClose} aria-label="Close" className="text-fg-muted hover:text-fg"><X size={15} /></button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
-          <p className="mono text-[10px] text-white/35">Metadata only — no passwords, recovery codes, or secrets are stored.</p>
+          <p className="text-[10px] text-white/35">Metadata only — no passwords, recovery codes, or secrets are stored.</p>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1"><span className="label text-fg-muted">Platform</span>
               <select value={platform} onChange={(e) => setPlatform(e.target.value as 'Instagram' | 'TikTok')} className={field}>{PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
@@ -147,12 +147,12 @@ function AccountModal({ initial, onSave, onClose }: {
             </label>
           </div>
           <label className="block space-y-1"><span className="label text-fg-muted">Tags (comma-separated)</span><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="growth, fashion" className={field} /></label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={twoFa} onChange={(e) => setTwoFa(e.target.checked)} /><span className="mono text-[12px] text-fg-secondary">2FA enabled (flag only — no seed stored)</span></label>
-          <label className="block space-y-1"><span className="label text-fg-muted">Notes</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mono w-full rounded-control border border-line bg-elevated px-3 py-2 text-[12px] text-fg outline-none focus:border-[var(--accent-border)]" /></label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={twoFa} onChange={(e) => setTwoFa(e.target.checked)} /><span className="text-[12px] text-fg-secondary">2FA enabled (flag only — no seed stored)</span></label>
+          <label className="block space-y-1"><span className="label text-fg-muted">Notes</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full rounded-control border border-line bg-elevated px-3 py-2 text-[12px] text-fg outline-none focus:border-[var(--accent-border)]" /></label>
         </div>
         <div className="border-t border-line p-4">
           {err && <p className="mb-2 text-[11px] text-status-error">{err}</p>}
-          <button type="submit" disabled={!valid || busy} className="btn-accent mono w-full py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40">{busy ? 'Saving…' : 'Save Account'}</button>
+          <button type="submit" disabled={!valid || busy} className="btn-accent w-full py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40">{busy ? 'Saving…' : 'Save Account'}</button>
         </div>
       </motion.form>
     </div>
@@ -177,11 +177,11 @@ function ImportModal({ onImport, onClose }: { onImport: (rows: NewAccount[]) => 
       <motion.div role="dialog" aria-modal="true" aria-label="Import accounts" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="relative flex w-[520px] max-w-full flex-col border border-line bg-panel">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5"><span className="label text-fg">Import Accounts (metadata CSV)</span><button onClick={onClose} aria-label="Close" className="text-fg-muted hover:text-fg"><X size={15} /></button></div>
         <div className="space-y-3 p-5">
-          <p className="mono text-[10px] text-white/40">Columns: {CSV_HEADER}. No password / recovery / secret columns are accepted.</p>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder={CSV_HEADER} className="mono w-full rounded-control border border-line bg-elevated px-3 py-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]" />
+          <p className="text-[10px] text-white/40">Columns: {CSV_HEADER}. No password / recovery / secret columns are accepted.</p>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder={CSV_HEADER} className="w-full rounded-control border border-line bg-elevated px-3 py-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]" />
           {result && <p className="text-[11px] text-fg-secondary">{result}</p>}
         </div>
-        <div className="border-t border-line p-4"><button onClick={() => void run()} disabled={busy || !text.trim()} className="btn-accent mono w-full py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40">{busy ? 'Importing…' : 'Import'}</button></div>
+        <div className="border-t border-line p-4"><button onClick={() => void run()} disabled={busy || !text.trim()} className="btn-accent w-full py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40">{busy ? 'Importing…' : 'Import'}</button></div>
       </motion.div>
     </div>
   )
@@ -231,13 +231,13 @@ export function SupabaseAccountsView() {
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace · Metadata</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Account Database</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace · Metadata</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Account Database</h1>
         </div>
         <div className="flex items-center gap-2">
-          {canImport && <button onClick={() => setImporting(true)} className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"><Upload size={12} /> Import</button>}
-          {canExport && <button onClick={exportCsv} className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"><Download size={12} /> Export</button>}
-          <button onClick={() => setModal({ open: true, editing: null })} disabled={!canCreate} title={canCreate ? 'Add an account' : 'Requires create permission'} className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"><Plus size={12} /> New Account</button>
+          {canImport && <button onClick={() => setImporting(true)} className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"><Upload size={12} /> Import</button>}
+          {canExport && <button onClick={exportCsv} className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest"><Download size={12} /> Export</button>}
+          <button onClick={() => setModal({ open: true, editing: null })} disabled={!canCreate} title={canCreate ? 'Add an account' : 'Requires create permission'} className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"><Plus size={12} /> New Account</button>
         </div>
       </div>
 
@@ -259,13 +259,13 @@ export function SupabaseAccountsView() {
         <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-0.5">
           {visible.map((a) => (
             <motion.div key={a.id} variants={fadeRise} className="flex items-center gap-3 rounded-md px-3 py-2 text-[11px] transition-colors hover:bg-white/[0.02]">
-              <span className="w-44 shrink-0 truncate"><span className="text-white/80">{a.handle}</span>{a.two_fa && <span className="mono ml-1.5 rounded bg-white/[0.06] px-1 py-0.5 text-[8px] text-white/40">2FA</span>}</span>
-              <span className="mono w-20 shrink-0 text-white/45">{a.platform}</span>
+              <span className="w-44 shrink-0 truncate"><span className="text-white/80">{a.handle}</span>{a.two_fa && <span className="ml-1.5 rounded bg-white/[0.06] px-1 py-0.5 text-[8px] text-white/40">2FA</span>}</span>
+              <span className="w-20 shrink-0 text-white/45">{a.platform}</span>
               <span className="w-20 shrink-0"><StatusPill status={a.status} /></span>
-              <span className="mono w-28 shrink-0 truncate text-white/45">{a.group_name}</span>
+              <span className="w-28 shrink-0 truncate text-white/45">{a.group_name}</span>
               <span className="mono w-24 shrink-0 tabular-nums text-white/55">{a.followers.toLocaleString()}</span>
-              <span className="mono w-32 shrink-0 truncate text-white/45">{a.assigned_device_id ? deviceName.get(a.assigned_device_id) ?? '—' : '—'}</span>
-              <span className="mono flex-1 truncate text-white/45">{a.owner_user_id ? ownerName.get(a.owner_user_id) ?? '—' : '—'}</span>
+              <span className="w-32 shrink-0 truncate text-white/45">{a.assigned_device_id ? deviceName.get(a.assigned_device_id) ?? '—' : '—'}</span>
+              <span className="flex-1 truncate text-white/45">{a.owner_user_id ? ownerName.get(a.owner_user_id) ?? '—' : '—'}</span>
               <span className="flex w-20 shrink-0 items-center justify-end gap-1">
                 {canEdit && <button onClick={() => setModal({ open: true, editing: a })} aria-label="Edit" className="p-1 text-white/35 hover:text-white/80"><Pencil size={13} /></button>}
                 {canDelete && <button onClick={() => void del(a)} aria-label="Delete" className="p-1 text-white/35 hover:text-[#ff3b3b]"><Trash2 size={13} /></button>}
@@ -275,8 +275,8 @@ export function SupabaseAccountsView() {
         </motion.div>
         {visible.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <p className="mono text-[11px] uppercase tracking-widest text-white/25">{accounts.length === 0 ? 'No accounts yet' : 'No accounts match your filters'}</p>
-            {accounts.length === 0 && <p className="mono mt-2 max-w-[300px] text-[10px] leading-relaxed text-white/30">Add account metadata to track handles, status, and assignments. Credentials are never stored here.</p>}
+            <p className="text-[11px] uppercase tracking-widest text-white/25">{accounts.length === 0 ? 'No accounts yet' : 'No accounts match your filters'}</p>
+            {accounts.length === 0 && <p className="mt-2 max-w-[300px] text-[10px] leading-relaxed text-white/30">Add account metadata to track handles, status, and assignments. Credentials are never stored here.</p>}
           </div>
         )}
       </div>

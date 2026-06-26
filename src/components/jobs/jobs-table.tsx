@@ -37,7 +37,7 @@ function Progress({ job }: { job: Job }) {
     job.status === 'failed' ? 'var(--status-error)'
     : job.status === 'succeeded' ? 'var(--status-online)'
     : 'var(--status-busy)'
-  if (job.status === 'queued') return <span className="mono text-[11px] text-fg-muted">queued</span>
+  if (job.status === 'queued') return <span className="text-[11px] text-fg-muted">queued</span>
   return (
     <span className="flex items-center gap-2">
       <span className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.08]">
@@ -81,7 +81,7 @@ function JobRow({ job, deviceName }: { job: Job; deviceName: string | null }) {
             {deviceName ?? job.deviceId.slice(-6)}
           </button>
         ) : (
-          <span className="mono text-[12px] text-fg-muted">unassigned</span>
+          <span className="text-[12px] text-fg-muted">unassigned</span>
         )}
       </td>
       <td className="px-4 py-2.5"><Progress job={job} /></td>

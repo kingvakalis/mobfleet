@@ -43,7 +43,7 @@ function StatusPill({ status }: { status: AccountStatus }) {
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${status !== 'banned' ? 'status-dot-pulse' : ''}`}
         style={{ background: color, boxShadow: status !== 'banned' ? `0 0 5px ${color}` : 'none' }}
       />
-      <span className="mono text-[10px] uppercase tracking-wider" style={{ color }}>{status}</span>
+      <span className="text-[10px] uppercase tracking-wider" style={{ color }}>{status}</span>
     </span>
   )
 }
@@ -70,7 +70,7 @@ function RevealCell({ value, canReveal, onAudit }: {
     return () => clearTimeout(id)
   }, [shown])
 
-  if (!value) return <span className="mono text-[10px] text-white/20">—</span>
+  if (!value) return <span className="text-[10px] text-white/20">—</span>
 
   // No permission: permanently masked, with a lock affordance.
   if (!canReveal) {
@@ -141,7 +141,7 @@ function FilterSelect({ label, options, value, onChange }: {
         type="button"
         onClick={() => setOpen(o => !o)}
         className={[
-          'mono flex h-8 items-center gap-1.5 border px-3 text-[9px] uppercase tracking-widest transition-colors',
+          'flex h-8 items-center gap-1.5 border px-3 text-[9px] uppercase tracking-widest transition-colors',
           value
             ? 'border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]'
             : 'border-transparent text-white/30 hover:border-white/20 hover:text-white/60',
@@ -159,7 +159,7 @@ function FilterSelect({ label, options, value, onChange }: {
             <button
               type="button"
               onClick={() => { onChange(null); setOpen(false) }}
-              className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/40 transition-colors hover:bg-hover hover:text-white/80"
+              className="w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/40 transition-colors hover:bg-hover hover:text-white/80"
             >
               All
             </button>
@@ -169,7 +169,7 @@ function FilterSelect({ label, options, value, onChange }: {
                 type="button"
                 onClick={() => { onChange(o); setOpen(false) }}
                 className={[
-                  'mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider transition-colors',
+                  'w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider transition-colors',
                   value === o ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/55 hover:bg-hover hover:text-white/90',
                 ].join(' ')}
               >
@@ -256,7 +256,7 @@ function AccountModal({ initial, groups, owners, canRevealPw, canRevealRecovery,
   }
   const dialogRef = useDialog<HTMLDivElement>(tryClose)
 
-  const input = 'mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]'
+  const input = 'h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -372,16 +372,16 @@ function AccountModal({ initial, groups, owners, canRevealPw, canRevealRecovery,
           <div>
             <div className="label mb-1.5 text-fg-muted">Notes</div>
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2}
-              className="mono w-full resize-none rounded-control border border-line bg-elevated p-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+              className="w-full resize-none rounded-control border border-line bg-elevated p-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
           </div>
         </div>
         <div className="flex gap-2 border-t border-line p-4">
-          <button onClick={tryClose} className="btn-ghost mono flex-1 py-2.5 text-[11px] uppercase tracking-widest">Cancel</button>
+          <button onClick={tryClose} className="btn-ghost flex-1 py-2.5 text-[11px] uppercase tracking-widest">Cancel</button>
           <button
             onClick={save}
             disabled={!valid}
             title={!valid ? 'Handle, username, and a valid email are required' : undefined}
-            className="btn-accent mono flex-1 py-2.5 text-[11px] uppercase tracking-widest"
+            className="btn-accent flex-1 py-2.5 text-[11px] uppercase tracking-widest"
           >
             {initial ? 'Save Changes' : 'Create Account'}
           </button>
@@ -455,7 +455,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           >
             <Upload size={18} className="text-white/30" />
             <span className="text-[12px] text-white/60">Drop a CSV here or click to browse</span>
-            <span className="mono text-[9px] uppercase tracking-wider text-white/25">handle, platform, username, email, phone, group, owner, password</span>
+            <span className="text-[9px] uppercase tracking-wider text-white/25">handle, platform, username, email, phone, group, owner, password</span>
           </button>
           <input
             ref={fileRef}
@@ -469,7 +469,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           />
           {rows && (
             <div className="mt-3 border border-line bg-black/30 px-3 py-2.5">
-              <div className="mono text-[11px] text-white/70">{fileName}</div>
+              <div className="text-[11px] text-white/70">{fileName}</div>
               <div className="mt-0.5 text-[10px] text-white/35">
                 {rows.length} account{rows.length === 1 ? '' : 's'} parsed — duplicates are skipped on import.
               </div>
@@ -477,12 +477,12 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="flex gap-2 border-t border-line p-4">
-          <button onClick={onClose} className="btn-ghost mono flex-1 py-2.5 text-[11px] uppercase tracking-widest">Cancel</button>
+          <button onClick={onClose} className="btn-ghost flex-1 py-2.5 text-[11px] uppercase tracking-widest">Cancel</button>
           <button
             onClick={doImport}
             disabled={!rows?.length}
             title={!rows?.length ? 'Choose a CSV file first' : undefined}
-            className="btn-accent mono flex-1 py-2.5 text-[11px] uppercase tracking-widest"
+            className="btn-accent flex-1 py-2.5 text-[11px] uppercase tracking-widest"
           >
             Import{rows?.length ? ` (${rows.length})` : ''}
           </button>
@@ -534,7 +534,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
     addToast(`${label} copied`, 'success', 1600)
   }
 
-  const select = 'mono h-8 w-full rounded-control border border-line bg-elevated px-2 text-[11px] text-fg-secondary outline-none focus:border-[var(--accent-border)]'
+  const select = 'h-8 w-full rounded-control border border-line bg-elevated px-2 text-[11px] text-fg-secondary outline-none focus:border-[var(--accent-border)]'
 
   return (
     <motion.div
@@ -586,7 +586,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Username</span>
-              <span className="mono text-[11px] text-white/60">{account.username}</span>
+              <span className="text-[11px] text-white/60">{account.username}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-white/25">Email</span>
@@ -659,7 +659,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
                   onClick={() => update(account.id, { status: s })}
                   disabled={!canEdit}
                   className={[
-                    'mono border px-2 py-1 text-[9px] uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                    'border px-2 py-1 text-[9px] uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-40',
                     account.status === s ? 'border-[var(--accent-border)] bg-[var(--accent-soft)]' : 'border-line text-white/40 enabled:hover:bg-hover',
                   ].join(' ')}
                   style={account.status === s ? { color: ACCOUNT_STATUS_COLOR[s] } : undefined}
@@ -697,7 +697,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
                       ;(e.target as HTMLInputElement).value = ''
                     }
                   }}
-                  className="mono h-6 w-16 border border-line bg-transparent px-1.5 text-[9px] text-white/60 outline-none placeholder-white/20 focus:border-[var(--accent-border)]"
+                  className="h-6 w-16 border border-line bg-transparent px-1.5 text-[9px] text-white/60 outline-none placeholder-white/20 focus:border-[var(--accent-border)]"
                 />
               )}
             </div>
@@ -713,13 +713,13 @@ function AccountDrawer({ account, onClose, onEdit }: {
             rows={3}
             readOnly={!canEdit}
             placeholder={canEdit ? 'Add notes…' : 'View only'}
-            className="mono w-full resize-none rounded-control border border-line bg-elevated p-2.5 text-[11px] text-fg-secondary outline-none transition-colors focus:border-[var(--accent-border)] read-only:opacity-60"
+            className="w-full resize-none rounded-control border border-line bg-elevated p-2.5 text-[11px] text-fg-secondary outline-none transition-colors focus:border-[var(--accent-border)] read-only:opacity-60"
           />
           {canEdit && notes !== account.notes && (
             <button
               type="button"
               onClick={() => { update(account.id, { notes }); addToast('Notes saved', 'success', 1600) }}
-              className="btn-accent mono mt-2 px-3 py-1.5 text-[10px] uppercase tracking-widest"
+              className="btn-accent mt-2 px-3 py-1.5 text-[10px] uppercase tracking-widest"
             >
               Save Notes
             </button>
@@ -744,11 +744,11 @@ function AccountDrawer({ account, onClose, onEdit }: {
             disabled={!assignedDevice}
             title={assignedDevice ? `Open phone control for ${assignedDevice.name}` : 'No fleet phone assigned to this account'}
             onClick={() => assignedDevice && openPhoneControl(assignedDevice.id)}
-            className="btn-accent mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest"
+            className="btn-accent flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest"
           >
             <Cpu size={12} /> Open Phone Control
           </button>
-          <button type="button" onClick={() => copy('Username', account.username)} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
+          <button type="button" onClick={() => copy('Username', account.username)} className="btn-ghost flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
             <Copy size={11} /> Username
           </button>
           <button
@@ -756,12 +756,12 @@ function AccountDrawer({ account, onClose, onEdit }: {
             disabled={!canRevealRecovery}
             title={canRevealRecovery ? 'Copy email' : 'Requires reveal-recovery permission'}
             onClick={() => { copy('Email', account.email); auditReveal('recovery', 'copy') }}
-            className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-ghost flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Copy size={11} /> Email
           </button>
           {canEdit && (
-            <button type="button" onClick={onEdit} className="btn-ghost mono flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
+            <button type="button" onClick={onEdit} className="btn-ghost flex items-center gap-1.5 px-3 py-2 text-[10px] uppercase tracking-widest">
               <Pencil size={11} /> Edit
             </button>
           )}
@@ -775,7 +775,7 @@ function AccountDrawer({ account, onClose, onEdit }: {
                 addToast('Account deleted', 'success')
                 onClose()
               }}
-              className="mono flex items-center gap-1.5 border border-status-error/25 px-3 py-2 text-[10px] uppercase tracking-widest text-status-error transition-colors hover:bg-status-error/10"
+              className="flex items-center gap-1.5 border border-status-error/25 px-3 py-2 text-[10px] uppercase tracking-widest text-status-error transition-colors hover:bg-status-error/10"
             >
               <Trash2 size={11} /> Delete
             </button>
@@ -920,9 +920,9 @@ function DemoAccountsView() {
       {/* Header — global page-header pattern */}
       <div className="flex items-center justify-between border-b border-line px-6 py-5">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Data Vault</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Account Database</h1>
-          <p className="mono mt-0.5 text-[10px] tracking-wider text-white/30">
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Data Vault</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Account Database</h1>
+          <p className="mt-0.5 text-[10px] tracking-wider text-white/30">
             {accounts.length} ACCOUNTS · CREDENTIALS &amp; DEVICE ASSIGNMENTS
           </p>
         </div>
@@ -931,7 +931,7 @@ function DemoAccountsView() {
             onClick={() => exportRows(selected.size ? accounts.filter(a => selected.has(a.id)) : visible)}
             disabled={!canExport}
             title={!canExport ? 'Requires export permission' : selected.size ? `Export ${selected.size} selected` : 'Export the current view as CSV'}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Download size={11} /> Export
           </button>
@@ -939,7 +939,7 @@ function DemoAccountsView() {
             onClick={() => setModal('import')}
             disabled={!canImport}
             title={canImport ? 'Import accounts from CSV' : 'Requires import permission'}
-            className="btn-ghost mono flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Upload size={11} /> Import
           </button>
@@ -947,7 +947,7 @@ function DemoAccountsView() {
             onClick={() => setModal('add')}
             disabled={!canCreate}
             title={canCreate ? 'Add a new account' : 'Requires create permission'}
-            className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={12} /> Add Account
           </button>
@@ -969,7 +969,7 @@ function DemoAccountsView() {
               ['--hud-c' as string]: top,
             }}
           >
-            <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/40">{label}</span>
+            <span className="text-[9px] uppercase tracking-[0.15em] text-white/40">{label}</span>
             <span className="mono text-3xl font-bold tabular-nums" style={{ color }}>{value}</span>
           </motion.div>
         ))}
@@ -984,7 +984,7 @@ function DemoAccountsView() {
             onChange={e => setSearch(e.target.value)}
             placeholder="SEARCH ACCOUNTS..."
             aria-label="Search accounts"
-            className="mono h-8 w-full border border-line bg-transparent pl-8 pr-3 text-[10px] tracking-wider text-white/70 placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)]"
+            className="h-8 w-full border border-line bg-transparent pl-8 pr-3 text-[10px] tracking-wider text-white/70 placeholder-white/20 outline-none transition-colors focus:border-[var(--accent-border)]"
           />
         </div>
         <FilterSelect label="Platform" options={['Instagram', 'TikTok']} value={platFilter} onChange={setPlatFilter} />
@@ -992,7 +992,7 @@ function DemoAccountsView() {
         <FilterSelect label="Group" options={groups} value={groupFilter} onChange={setGroupFilter} />
         <FilterSelect label="Owner" options={owners} value={ownerFilter} onChange={setOwnerFilter} />
         <FilterSelect label="2FA" options={['Yes', 'No']} value={fa2Filter} onChange={setFa2Filter} />
-        <span className="mono ml-auto text-[9px] uppercase tracking-widest text-white/25">
+        <span className="ml-auto text-[9px] uppercase tracking-widest text-white/25">
           {visible.length} OF {accounts.length} SHOWN
         </span>
       </div>
@@ -1009,7 +1009,7 @@ function DemoAccountsView() {
           <button
             type="button"
             onClick={() => { setPlatFilter(null); setStatusFilter(null); setGroupFilter(null); setOwnerFilter(null); setFa2Filter(null); setSearch('') }}
-            className="mono px-2 py-1 text-[9px] uppercase tracking-widest text-white/35 transition-colors hover:text-white/75"
+            className="px-2 py-1 text-[9px] uppercase tracking-widest text-white/35 transition-colors hover:text-white/75"
           >
             Clear all
           </button>
@@ -1032,7 +1032,7 @@ function DemoAccountsView() {
                 </button>
               </th>
               {['ACCOUNT', 'USERNAME', 'EMAIL', 'ASSIGNED PHONE', 'GROUP', 'OWNER', '2FA', 'STATUS', 'UPDATED', ''].map(h => (
-                <th scope="col" key={h} className="mono whitespace-nowrap px-3 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-white/25">{h}</th>
+                <th scope="col" key={h} className="whitespace-nowrap px-3 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em] text-white/25">{h}</th>
               ))}
             </tr>
           </thead>
@@ -1065,7 +1065,7 @@ function DemoAccountsView() {
                       <span className="text-[12px] font-medium text-white/75">{a.handle}</span>
                     </span>
                   </td>
-                  <td className="mono px-3 py-3 text-[11px] text-white/55">{a.username}</td>
+                  <td className="px-3 py-3 text-[11px] text-white/55">{a.username}</td>
                   <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
                     <RevealCell
                       value={a.email}
@@ -1075,11 +1075,11 @@ function DemoAccountsView() {
                   </td>
                   <td className="px-3 py-3">
                     {a.assignedPhone
-                      ? <span className="mono text-[11px] text-white/55">{a.assignedPhone}</span>
-                      : <span className="mono text-[10px] text-white/20">—</span>}
+                      ? <span className="text-[11px] text-white/55">{a.assignedPhone}</span>
+                      : <span className="text-[10px] text-white/20">—</span>}
                   </td>
-                  <td className="mono px-3 py-3 text-[11px] text-white/40">{a.group}</td>
-                  <td className="mono px-3 py-3 text-[11px] text-white/40">{a.owner}</td>
+                  <td className="px-3 py-3 text-[11px] text-white/40">{a.group}</td>
+                  <td className="px-3 py-3 text-[11px] text-white/40">{a.owner}</td>
                   <td className="px-3 py-3">
                     {a.twoFA
                       ? <ShieldCheck size={13} className="text-emerald-400" role="img" aria-label="Two-factor enabled" />
@@ -1095,11 +1095,11 @@ function DemoAccountsView() {
         </table>
         {visible.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
-            <span className="mono text-[10px] uppercase tracking-widest text-white/30">
+            <span className="text-[10px] uppercase tracking-widest text-white/30">
               {accounts.length === 0 ? 'No accounts yet' : 'No accounts match the current filters'}
             </span>
             {accounts.length === 0 && (
-              <button onClick={() => setModal('add')} className="btn-accent mono px-4 py-2 text-[10px] uppercase tracking-widest">
+              <button onClick={() => setModal('add')} className="btn-accent px-4 py-2 text-[10px] uppercase tracking-widest">
                 <Plus size={11} className="mr-1 inline" /> Add your first account
               </button>
             )}
@@ -1116,7 +1116,7 @@ function DemoAccountsView() {
             className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2"
           >
             <div className="relative flex items-center gap-2 border border-white/[0.15] bg-black px-4 py-2.5 shadow-2xl">
-              <span className="mono mr-1 whitespace-nowrap text-[9px] uppercase tracking-widest text-white/40">{selected.size} SELECTED</span>
+              <span className="mr-1 whitespace-nowrap text-[9px] uppercase tracking-widest text-white/40">{selected.size} SELECTED</span>
               <div className="h-4 w-px bg-white/[0.08]" />
               <div className="relative">
                 <button
@@ -1124,7 +1124,7 @@ function DemoAccountsView() {
                   onClick={() => { if (!canEdit) { addToast('You lack permission to edit accounts', 'error'); return } setStatusMenuOpen(o => !o) }}
                   disabled={!canEdit}
                   title={canEdit ? 'Set status on selected accounts' : 'Requires edit permission'}
-                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <ShieldCheck size={11} /> SET STATUS
                 </button>
@@ -1145,7 +1145,7 @@ function DemoAccountsView() {
                             setStatusMenuOpen(false)
                             setSelected(new Set())
                           }}
-                          className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 transition-colors hover:bg-hover hover:text-white/90"
+                          className="w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 transition-colors hover:bg-hover hover:text-white/90"
                           style={{ color: ACCOUNT_STATUS_COLOR[s] }}
                         >
                           {s}
@@ -1160,7 +1160,7 @@ function DemoAccountsView() {
                 onClick={() => exportRows(accounts.filter(a => selected.has(a.id)))}
                 disabled={!canExport}
                 title={canExport ? 'Export selected' : 'Requires export permission'}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Download size={11} /> EXPORT
               </button>
@@ -1177,7 +1177,7 @@ function DemoAccountsView() {
                 }}
                 disabled={!canDelete}
                 title={canDelete ? 'Delete selected' : 'Requires delete permission'}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-status-error transition-colors enabled:hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-status-error transition-colors enabled:hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Trash2 size={11} /> DELETE
               </button>

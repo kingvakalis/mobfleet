@@ -664,7 +664,7 @@ export function PhoneControlPage() {
 
   if (!device) return (
     <div className="flex h-full items-center justify-center bg-[#0a0b0e]">
-      <span className="mono text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE IN YOUR SCOPE</span>
+      <span className="text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE IN YOUR SCOPE</span>
     </div>
   )
 
@@ -907,13 +907,13 @@ export function PhoneControlPage() {
                 { label: 'ASSIGNED', value: device.assignedUser ?? 'M. Chen' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between items-center py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>{label}</span>
-                  <span className="font-mono text-[11px] text-white/80">{value}</span>
+                  <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>{label}</span>
+                  <span className="text-[11px] text-white/80">{value}</span>
                 </div>
               ))}
               {/* Device ID - clickable to copy */}
               <div className="flex justify-between items-center py-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>DEVICE ID</span>
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.35)' }}>DEVICE ID</span>
                 <button
                   className="font-mono text-[11px] text-[#2dd4bf] hover:text-[#5eead4] transition-colors"
                   onClick={() => { navigator.clipboard?.writeText(device.id); addLog(`Copied device ID: ${device.id}`) }}
@@ -930,22 +930,22 @@ export function PhoneControlPage() {
             <p className="text-[11px] text-white/35 mb-4 leading-relaxed">Higher quality and FPS improve visibility but may increase latency.</p>
             <div className="mb-4">
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">QUALITY</span>
-                <span className="font-mono text-[13px] font-semibold text-white">{quality}</span>
+                <span className="text-[11px] text-white/50 uppercase tracking-wider">QUALITY</span>
+                <span className="text-[13px] font-semibold text-white">{quality}</span>
               </div>
               <TealSlider value={quality} min={0} max={30} onChange={v => updateSettings({ defaultStreamQuality: v })} />
               {useSupabaseCommands && (() => { const enc = qualityLevelToEncoder(quality); return (
-                <p className="mt-1 font-mono text-[10px] text-white/30">≈ {enc.width}px · q{enc.quality} jpeg</p>
+                <p className="mt-1 text-[10px] text-white/30">≈ {enc.width}px · q{enc.quality} jpeg</p>
               ) })()}
             </div>
             <div>
               <div className="flex justify-between items-center">
-                <span className="font-mono text-[11px] text-white/50 uppercase tracking-wider">FPS</span>
-                <span className="font-mono text-[13px] font-semibold text-white">{fps}</span>
+                <span className="text-[11px] text-white/50 uppercase tracking-wider">FPS</span>
+                <span className="text-[13px] font-semibold text-white">{fps}</span>
               </div>
               <TealSlider value={fps} min={5} max={30} onChange={v => updateSettings({ defaultStreamFps: v })} />
               {useSupabaseCommands && (
-                <p className="mt-1 font-mono text-[10px] text-white/30">
+                <p className="mt-1 text-[10px] text-white/30">
                   requested {fps}/s · effective {liveView ? `~${measuredFps || '…'}/s` : 'off'} — Supabase preview caps at ~1–2 fps (30 fps needs WebRTC)
                 </p>
               )}
@@ -1060,8 +1060,8 @@ export function PhoneControlPage() {
               <Shield size={11} className="text-white/35" />
               <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short="STR" full="STREAM" /></span>
               {useSupabaseCommands
-                ? <span className="font-mono text-[11px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snap' : 'Idle'}</span>
-                : <span className="font-mono text-[11px] text-green-400">Stable</span>}
+                ? <span className="text-[11px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snap' : 'Idle'}</span>
+                : <span className="text-[11px] text-green-400">Stable</span>}
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <BatteryMedium size={11} className="text-white/35" />
@@ -1136,7 +1136,7 @@ export function PhoneControlPage() {
                   gated on `!frame` (the captured screen itself becomes the truthful state). */}
               {useSupabaseCommands && !frame && !frameResolving && (
                 <div className="mb-3 rounded-control border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-center">
-                  <span className="mono text-[9px] uppercase tracking-wider text-amber-300/90">No live phone session yet · hardware control pending</span>
+                  <span className="text-[9px] uppercase tracking-wider text-amber-300/90">No live phone session yet · hardware control pending</span>
                 </div>
               )}
               <LivePhone

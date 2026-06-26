@@ -251,7 +251,7 @@ export const DeviceNode = memo(function DeviceNode({ data, selected, dragging, p
         </span>
         {emphasized && groupColor && (
           <div
-            className="mono mt-[1px] rounded-full border px-1 text-[7px] uppercase tracking-wider"
+            className="mt-[1px] rounded-full border px-1 text-[7px] uppercase tracking-wider"
             style={{ borderColor: `${groupColor}66`, color: groupColor, background: `${groupColor}14` }}
           >
             {device.group}

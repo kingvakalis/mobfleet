@@ -78,7 +78,7 @@ function PhonePicker({
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Group name"
-              className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+              className="h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
             />
           )}
           <div className="relative">
@@ -87,7 +87,7 @@ function PhonePicker({
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search phones..."
-              className="mono h-9 w-full rounded-control border border-line bg-elevated pl-8 pr-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+              className="h-9 w-full rounded-control border border-line bg-elevated pl-8 pr-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
             />
           </div>
         </div>
@@ -112,7 +112,7 @@ function PhonePicker({
                 </span>
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS[d.status].color }} />
                 <span className="mono flex-1 truncate text-[11px] text-white/70">{d.name}</span>
-                <span className="mono text-[9px] uppercase text-white/25">{d.group}</span>
+                <span className="text-[9px] uppercase text-white/25">{d.group}</span>
               </button>
             )
           })}
@@ -123,7 +123,7 @@ function PhonePicker({
           <button
             onClick={submit}
             disabled={!valid || saving}
-            className="btn-accent mono w-full py-2.5 text-[11px] uppercase tracking-widest"
+            className="btn-accent w-full py-2.5 text-[11px] uppercase tracking-widest"
           >
             {saving ? 'Saving…' : `${confirmLabel}${picked.size > 0 ? ` (${picked.size})` : ''}`}
           </button>
@@ -203,14 +203,14 @@ export function GroupsView() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Fleet</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Groups</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Fleet</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Groups</h1>
         </div>
         <button
           onClick={() => setModal({ kind: 'new' })}
           disabled={!canCreate}
           title={canCreate ? 'Create a new group' : 'Requires create-groups permission'}
-          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} /> New Group
         </button>

@@ -212,7 +212,7 @@ function Item({
 function Hint({ k, label }: { k: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <kbd className="mono rounded border border-line px-1.5 py-0.5 text-[10px] text-fg-muted">{k}</kbd>
+      <kbd className="rounded border border-line px-1.5 py-0.5 text-[10px] text-fg-muted">{k}</kbd>
       <span className="label text-fg-muted">{label}</span>
     </span>
   )

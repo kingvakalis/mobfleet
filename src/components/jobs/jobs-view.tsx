@@ -51,7 +51,7 @@ function FilterTabs({
           )}
         >
           {f.label}
-          <span className="mono text-[10px] text-fg-muted">{counts[f.id]}</span>
+          <span className="text-[10px] text-fg-muted">{counts[f.id]}</span>
         </button>
       ))}
     </div>

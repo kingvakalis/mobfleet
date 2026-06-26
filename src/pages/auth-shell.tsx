@@ -59,7 +59,7 @@ export function AuthShell({ title, subtitle, children, footer }: {
             style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
             <motion.div variants={rise} className="mb-7">
-              <div className="mono mb-5 flex items-center gap-2.5 text-[11px] uppercase tracking-[0.32em] text-[var(--accent-text)] lg:hidden">
+              <div className="mb-5 flex items-center gap-2.5 text-[11px] uppercase tracking-[0.32em] text-[var(--accent-text)] lg:hidden">
                 <BrandLogo className="h-5 w-5" />
                 <span className="font-bold" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</span>
               </div>
@@ -110,7 +110,7 @@ function BrandPanel() {
         <BrandLogo className="h-9 w-9" />
         <div>
           <div className="text-[15px] font-bold tracking-tight text-white" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</div>
-          <div className="mono text-[10px] uppercase tracking-[0.28em] text-white/40">Fleet Control Plane</div>
+          <div className="text-[10px] uppercase tracking-[0.28em] text-white/40">Fleet Control Plane</div>
         </div>
       </motion.div>
 
@@ -209,7 +209,7 @@ function Constellation() {
 /** Restrained trust line — truthful, no fake "operational" status. */
 function AuthStatus() {
   return (
-    <div className="mono mt-8 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/30">
+    <div className="mt-8 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/30">
       <ShieldCheck size={12} className="text-[var(--accent-text)]/70" aria-hidden />
       Encrypted session · role-based access
     </div>
@@ -226,13 +226,13 @@ type FieldProps = { label: string; id: string; icon?: 'email' | 'lock'; error?: 
 const ICONS = { email: Mail, lock: Lock } as const
 
 const fieldBase =
-  'mono h-11 w-full rounded-control border bg-elevated text-[13px] text-fg outline-none transition-[border-color,box-shadow] placeholder:text-white/25 disabled:opacity-50'
+  'h-11 w-full rounded-control border bg-elevated text-[13px] text-fg outline-none transition-[border-color,box-shadow] placeholder:text-white/25 disabled:opacity-50'
 
 export function AuthField({ label, id, icon, error, ...props }: FieldProps) {
   const Icon = icon ? ICONS[icon] : null
   return (
     <div>
-      <label htmlFor={id} className="mono mb-1.5 block text-[10px] uppercase tracking-wider text-white/50">
+      <label htmlFor={id} className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/50">
         {label}
       </label>
       <div className="relative">
@@ -260,7 +260,7 @@ export function PasswordField({ label, id, error, ...props }: Omit<FieldProps, '
   const [show, setShow] = useState(false)
   return (
     <div>
-      <label htmlFor={id} className="mono mb-1.5 block text-[10px] uppercase tracking-wider text-white/50">
+      <label htmlFor={id} className="mb-1.5 block text-[10px] uppercase tracking-wider text-white/50">
         {label}
       </label>
       <div className="relative">
@@ -318,7 +318,7 @@ export function AuthSubmit({ busy, busyLabel, children }: { busy: boolean; busyL
       type="submit"
       disabled={busy}
       aria-busy={busy}
-      className="btn-accent mono flex h-11 w-full items-center justify-center gap-2 rounded-control text-[11px] uppercase tracking-widest"
+      className="btn-accent flex h-11 w-full items-center justify-center gap-2 rounded-control text-[11px] uppercase tracking-widest"
     >
       {busy ? (
         <>

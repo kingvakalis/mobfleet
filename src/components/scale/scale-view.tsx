@@ -94,8 +94,8 @@ export function ScaleView() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-5 border-b border-line">
         <div>
-          <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Capacity</p>
-          <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">SCALE FLEET</h1>
+          <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Capacity</p>
+          <h1 className="text-lg font-bold tracking-widest text-white uppercase">SCALE FLEET</h1>
           <p className="mono text-[10px] text-white/30 tracking-wider mt-0.5">{count} / {MAX_FLEET} UNITS · {formatCost(stats.costPerHr)}/HR</p>
         </div>
       </div>
@@ -106,7 +106,7 @@ export function ScaleView() {
           <div className="flex items-end justify-between">
             <div className="flex items-baseline gap-2">
               <span className="mono text-4xl font-bold tabular-nums text-white">{count}</span>
-              <span className="mono text-[10px] uppercase tracking-widest text-white/40">/ MAX {MAX_FLEET}</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/40">/ MAX {MAX_FLEET}</span>
             </div>
             <div className="mono text-right text-xs text-white/40">
               <span className="text-[var(--accent)]">{formatCost(stats.costPerHr)}</span>/hr
@@ -121,7 +121,7 @@ export function ScaleView() {
             />
           </div>
           {count >= MAX_FLEET && (
-            <p className="mono mt-3 text-[10px] uppercase tracking-widest text-[var(--status-warming)]">Fleet at capacity · MAX {MAX_FLEET}</p>
+            <p className="mt-3 text-[10px] uppercase tracking-widest text-[var(--status-warming)]">Fleet at capacity · MAX {MAX_FLEET}</p>
           )}
         </section>
 
@@ -129,15 +129,15 @@ export function ScaleView() {
         <section className="rounded-card border border-line bg-panel/60 p-6">
           <div className="flex items-center justify-between gap-4 border-b border-line pb-5">
             <div>
-              <p className="mono text-[9px] uppercase tracking-widest text-white/40 mb-2">Quantity</p>
+              <p className="text-[9px] uppercase tracking-widest text-white/40 mb-2">Quantity</p>
               <Stepper value={qty} onChange={setQty} />
             </div>
             <div className="flex-1">
-              <p className="mono text-[9px] uppercase tracking-widest text-white/40 mb-2">Region</p>
+              <p className="text-[9px] uppercase tracking-widest text-white/40 mb-2">Region</p>
               <select
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
-                className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-accent/40"
+                className="h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-accent/40"
               >
                 {REGIONS.map((r) => (
                   <option key={r.id} value={r.id}>{regionLabel(r.id)} · {formatCost(r.ratePerHour)}/hr</option>
@@ -154,7 +154,7 @@ export function ScaleView() {
               title={canProvision ? 'Provision new cloud devices' : 'Requires provision permission'}
               className="group rounded-control border border-line bg-elevated px-4 py-3 text-left transition-colors enabled:hover:border-accent/40 disabled:pointer-events-none disabled:opacity-40"
             >
-              <div className="mono flex items-center gap-2 text-[10px] uppercase tracking-widest text-fg">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-fg">
                 <Plus size={13} /> Provision
               </div>
               <div className="mono mt-1.5 text-[11px] text-fg-muted">+{addable} · +{formatCost(provisionCost)}/hr</div>
@@ -166,7 +166,7 @@ export function ScaleView() {
               title={canRetire ? 'Retire devices (offline/errored first)' : 'Requires retire permission'}
               className="group rounded-control border border-line bg-elevated px-4 py-3 text-left transition-colors enabled:hover:border-[var(--status-error)]/40 disabled:pointer-events-none disabled:opacity-40"
             >
-              <div className="mono flex items-center gap-2 text-[10px] uppercase tracking-widest text-[var(--status-error)]">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[var(--status-error)]">
                 <Minus size={13} /> Retire
               </div>
               <div className="mono mt-1.5 text-[11px] text-fg-muted">−{victims.length} · −{formatCost(retireCost)}/hr</div>
@@ -179,7 +179,7 @@ export function ScaleView() {
             onClick={openPair}
             disabled={!canProvision}
             title={canProvision ? 'Pair a physical device via QR code' : 'Requires provision permission'}
-            className="mono mt-3 flex w-full items-center justify-center gap-2 rounded-control border border-line px-4 py-2.5 text-[10px] uppercase tracking-widest text-white/70 transition-colors enabled:hover:border-white/40 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-control border border-line px-4 py-2.5 text-[10px] uppercase tracking-widest text-white/70 transition-colors enabled:hover:border-white/40 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Server size={12} /> Pair a physical device
           </button>
@@ -187,23 +187,23 @@ export function ScaleView() {
 
         {/* Truthful disabled product surfaces — no backend endpoint exists yet. */}
         <section className="rounded-card border border-dashed border-line bg-panel/30 p-6">
-          <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/25 mb-4">Not yet available</p>
+          <p className="text-[9px] uppercase tracking-[0.2em] text-white/25 mb-4">Not yet available</p>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-control border border-line bg-elevated/40 px-4 py-3 opacity-60">
-              <div className="mono flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40">
                 <Upload size={13} /> Bulk import devices
               </div>
-              <p className="mono mt-1.5 text-[10px] leading-relaxed text-white/30">
+              <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
                 {canImport
                   ? 'No device-import endpoint exists on the backend yet. This action is disabled until it ships.'
                   : 'Requires import permission — and no device-import endpoint exists on the backend yet.'}
               </p>
             </div>
             <div className="rounded-control border border-line bg-elevated/40 px-4 py-3 opacity-60">
-              <div className="mono flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40">
                 <UserPlus size={13} /> Assign operator
               </div>
-              <p className="mono mt-1.5 text-[10px] leading-relaxed text-white/30">
+              <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
                 {canAssignEmployee
                   ? 'Device→operator assignment is read-only today (no assignment endpoint). Disabled until it ships.'
                   : 'Requires assign-operator permission — and no assignment endpoint exists on the backend yet.'}

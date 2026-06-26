@@ -174,7 +174,7 @@ function Inner({ onClose }: { onClose: () => void }) {
           ) : minting || !token ? (
             <div className="flex flex-col items-center gap-3">
               <Spinner size={22} />
-              <p className="mono text-[11px] text-white/40">Generating pairing code…</p>
+              <p className="text-[11px] text-white/40">Generating pairing code…</p>
             </div>
           ) : paired ? (
             <motion.div
@@ -186,10 +186,10 @@ function Inner({ onClose }: { onClose: () => void }) {
                 <Check size={26} style={{ color: 'var(--status-online)' }} />
               </div>
               <Label className="text-fg">Device paired</Label>
-              <p className="mono text-[12px] text-white/60">
+              <p className="text-[12px] text-white/60">
                 <span className="text-white">{paired.name}</span> joined the fleet
               </p>
-              <p className="mono text-[10px] text-white/30">It appeared live via the device feed.</p>
+              <p className="text-[10px] text-white/30">It appeared live via the device feed.</p>
               <Button variant="primary" size="sm" className="mt-1" onClick={onClose}>Done</Button>
             </motion.div>
           ) : expired ? (
@@ -198,7 +198,7 @@ function Inner({ onClose }: { onClose: () => void }) {
                 <RefreshCw size={22} className="text-white/40" />
               </div>
               <Label className="text-fg-secondary">Pairing code expired</Label>
-              <p className="mono max-w-[260px] text-[11px] leading-relaxed text-white/40">
+              <p className="max-w-[260px] text-[11px] leading-relaxed text-white/40">
                 Codes are valid for 10 minutes. Generate a fresh one to continue.
               </p>
               <Button variant="primary" size="sm" onClick={() => void mint()}>
@@ -211,7 +211,7 @@ function Inner({ onClose }: { onClose: () => void }) {
               <div className="rounded-card bg-white p-3">
                 <QRCodeSVG value={qrPayload} size={188} level="M" marginSize={0} bgColor="#ffffff" fgColor="#0a0a0b" />
               </div>
-              <p className="mono max-w-[280px] text-center text-[11px] leading-relaxed text-white/45">
+              <p className="max-w-[280px] text-center text-[11px] leading-relaxed text-white/45">
                 {useSupabase
                   ? 'Scan, or run the command below with the device agent. It appears in Phones once it connects.'
                   : 'Scan with the device agent to pair it. The new device appears here automatically.'}
@@ -221,7 +221,7 @@ function Inner({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={copy}
                 title="Copy pairing token"
-                className="mono flex max-w-full items-center gap-2 rounded-control border border-line bg-elevated px-3 py-1.5 text-[10px] text-white/55 transition-colors hover:text-white/90"
+                className="flex max-w-full items-center gap-2 rounded-control border border-line bg-elevated px-3 py-1.5 text-[10px] text-white/55 transition-colors hover:text-white/90"
               >
                 {copyState === 'ok' ? (
                   <Check size={12} className="shrink-0" style={{ color: 'var(--status-online)' }} />
@@ -233,14 +233,14 @@ function Inner({ onClose }: { onClose: () => void }) {
 
               {useSupabase && (
                 <div className="w-full">
-                  <p className="mono mb-1 text-[9px] uppercase tracking-wider text-white/35">Or run the agent</p>
+                  <p className="mb-1 text-[9px] uppercase tracking-wider text-white/35">Or run the agent</p>
                   <div className="relative">
                     <pre className="mono max-h-[112px] overflow-auto whitespace-pre-wrap break-all rounded-control border border-line bg-elevated p-2 pr-14 text-[9px] leading-relaxed text-white/55">{agentCmd}</pre>
                     <button
                       type="button"
                       onClick={copyCommand}
                       title="Copy setup command"
-                      className="mono absolute right-1.5 top-1.5 flex h-6 items-center gap-1 rounded-control border border-line bg-panel px-2 text-[9px] text-white/55 transition-colors hover:text-white"
+                      className="absolute right-1.5 top-1.5 flex h-6 items-center gap-1 rounded-control border border-line bg-panel px-2 text-[9px] text-white/55 transition-colors hover:text-white"
                     >
                       {cmdCopied ? <Check size={11} style={{ color: 'var(--status-online)' }} /> : <Copy size={11} />}
                       {cmdCopied ? 'Copied' : 'Copy'}

@@ -181,7 +181,7 @@ function Inner({ onClose }: { onClose: () => void }) {
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
-              className="mono mt-2 h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-accent/40"
+              className="mt-2 h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none focus:border-accent/40"
             >
               {REGIONS.map((r) => (
                 <option key={r.id} value={r.id}>

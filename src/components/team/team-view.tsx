@@ -52,7 +52,7 @@ function StatusBadge({ status }: { status: RosterStatus }) {
   const m = STATUS_META[status]
   return (
     <span
-      className="mono inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] uppercase tracking-wider"
+      className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] uppercase tracking-wider"
       style={{ color: m.color, borderColor: m.color }}
     >
       <span className="h-1 w-1 rounded-full" style={{ background: m.color }} />
@@ -113,7 +113,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
             setRangeKey(key)
           }}
           className={[
-            'mono flex items-center gap-1 px-2.5 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+            'flex items-center gap-1 px-2.5 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
             rangeKey === key ? 'bg-white text-black' : 'text-white/40 hover:text-white/70',
           ].join(' ')}
         >
@@ -136,7 +136,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
                 <input
                   type="date" value={draft.start} max={draft.end || undefined}
                   onChange={e => setDraft(d => ({ ...d, start: e.target.value }))}
-                  className="mono h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
+                  className="h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
                 />
               </div>
               <div>
@@ -144,7 +144,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
                 <input
                   type="date" value={draft.end} min={draft.start || undefined}
                   onChange={e => setDraft(d => ({ ...d, end: e.target.value }))}
-                  className="mono h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
+                  className="h-8 w-full rounded-control border border-line bg-black/40 px-2 text-[11px] text-fg outline-none focus:border-[var(--accent-border)]"
                 />
               </div>
             </div>
@@ -156,7 +156,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
               <button
                 type="button"
                 onClick={() => setPickerOpen(false)}
-                className="btn-ghost mono flex-1 py-1.5 text-[10px] uppercase tracking-widest"
+                className="btn-ghost flex-1 py-1.5 text-[10px] uppercase tracking-widest"
               >
                 Cancel
               </button>
@@ -164,7 +164,7 @@ function RangeControl({ rangeKey, setRangeKey, custom, setCustom }: {
                 type="button"
                 disabled={!valid}
                 onClick={() => { setCustom(draft); setRangeKey('custom'); setPickerOpen(false) }}
-                className="btn-accent mono flex-1 py-1.5 text-[10px] uppercase tracking-widest"
+                className="btn-accent flex-1 py-1.5 text-[10px] uppercase tracking-widest"
               >
                 Apply
               </button>
@@ -197,8 +197,8 @@ function LiveKpis({ employees }: { employees: RosterMember[] }) {
           className="card-surface flex flex-col gap-1.5 p-3.5"
         >
           <span className="flex items-center justify-between">
-            <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
-            <span className="mono flex items-center gap-1 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">
+            <span className="text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
+            <span className="flex items-center gap-1 rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">
               <span className="status-dot-pulse h-1 w-1 rounded-full bg-[var(--accent)]" /> Live
             </span>
           </span>
@@ -237,7 +237,7 @@ function PeriodKpis({ employees, range, now }: { employees: RosterMember[]; rang
           transition={{ duration: 0.28, delay: 0.1 + i * 0.04, ease: EXPO_OUT }}
           className="card-surface flex flex-col gap-1 p-3.5"
         >
-          <span className="mono text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
+          <span className="text-[9px] uppercase tracking-[0.15em] text-white/35">{label}</span>
           <span className="mono text-xl font-bold tabular-nums text-white">{value}</span>
           <span className="flex items-center gap-2 text-[9px] text-white/25">
             {range.label}
@@ -337,19 +337,19 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <span className="flex items-center gap-2">
             <span className="status-dot-pulse h-2 w-2 rounded-full" style={{ background: meta.color }} />
-            <span className="mono text-[11px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
+            <span className="text-[11px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
           </span>
           <div className="flex gap-1.5">
             {!onDuty ? (
-              <button onClick={() => startShift(emp.id)} className="btn-accent mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
+              <button onClick={() => startShift(emp.id)} className="btn-accent flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
                 <LogIn size={11} /> Start Shift
               </button>
             ) : (
               <>
-                <button onClick={() => toggleBreak(emp.id)} className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
+                <button onClick={() => toggleBreak(emp.id)} className="btn-ghost flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
                   <Coffee size={11} /> {emp.shiftStatus === 'on-break' ? 'End Break' : 'Break'}
                 </button>
-                <button onClick={() => endShift(emp.id)} className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
+                <button onClick={() => endShift(emp.id)} className="btn-ghost flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider">
                   <LogOut size={11} /> End Shift
                 </button>
               </>
@@ -364,7 +364,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
               key={id}
               onClick={() => setTab(id)}
               className={[
-                'relative flex-1 py-2.5 mono text-[10px] uppercase tracking-wider transition-colors',
+                'relative flex-1 py-2.5 text-[10px] uppercase tracking-wider transition-colors',
                 tab === id ? 'text-[var(--accent-text)]' : 'text-white/35 hover:text-white/60',
               ].join(' ')}
             >
@@ -377,7 +377,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
         {/* range banner — the drawer inherits the page's selected period */}
         <div className="flex items-center gap-2 border-b border-line bg-black/30 px-5 py-2">
           <Calendar size={10} className="text-white/25" />
-          <span className="mono text-[9px] uppercase tracking-wider text-white/35">{range.label}</span>
+          <span className="text-[9px] uppercase tracking-wider text-white/35">{range.label}</span>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -393,14 +393,14 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                 ].map(([k, v]) => (
                   <div key={k}>
                     <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
-                    <div className="mono text-[12px] text-white/75">{v}</div>
+                    <div className="text-[12px] text-white/75">{v}</div>
                   </div>
                 ))}
               </div>
               <button
                 type="button"
                 onClick={() => setTab('access')}
-                className="btn-ghost mono flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] uppercase tracking-wider"
+                className="btn-ghost flex w-full items-center justify-center gap-1.5 py-1.5 text-[10px] uppercase tracking-wider"
               >
                 <ShieldCheck size={11} /> {manageable ? 'Edit Access' : 'View Access'}
               </button>
@@ -419,7 +419,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                   ].map(([k, v]) => (
                     <div key={k}>
                       <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
-                      <div className="mono text-[12px] text-white/75">{v}</div>
+                      <div className="text-[12px] text-white/75">{v}</div>
                     </div>
                   ))}
                 </div>
@@ -429,7 +429,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
               <div>
                 <div className="label mb-2 flex items-center gap-2 text-fg-muted">
                   Current Shift
-                  <span className="mono rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">Live</span>
+                  <span className="rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-1.5 text-[7px] uppercase tracking-wider text-[var(--accent-text)]">Live</span>
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   {[
@@ -442,7 +442,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                   ].map(([k, v]) => (
                     <div key={k}>
                       <div className="text-[9px] uppercase tracking-wider text-white/25">{k}</div>
-                      <div className="mono text-[12px] text-white/75">{v}</div>
+                      <div className="text-[12px] text-white/75">{v}</div>
                     </div>
                   ))}
                 </div>
@@ -452,7 +452,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
               <div>
                 <div className="label mb-2 text-fg-muted">Timeline</div>
                 {timeline.length === 0 ? (
-                  <div className="mono text-[11px] text-white/25">No activity in this period.</div>
+                  <div className="text-[11px] text-white/25">No activity in this period.</div>
                 ) : (
                   <div className="space-y-1.5 border-l border-line pl-3">
                     {timeline.map((item, i) => (
@@ -474,7 +474,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                       logAudit({ actor: actorName, action: emp.suspended ? 'employee.reinstated' : 'employee.suspended', target: emp.name, result: 'success' })
                     }}
                     disabled={roster.mutating}
-                    className="btn-ghost mono flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
+                    className="btn-ghost flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] uppercase tracking-wider disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {emp.suspended ? <CheckCircle2 size={11} /> : <Ban size={11} />}
                     {emp.suspended ? 'Reinstate' : 'Suspend Access'}
@@ -484,7 +484,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                       onClick={() => setConfirmRemove(true)}
                       disabled={!removeCheck.ok || roster.mutating}
                       title={removeCheck.reason}
-                      className="mono flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
+                      className="flex items-center gap-1.5 border border-status-error/25 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error transition-colors hover:bg-status-error/10 disabled:cursor-not-allowed disabled:opacity-35"
                     >
                       <Trash2 size={11} /> Remove
                     </button>
@@ -492,7 +492,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                     <button
                       onClick={() => { removeEmployee(emp); logAudit({ actor: actorName, action: 'employee.removed', target: emp.name, result: 'success' }); onClose() }}
                       disabled={roster.mutating}
-                      className="mono flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex items-center gap-1.5 border border-status-error/50 bg-status-error/15 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-status-error disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Trash2 size={11} /> Confirm Remove
                     </button>
@@ -512,7 +512,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                 <div className="card-surface border-[var(--accent-border)] p-3">
                   <div className="flex items-center justify-between">
                     <span className="mono text-[11px] text-white/80">{emp.currentPhone}</span>
-                    <span className="mono text-[10px] text-[var(--accent-text)]">LIVE · {fmtDur(currentSessionMs(emp))}</span>
+                    <span className="text-[10px] text-[var(--accent-text)]">LIVE · {fmtDur(currentSessionMs(emp))}</span>
                   </div>
                 </div>
               )}
@@ -530,7 +530,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                 </div>
               ))}
               {rangeSessions.length === 0 && !emp.currentPhone && (
-                <div className="mono text-[11px] text-white/25">No phone sessions in this period.</div>
+                <div className="text-[11px] text-white/25">No phone sessions in this period.</div>
               )}
             </div>
           )}
@@ -550,7 +550,7 @@ function EmployeeDrawer({ emp, roster, range, now, actor, actorName, allMembers,
                   </div>
                 </div>
               ))}
-              {rangeShifts.length === 0 && <div className="mono text-[11px] text-white/25">No shifts in this period.</div>}
+              {rangeShifts.length === 0 && <div className="text-[11px] text-white/25">No shifts in this period.</div>}
             </div>
           )}
         </div>
@@ -633,9 +633,9 @@ function AddEmployeeModal({ roster, onClose }: { roster: RosterApi; onClose: () 
               <div className="flex gap-2">
                 <input
                   readOnly value={invite.url} onFocus={(e) => e.currentTarget.select()}
-                  className="mono h-9 min-w-0 flex-1 rounded-control border border-line bg-elevated px-3 text-[11px] text-fg/80 outline-none"
+                  className="h-9 min-w-0 flex-1 rounded-control border border-line bg-elevated px-3 text-[11px] text-fg/80 outline-none"
                 />
-                <button onClick={copyLink} className="btn-accent mono flex h-9 shrink-0 items-center gap-1.5 px-3 text-[10px] uppercase tracking-wider">
+                <button onClick={copyLink} className="btn-accent flex h-9 shrink-0 items-center gap-1.5 px-3 text-[10px] uppercase tracking-wider">
                   <Copy size={12} /> Copy
                 </button>
               </div>
@@ -645,7 +645,7 @@ function AddEmployeeModal({ roster, onClose }: { roster: RosterApi; onClose: () 
                 </p>
               )}
             </div>
-            <button onClick={onClose} className="btn-ghost mono w-full py-2 text-[10px] uppercase tracking-widest">Done</button>
+            <button onClick={onClose} className="btn-ghost w-full py-2 text-[10px] uppercase tracking-widest">Done</button>
           </div>
         ) : (
           <>
@@ -654,18 +654,18 @@ function AddEmployeeModal({ roster, onClose }: { roster: RosterApi; onClose: () 
                 <div>
                   <div className="label text-fg-muted mb-1.5">Name</div>
                   <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name"
-                    className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+                    className="h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
                 </div>
               )}
               <div>
                 <div className="label text-fg-muted mb-1.5">Email</div>
                 <input value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" type="email"
-                  className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
+                  className="h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]" />
               </div>
               <div>
                 <div className="label text-fg-muted mb-1.5">Role</div>
                 <select value={role} onChange={e => setRole(e.target.value as RoleId)}
-                  className="mono h-9 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]">
+                  className="h-9 w-full rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]">
                   {roles.filter(r => r.id !== 'owner').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
@@ -673,7 +673,7 @@ function AddEmployeeModal({ roster, onClose }: { roster: RosterApi; onClose: () 
             <button
               disabled={!valid || busy}
               onClick={submit}
-              className="btn-accent mono mt-5 flex w-full items-center justify-center gap-1.5 py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40"
+              className="btn-accent mt-5 flex w-full items-center justify-center gap-1.5 py-2.5 text-[11px] uppercase tracking-widest disabled:opacity-40"
             >
               {roster.enabled ? <Mail size={12} /> : <Plus size={12} />}
               {busy ? 'Working…' : roster.enabled ? 'Send Invitation' : 'Create Employee'}
@@ -697,7 +697,7 @@ function ActingSwitcher() {
   return (
     <label className="flex items-center gap-1.5 rounded-lg border border-line bg-black/40 px-2.5 py-1.5" title="Preview the dashboard as a different role (no login in this build)">
       <Eye size={11} className="text-white/35" />
-      <span className="mono text-[8px] uppercase tracking-widest text-white/30">Acting as</span>
+      <span className="text-[8px] uppercase tracking-widest text-white/30">Acting as</span>
       <select
         value={employee.id}
         onChange={(e) => {
@@ -705,7 +705,7 @@ function ActingSwitcher() {
           setActingId(e.target.value)
           logAudit({ actor: employee.name, action: 'acting.switched', target: next?.name, detail: next?.role, result: 'success' })
         }}
-        className="mono cursor-pointer bg-transparent text-[10px] uppercase tracking-wider text-white/80 outline-none"
+        className="cursor-pointer bg-transparent text-[10px] uppercase tracking-wider text-white/80 outline-none"
       >
         {employees.map((e) => <option key={e.id} value={e.id} className="bg-elevated">{e.name} · {e.role}</option>)}
       </select>
@@ -962,8 +962,8 @@ function TeamViewBody({ roster }: { roster: Roster }) {
       {/* header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Team</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Team</h1>
         </div>
         <div className="flex items-center gap-2">
           {/* Acting-as is a dev tool for the standalone (no-auth) build only; with
@@ -980,7 +980,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
                 key={id}
                 onClick={() => setTab(id)}
                 className={[
-                  'mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+                  'flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
                   tab === id ? 'bg-white text-black' : 'text-white/40 hover:text-white/70',
                 ].join(' ')}
               >
@@ -989,7 +989,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
             ))}
           </div>
           {canInvite && (
-            <button onClick={() => setAdding(true)} className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest">
+            <button onClick={() => setAdding(true)} className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest">
               <Plus size={12} /> Add Employee
             </button>
           )}
@@ -1003,7 +1003,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
               <span>Couldn't load the team: {roster.error}</span>
               <button
                 onClick={() => void roster.refresh()}
-                className="mono shrink-0 rounded-control border border-red-500/40 px-2 py-1 text-[10px] uppercase tracking-widest transition-colors hover:bg-red-500/20"
+                className="shrink-0 rounded-control border border-red-500/40 px-2 py-1 text-[10px] uppercase tracking-widest transition-colors hover:bg-red-500/20"
               >
                 Retry
               </button>
@@ -1031,7 +1031,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
                     { h: 'SHIFT', live: true }, { h: 'CURRENT PHONE', live: true },
                     { h: 'HOURS' }, { h: 'ACTIVE' }, { h: 'BREAK' }, { h: 'SHIFTS' }, { h: 'PHONES' }, { h: 'JOBS' }, { h: '' },
                   ].map(({ h, live }) => (
-                    <th scope="col" key={h || 'x'} className="mono whitespace-nowrap px-4 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em]"
+                    <th scope="col" key={h || 'x'} className="whitespace-nowrap px-4 py-3 text-left text-[9px] font-medium uppercase tracking-[0.1em]"
                       style={{ color: live ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}>
                       {h}{live ? ' ·' : ''}
                     </th>
@@ -1063,25 +1063,25 @@ function TeamViewBody({ roster }: { roster: Roster }) {
                           </span>
                         </span>
                       </td>
-                      <td className="mono px-4 py-3 text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
+                      <td className="px-4 py-3 text-[10px] uppercase tracking-wider text-white/45">{e.role}</td>
                       <td className="px-4 py-3">
                         {invited ? (
-                          <span className="mono text-[9px] uppercase tracking-wider text-white/30">Pending</span>
+                          <span className="text-[9px] uppercase tracking-wider text-white/30">Pending</span>
                         ) : e.suspended ? (
-                          <span className="mono text-[9px] uppercase tracking-wider text-status-error">Suspended</span>
+                          <span className="text-[9px] uppercase tracking-wider text-status-error">Suspended</span>
                         ) : (
-                          <span className="mono text-[9px] uppercase tracking-wider text-white/40">{SCOPE_LABELS[e.scopeType]}</span>
+                          <span className="text-[9px] uppercase tracking-wider text-white/40">{SCOPE_LABELS[e.scopeType]}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         {invited ? (
-                          <span className="mono flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-white/30">
+                          <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-white/30">
                             <Clock size={11} /> Awaiting
                           </span>
                         ) : (
                           <span className="flex items-center gap-1.5">
                             <span className={`h-1.5 w-1.5 rounded-full ${e.shiftStatus === 'on-shift' ? 'status-dot-pulse' : ''}`} style={{ background: meta.color }} />
-                            <span className="mono text-[10px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
+                            <span className="text-[10px] uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</span>
                           </span>
                         )}
                       </td>
@@ -1091,7 +1091,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
                             <Smartphone size={11} /> {e.currentPhone}
                           </span>
                         ) : (
-                          <span className="mono text-[10px] text-white/20">—</span>
+                          <span className="text-[10px] text-white/20">—</span>
                         )}
                       </td>
                       <td className="mono px-4 py-3 text-[11px] tabular-nums text-white/65">{invited ? '—' : fmtDur(stats.hoursMs)}</td>
@@ -1119,7 +1119,7 @@ function TeamViewBody({ roster }: { roster: Roster }) {
                             </button>
                           </span>
                         ) : invited ? (
-                          <span className="mono text-[9px] text-white/20">—</span>
+                          <span className="text-[9px] text-white/20">—</span>
                         ) : (
                           <ChevronRight size={13} className="ml-auto text-white/20" />
                         )}

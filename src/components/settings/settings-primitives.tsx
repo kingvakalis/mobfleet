@@ -24,7 +24,7 @@ export function Section({ icon: Icon, title, desc, children, wide, locked }: {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[13px] font-medium text-white/85">
             {title}
-            {locked && <span className="mono flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[8px] uppercase tracking-wider text-white/35"><Lock size={8} /> Read-only</span>}
+            {locked && <span className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[8px] uppercase tracking-wider text-white/35"><Lock size={8} /> Read-only</span>}
           </div>
           <div className="mt-0.5 text-[11px] text-white/35">{desc}</div>
         </div>

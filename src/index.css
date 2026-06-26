@@ -93,9 +93,12 @@
 
 @layer components {
   .label {
-    font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+    /* Small uppercase caption — UI font (Helvetica), NOT monospace. This is a general-UI label
+       utility (card titles, field captions, section headings), so it follows the body typeface.
+       Tracking softened from 0.12em → 0.06em so it no longer reads as terminal/mono. */
+    font-family: Helvetica, 'Helvetica Neue', Arimo, Arial, sans-serif;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.06em;
     font-size: 0.6875rem;
     line-height: 1;
     color: rgba(255,255,255,0.35);

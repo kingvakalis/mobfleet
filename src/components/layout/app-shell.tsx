@@ -68,7 +68,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         {!collapsed && (
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-[13px] font-bold leading-tight tracking-widest text-white" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>{workspaceName.toUpperCase()}</span>
-            <span className="mono text-[8px] uppercase tracking-wider text-white/30">CONTROL PLANE V2.1</span>
+            <span className="text-[8px] uppercase tracking-wider text-white/30">CONTROL PLANE V2.1</span>
           </div>
         )}
       </div>
@@ -114,7 +114,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
                 className="shrink-0 transition-colors"
                 style={{ color: isActive ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}
               />
-              {!collapsed && <span className="mono relative z-10 truncate text-[10px] uppercase tracking-wider">{v.label}</span>}
+              {!collapsed && <span className="relative z-10 truncate text-[10px] uppercase tracking-wider">{v.label}</span>}
             </button>
           )
         })}
@@ -125,13 +125,13 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         <div className="flex items-center gap-2.5">
           <span className="status-dot-pulse h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#34d399' }} />
           {!collapsed && (
-            <span className="mono text-[9px] uppercase tracking-widest" style={{ color: '#34d399' }}>
+            <span className="text-[9px] uppercase tracking-widest" style={{ color: '#34d399' }}>
               SYSTEMS NOMINAL
             </span>
           )}
         </div>
         {!collapsed && (
-          <div className="mono text-[8px] uppercase tracking-wider text-white/15">
+          <div className="text-[8px] uppercase tracking-wider text-white/15">
             {stats.total} DEVICES · {online} ONLINE
           </div>
         )}

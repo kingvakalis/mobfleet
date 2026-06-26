@@ -74,12 +74,12 @@ function FleetStatusStrip() {
       >
         <div className="flex items-center gap-1.5 border-r border-line px-3">
           <Activity size={10} className="text-fg-muted" />
-          <span className="mono text-[9px] uppercase tracking-[0.18em] text-fg-muted">Fleet Status</span>
+          <span className="text-[9px] uppercase tracking-[0.18em] text-fg-muted">Fleet Status</span>
         </div>
         {segments.map((s) => (
           <div key={s.label} className="flex min-w-[52px] flex-col items-center justify-center gap-0.5 border-l border-line/60 px-3 py-1.5 first:border-l-0">
             <span className="mono text-[13px] font-bold leading-none tabular-nums" style={{ color: s.color }}>{s.value}</span>
-            <span className="mono flex items-center gap-1 text-[7.5px] uppercase tracking-[0.16em] text-white/30">
+            <span className="flex items-center gap-1 text-[7.5px] uppercase tracking-[0.16em] text-white/30">
               {s.dot && <span className="h-1 w-1 rounded-full" style={{ background: s.color }} />}
               {s.label}
             </span>
@@ -97,7 +97,7 @@ function FleetEmpty() {
       <div className="pointer-events-none absolute"><Crosshair /></div>
       <div className="relative flex flex-col items-center gap-4 text-center">
         <Label className="text-fg-secondary">No Devices In Pool</Label>
-        <p className="mono max-w-[260px] text-[11px] leading-relaxed text-fg-muted">
+        <p className="max-w-[260px] text-[11px] leading-relaxed text-fg-muted">
           The fleet is empty. Provision cloud phones to begin running jobs.
         </p>
         <Button variant="primary" size="sm" onClick={openScale}>
@@ -159,13 +159,13 @@ export function FleetView() {
               <div className="flex items-center gap-1 rounded-lg bg-black/40 border border-line p-1 backdrop-blur-sm">
                 <button
                   onClick={() => setMode('3d')}
-                  className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
                 >
                   <Box size={12} /> 3D
                 </button>
                 <button
                   onClick={() => setMode('2d')}
-                  className={['mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
                 >
                   <Network size={12} /> Graph
                 </button>
@@ -174,7 +174,7 @@ export function FleetView() {
                 onClick={() => setActivityOpen(o => !o)}
                 title="Live activity & fleet health"
                 className={[
-                  'mono flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] uppercase tracking-widest backdrop-blur-sm transition-colors',
+                  'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] uppercase tracking-widest backdrop-blur-sm transition-colors',
                   activityOpen
                     ? 'border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]'
                     : 'border-line bg-black/40 text-white/40 hover:text-white/70',
@@ -188,14 +188,14 @@ export function FleetView() {
             <div className="absolute left-4 top-4 z-20">
               <div className="pointer-events-none px-3 py-2 rounded-lg bg-black/40 border border-line backdrop-blur-sm">
                 <Label className="text-fg-muted">FLEET · CONSTELLATION</Label>
-                <div className="mono mt-1 text-[11px] text-fg-secondary">
+                <div className="mt-1 text-[11px] text-fg-secondary">
                   {stats.total} NODES · {stats.busy} ACTIVE · {stats.idle} IDLE
                 </div>
               </div>
               {locked && (
                 <div className="mt-2 inline-flex items-center gap-1.5 rounded-control border border-amber-400/35 bg-amber-400/10 px-2.5 py-1.5">
                   <Lock size={10} className="text-amber-400" />
-                  <span className="mono text-[9px] uppercase tracking-wider text-amber-400">Layout locked</span>
+                  <span className="text-[9px] uppercase tracking-wider text-amber-400">Layout locked</span>
                 </div>
               )}
             </div>

@@ -224,7 +224,7 @@ function AppScreen({ f, clock, battery, app }: {
           {app.abbr}
         </div>
         <span className="font-semibold text-white" style={{ fontSize: 10 * f }}>{app.name}</span>
-        <span className="ml-auto mono text-[#00ff88]" style={{ fontSize: 7 * f }}>ACTIVE</span>
+        <span className="ml-auto text-[#00ff88]" style={{ fontSize: 7 * f }}>ACTIVE</span>
       </div>
       {/* skeleton feed */}
       <div className="flex flex-1 flex-col" style={{ gap: 6 * f, padding: `${4 * f}px ${12 * f}px` }}>
@@ -260,7 +260,7 @@ function JobScreen({ f, clock, device, job }: {
       </div>
       <div className="mt-auto" style={{ padding: `0 ${14 * f}px ${16 * f}px` }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 5 * f }}>
-          <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>{job.id}</span>
+          <span className="text-fg-muted" style={{ fontSize: 8 * f }}>{job.id}</span>
           <span className="mono text-fg" style={{ fontSize: 9 * f }}>{pct}%</span>
         </div>
         <div className="overflow-hidden rounded-full bg-white/10" style={{ height: 5 * f }}>
@@ -299,7 +299,7 @@ function CenterScreen({ icon, label, sub, color }: {
     <div className="flex h-full flex-col items-center justify-center gap-2 bg-black">
       {icon}
       <span className="label" style={color ? { color } : undefined}>{label}</span>
-      {sub && <span className="mono text-[9px] text-fg-muted">{sub}</span>}
+      {sub && <span className="text-[9px] text-fg-muted">{sub}</span>}
     </div>
   )
 }
@@ -515,7 +515,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         <div className="flex h-full flex-col items-center justify-center gap-2" style={{ background: 'rgba(255,59,59,0.06)' }}>
           <TriangleAlert size={20 * f} style={{ color: statusColor }} />
           <span className="label" style={{ color: statusColor }}>Agent Unreachable</span>
-          <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>retrying connection…</span>
+          <span className="text-fg-muted" style={{ fontSize: 8 * f }}>retrying connection…</span>
         </div>
       )
     } else if (device.status === 'warming') {
@@ -523,7 +523,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         <div className="flex h-full flex-col items-center justify-center" style={{ gap: 14 * f }}>
           <div className="rounded-full border border-fg/30 spin-slow" style={{ width: 30 * f, height: 30 * f, borderTopColor: 'rgba(255,255,255,0.7)' }} />
           <span className="label text-fg-secondary">Booting</span>
-          <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>{device.osVersion}</span>
+          <span className="text-fg-muted" style={{ fontSize: 8 * f }}>{device.osVersion}</span>
         </div>
       )
     } else if (frame) {
@@ -552,7 +552,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
       <div className="flex h-full flex-col items-center justify-center gap-2" style={{ background: 'rgba(255,59,59,0.06)' }}>
         <TriangleAlert size={20 * f} style={{ color: statusColor }} />
         <span className="label" style={{ color: statusColor }}>Agent Unreachable</span>
-        <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>retrying connection…</span>
+        <span className="text-fg-muted" style={{ fontSize: 8 * f }}>retrying connection…</span>
       </div>
     )
   } else if (device.status === 'warming') {
@@ -560,7 +560,7 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
       <div className="flex h-full flex-col items-center justify-center" style={{ gap: 14 * f }}>
         <div className="rounded-full border border-fg/30 spin-slow" style={{ width: 30 * f, height: 30 * f, borderTopColor: 'rgba(255,255,255,0.7)' }} />
         <span className="label text-fg-secondary">Booting</span>
-        <span className="mono text-fg-muted" style={{ fontSize: 8 * f }}>{device.osVersion}</span>
+        <span className="text-fg-muted" style={{ fontSize: 8 * f }}>{device.osVersion}</span>
       </div>
     )
   } else if (activeAppDef) {

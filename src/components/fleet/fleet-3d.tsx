@@ -1016,7 +1016,7 @@ function ContextMenu({ state, onClose }: { state: ContextMenuState; onClose: () 
       className="fixed z-50 min-w-[160px] rounded-xl border border-white/[0.08] bg-[#0a0a12]/95 backdrop-blur-xl shadow-2xl overflow-hidden py-1"
     >
       <div className="px-3 py-1.5 border-b border-white/[0.06] mb-1">
-        <span className="text-[10px] text-white/30 uppercase tracking-wider font-mono">{state.name}</span>
+        <span className="text-[10px] text-white/30 uppercase tracking-wider">{state.name}</span>
       </div>
       {CTX_ITEMS.map(item => (
         <button
@@ -1137,7 +1137,7 @@ function Loader() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3">
       <div className="w-8 h-8 rounded-full border-2 border-[#4fc3f7]/30 border-t-[#4fc3f7] animate-spin" />
-      <span className="text-xs text-white/30 font-mono tracking-wider">INITIALISING 3D SCENE</span>
+      <span className="text-xs text-white/30 tracking-wider">INITIALISING 3D SCENE</span>
     </div>
   )
 }
@@ -1151,9 +1151,9 @@ class Fleet3DErrorBoundary extends React.Component<React.PropsWithChildren, { er
     if (this.state.err) return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center space-y-3">
-          <p className="text-red-400 font-mono text-xs">3D RENDER ERROR</p>
+          <p className="text-red-400 text-xs">3D RENDER ERROR</p>
           <p className="text-white/30 text-xs font-mono">{this.state.err}</p>
-          <button onClick={() => this.setState({ err: null })} className="px-4 py-2 text-xs border border-white/20 text-white/60 font-mono hover:border-white/40">RETRY</button>
+          <button onClick={() => this.setState({ err: null })} className="px-4 py-2 text-xs border border-white/20 text-white/60 hover:border-white/40">RETRY</button>
         </div>
       </div>
     )
@@ -1269,7 +1269,7 @@ function Fleet3DInner({ filters }: { filters?: FleetFilters }) {
       </AnimatePresence>
 
       {/* Help hint */}
-      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 text-[10px] text-white/15 font-mono">
+      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-3 text-[10px] text-white/15">
         <span>DRAG to rotate</span>
         <span>SCROLL to zoom</span>
         <span>CLICK to select</span>

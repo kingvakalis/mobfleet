@@ -3,7 +3,9 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 rounded-sm font-mono text-xs uppercase tracking-wider whitespace-nowrap select-none transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] relative overflow-hidden',
+  // UI font (Helvetica) — buttons keep their intentional uppercase styling but render in the app
+  // typeface, not monospace. (Was `font-mono`, which made every <Button> look terminal/mono.)
+  'inline-flex items-center justify-center gap-2 rounded-sm text-xs uppercase tracking-wider whitespace-nowrap select-none transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98] relative overflow-hidden',
   {
     variants: {
       variant: {

@@ -61,7 +61,7 @@ function FilterSelect({
         type="button"
         onClick={() => setOpen(o => !o)}
         className={[
-          'mono h-8 px-3 text-[9px] uppercase tracking-widest border transition-colors flex items-center gap-1.5',
+          'h-8 px-3 text-[9px] uppercase tracking-widest border transition-colors flex items-center gap-1.5',
           value
             ? 'text-[var(--accent-text)] border-[var(--accent-border)] bg-[var(--accent-soft)]'
             : 'text-white/30 border-transparent hover:text-white/60 hover:border-white/20',
@@ -81,7 +81,7 @@ function FilterSelect({
             <button
               type="button"
               onClick={() => { onChange(null); setOpen(false) }}
-              className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/40 hover:bg-hover hover:text-white/80 transition-colors"
+              className="w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/40 hover:bg-hover hover:text-white/80 transition-colors"
             >
               All
             </button>
@@ -91,7 +91,7 @@ function FilterSelect({
                 type="button"
                 onClick={() => { onChange(o); setOpen(false) }}
                 className={[
-                  'mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider transition-colors',
+                  'w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider transition-colors',
                   value === o ? 'text-[var(--accent-text)] bg-[var(--accent-soft)]' : 'text-white/55 hover:bg-hover hover:text-white/90',
                 ].join(' ')}
               >
@@ -233,15 +233,15 @@ export function PhonesView() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-5 border-b border-line">
         <div>
-          <p className="mono text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Fleet Registry</p>
-          <h1 className="mono text-lg font-bold tracking-widest text-white uppercase">DEVICE REGISTRY</h1>
-          <p className="mono text-[10px] text-white/30 tracking-wider mt-0.5">{devices.length} UNITS TRACKED</p>
+          <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 mb-1">Fleet Registry</p>
+          <h1 className="text-lg font-bold tracking-widest text-white uppercase">DEVICE REGISTRY</h1>
+          <p className="text-[10px] text-white/30 tracking-wider mt-0.5">{devices.length} UNITS TRACKED</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             disabled
             title="Bulk import requires the backend connection (VITE_USE_BACKEND)"
-            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/20 border border-white/[0.08] cursor-not-allowed"
+            className="h-8 px-4 text-[10px] uppercase tracking-widest text-white/20 border border-white/[0.08] cursor-not-allowed"
           >
             <Upload size={11} className="inline mr-1.5" />IMPORT
           </button>
@@ -249,7 +249,7 @@ export function PhonesView() {
             onClick={openScale}
             disabled={!canImport}
             title={canImport ? 'Scale the fleet (provision/retire in bulk)' : 'Requires import permission'}
-            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/40 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+            className="h-8 px-4 text-[10px] uppercase tracking-widest text-white/70 border border-white/[0.12] transition-colors enabled:hover:border-white/40 enabled:hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
           >
             <Plus size={11} className="inline mr-1.5" />SCALE
           </button>
@@ -257,7 +257,7 @@ export function PhonesView() {
             onClick={openPair}
             disabled={!canProvision}
             title={canProvision ? 'Pair a new device via QR code' : 'Requires provision permission'}
-            className="mono h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 transition-colors enabled:hover:bg-white enabled:hover:text-black disabled:cursor-not-allowed disabled:opacity-30"
+            className="h-8 px-4 text-[10px] uppercase tracking-widest text-white border border-white/30 transition-colors enabled:hover:bg-white enabled:hover:text-black disabled:cursor-not-allowed disabled:opacity-30"
           >
             <QrCode size={11} className="inline mr-1.5" />ADD DEVICE
           </button>
@@ -280,7 +280,7 @@ export function PhonesView() {
               ['--hud-c' as string]: `${topBorder}`,
             }}
           >
-            <span className="mono text-[9px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.4)' }}>{label}</span>
+            <span className="text-[9px] uppercase tracking-[0.15em]" style={{ color: 'rgba(255,255,255,0.4)' }}>{label}</span>
             <AnimatedCounter target={value} color={color} />
           </motion.div>
         ))}
@@ -294,7 +294,7 @@ export function PhonesView() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="SEARCH UNITS..."
-            className="w-full h-8 pl-8 pr-3 bg-transparent border border-line text-[10px] mono text-white/70 placeholder-white/20 outline-none focus:border-[var(--accent-border)] tracking-wider transition-colors"
+            className="w-full h-8 pl-8 pr-3 bg-transparent border border-line text-[10px] text-white/70 placeholder-white/20 outline-none focus:border-[var(--accent-border)] tracking-wider transition-colors"
           />
         </div>
         <FilterSelect label="Status" options={ALL_STATUSES.map(s => STATUS[s].label)} value={statusFilter} onChange={setStatusFilter} />
@@ -305,12 +305,12 @@ export function PhonesView() {
           <button
             type="button"
             onClick={() => { setStatusFilter(null); setGroupFilter(null); setModelFilter(null); setJobFilter(null) }}
-            className="mono h-8 px-2 text-[9px] uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
+            className="h-8 px-2 text-[9px] uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
           >
             Clear
           </button>
         )}
-        <span className="mono ml-auto text-[9px] uppercase tracking-widest text-white/25">{visible.length} SHOWN</span>
+        <span className="ml-auto text-[9px] uppercase tracking-widest text-white/25">{visible.length} SHOWN</span>
       </div>
 
       {/* Table */}
@@ -329,7 +329,7 @@ export function PhonesView() {
                 </button>
               </th>
               {['NAME', 'STATUS', 'GROUP', 'MODEL', 'JOB', 'HEARTBEAT', ''].map(h => (
-                <th key={h} className="px-3 py-3 text-left mono text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
+                <th key={h} className="px-3 py-3 text-left text-[9px] font-medium text-white/25 uppercase tracking-[0.1em] whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
@@ -370,7 +370,7 @@ export function PhonesView() {
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.status !== 'offline' ? 'status-dot-pulse' : ''}`}
                         style={{ background: dotColor, boxShadow: d.status !== 'offline' ? `0 0 5px ${dotColor}` : 'none' }}
                       />
-                      <span className="mono text-[10px] uppercase tracking-wider" style={{ color: dotColor }}>{meta?.label ?? d.status}</span>
+                      <span className="text-[10px] uppercase tracking-wider" style={{ color: dotColor }}>{meta?.label ?? d.status}</span>
                     </span>
                   </td>
                   <td className="px-3 py-3 mono text-white/45 text-[11px]">{d.group}</td>
@@ -378,13 +378,13 @@ export function PhonesView() {
                   <td className="px-3 py-3">
                     {job ? (
                       <span className="flex items-center gap-2">
-                        <span className="mono text-[10px] uppercase tracking-wider text-[#4fc3f7]">{job.type}</span>
+                        <span className="text-[10px] uppercase tracking-wider text-[#4fc3f7]">{job.type}</span>
                         <span className="w-12 h-0.5 bg-white/[0.08] overflow-hidden">
                           <span className="block h-full transition-[width] duration-500" style={{ width: `${Math.round(job.progress * 100)}%`, background: 'var(--status-busy)' }} />
                         </span>
                       </span>
                     ) : (
-                      <span className="mono text-[10px] text-white/20">—</span>
+                      <span className="text-[10px] text-white/20">—</span>
                     )}
                   </td>
                   <td className="px-3 py-3">
@@ -404,7 +404,7 @@ export function PhonesView() {
                   <td className="px-3 py-3">
                     <button
                       onClick={e => { e.stopPropagation(); openPhoneControl(d.id) }}
-                      className="mono px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[var(--accent-border)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
+                      className="px-2.5 py-1 text-[9px] uppercase tracking-widest text-white/30 border border-white/[0.12] hover:border-[var(--accent-border)] hover:text-[var(--accent-text)] hover:bg-[var(--accent-soft)] transition-colors"
                     >
                       CONTROL →
                     </button>
@@ -416,7 +416,7 @@ export function PhonesView() {
         </table>
         {visible.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <span className="mono text-[10px] uppercase tracking-widest text-white/30">No devices match the current filters</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/30">No devices match the current filters</span>
           </div>
         )}
       </div>
@@ -432,14 +432,14 @@ export function PhonesView() {
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30"
           >
             <div className="relative flex items-center gap-2 px-4 py-2.5 border border-white/[0.15] bg-black shadow-2xl">
-              <span className="mono text-[9px] text-white/40 mr-1 whitespace-nowrap uppercase tracking-widest">{selected.size} SELECTED</span>
+              <span className="text-[9px] text-white/40 mr-1 whitespace-nowrap uppercase tracking-widest">{selected.size} SELECTED</span>
               <div className="w-px h-4 bg-white/[0.08]" />
               <button
                 type="button"
                 onClick={runJobSelected}
                 disabled={!canRunJob}
                 title={canRunJob ? 'Run a job on the selected devices' : 'Requires run-automation permission'}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Briefcase size={11} /> RUN JOB
               </button>
@@ -448,7 +448,7 @@ export function PhonesView() {
                 onClick={rebootSelected}
                 disabled={!canReboot}
                 title={canReboot ? 'Reboot the selected devices' : 'Requires reboot permission'}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <RotateCcw size={11} /> REBOOT
               </button>
@@ -458,7 +458,7 @@ export function PhonesView() {
                   onClick={() => { if (!canAssignGroup) return; setGroupMenuOpen(o => !o) }}
                   disabled={!canAssignGroup}
                   title={canAssignGroup ? 'Assign the selected devices to a group' : 'Requires assign-group permission'}
-                  className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <UserPlus size={11} /> GROUP
                 </button>
@@ -476,7 +476,7 @@ export function PhonesView() {
                           key={g}
                           type="button"
                           onClick={() => assignGroupSelected(g)}
-                          className="mono w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 hover:bg-hover hover:text-white/90 transition-colors"
+                          className="w-full px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-white/55 hover:bg-hover hover:text-white/90 transition-colors"
                         >
                           {g}
                         </button>
@@ -490,7 +490,7 @@ export function PhonesView() {
                 onClick={exportSelected}
                 disabled={!canExport}
                 title={canExport ? 'Export the selected devices' : 'Requires export permission'}
-                className="mono flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest text-white/50 transition-colors enabled:hover:text-white/90 enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
               >
                 <Download size={11} /> EXPORT
               </button>

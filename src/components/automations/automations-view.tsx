@@ -117,7 +117,7 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <span className="label text-fg">{initial ? 'Edit Automation' : 'New Automation'}</span>
           <div className="flex items-center gap-3">
-            {dirty && <span className="mono text-[9px] uppercase tracking-wider text-amber-400">Unsaved</span>}
+            {dirty && <span className="text-[9px] uppercase tracking-wider text-amber-400">Unsaved</span>}
             <button onClick={tryClose} aria-label="Close" className="text-fg-muted hover:text-fg"><X size={15} /></button>
           </div>
         </div>
@@ -129,13 +129,13 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
               value={name}
               onChange={e => { setName(e.target.value); setDirty(true) }}
               placeholder="Automation name"
-              className="mono h-9 rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+              className="h-9 rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
             />
             <select
               value={taskType}
               onChange={e => { setTaskType(e.target.value as TaskType); setDirty(true) }}
               aria-label="Task type"
-              className="mono h-9 rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]"
+              className="h-9 rounded-control border border-line bg-elevated px-2 text-[12px] text-fg-secondary outline-none focus:border-[var(--accent-border)]"
             >
               {TASK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
@@ -144,7 +144,7 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
             value={description}
             onChange={e => { setDescription(e.target.value); setDirty(true) }}
             placeholder="What does this automation do?"
-            className="mono h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
+            className="h-9 w-full rounded-control border border-line bg-elevated px-3 text-[12px] text-fg outline-none transition-colors focus:border-[var(--accent-border)]"
           />
 
           {/* step list */}
@@ -164,14 +164,14 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
                     ].join(' ')}
                     onClick={() => setSelectedStep(active ? null : step.id)}
                   >
-                    <span className="mono w-5 text-[10px] text-white/25">{i + 1}</span>
+                    <span className="w-5 text-[10px] text-white/25">{i + 1}</span>
                     <span
-                      className="mono px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                      className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
                       style={{ color: meta.color, background: meta.color + '15', border: `1px solid ${meta.color}30` }}
                     >
                       {meta.label}
                     </span>
-                    <span className="mono flex-1 truncate text-[11px] text-white/45">{step.config}</span>
+                    <span className="flex-1 truncate text-[11px] text-white/45">{step.config}</span>
                     {!locked && (
                       <span className="flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
                         <button onClick={() => move(step.id, -1)} aria-label="Move up" className="p-1 text-white/25 hover:text-white/70"><ArrowUp size={11} /></button>
@@ -192,7 +192,7 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
                   value={sel.config}
                   onChange={e => mutate(s => s.map(x => x.id === sel.id ? { ...x, config: e.target.value } : x))}
                   placeholder={STEP_META[sel.kind].configHint}
-                  className="mono h-8 w-full rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none focus:border-[var(--accent-border)]"
+                  className="h-8 w-full rounded-control border border-line bg-elevated px-2.5 text-[12px] text-fg outline-none focus:border-[var(--accent-border)]"
                 />
               </div>
             )}
@@ -203,7 +203,7 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
                 <button
                   key={kind}
                   onClick={() => addStep(kind)}
-                  className="btn-ghost mono px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
+                  className="btn-ghost px-2.5 py-1.5 text-[10px] uppercase tracking-wider"
                 >
                   + {STEP_META[kind].label}
                 </button>
@@ -218,7 +218,7 @@ function BuilderModal({ initial, onSave, onClose }: { initial: CustomAutomation 
             onClick={() => void save()}
             disabled={!valid || saving}
             title={!valid ? 'Name and at least one step are required' : undefined}
-            className="btn-accent mono w-full py-2.5 text-[11px] uppercase tracking-widest"
+            className="btn-accent w-full py-2.5 text-[11px] uppercase tracking-widest"
           >
             {saving ? 'Saving…' : 'Save Automation'}
           </button>
@@ -280,14 +280,14 @@ function AutomationsBody({ rows, perms, audit, onSave, onTogglePaused, onRun, on
       {/* Header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mono mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Fleet</p>
-          <h1 className="mono text-lg font-bold uppercase tracking-widest text-white">Automations</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Fleet</p>
+          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Automations</h1>
         </div>
         <button
           onClick={() => setBuilder({ open: true, editing: null })}
           disabled={!canCreate}
           title={canCreate ? 'Create a new automation' : 'Requires create permission'}
-          className="btn-accent mono flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn-accent flex h-8 items-center gap-1.5 px-4 text[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus size={12} /> New Automation
         </button>
@@ -325,7 +325,7 @@ function AutomationsBody({ rows, perms, audit, onSave, onTogglePaused, onRun, on
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-semibold text-white/90">
                     {a.name}
-                    {a.custom && <span className="mono text-[8px] uppercase tracking-wider text-white/30 border border-line px-1 py-0.5">Custom</span>}
+                    {a.custom && <span className="text-[8px] uppercase tracking-wider text-white/30 border border-line px-1 py-0.5">Custom</span>}
                   </h2>
                   <p className="mt-0.5 line-clamp-2 text-[11px] text-white/35">{a.description}</p>
                 </div>
