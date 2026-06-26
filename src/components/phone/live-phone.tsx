@@ -271,6 +271,27 @@ function JobScreen({ f, clock, device, job }: {
   )
 }
 
+/**
+ * Neutral, dimension-faithful loading skeleton for the REAL device glass — shown while the FIRST
+ * latest-frame read is still in flight (`resolving`). It fills the glass (h-full/w-full) and echoes
+ * the phone chrome (status bar + dynamic island) so the first visible state is a polished placeholder
+ * instead of the honest-but-premature "Waiting for frame" / "hardware control pending" text.
+ */
+function ScreenSkeleton({ f }: { f: number }) {
+  return (
+    <div className="flex h-full w-full flex-col bg-[#050507]" aria-hidden>
+      <div className="flex items-center justify-between" style={{ padding: `${10 * f}px ${18 * f}px ${2 * f}px` }}>
+        <div className="shimmer rounded" style={{ width: 28 * f, height: 9 * f }} />
+        <div className="shimmer rounded" style={{ width: 26 * f, height: 9 * f }} />
+      </div>
+      <div className="flex justify-center" style={{ marginBottom: 8 * f }}>
+        <div className="rounded-full bg-black" style={{ width: 76 * f, height: 22 * f }} />
+      </div>
+      <div className="shimmer flex-1" style={{ margin: `0 ${10 * f}px ${12 * f}px`, borderRadius: 14 * f }} />
+    </div>
+  )
+}
+
 function CenterScreen({ icon, label, sub, color }: {
   icon: React.ReactNode; label: string; sub?: string; color?: string
 }) {
@@ -310,7 +331,11 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   /** REAL-FRAME pointer gestures (tap / swipe / scroll / long_press) in device LOGICAL
    *  points — the parent maps them to control commands. Only fired in real-frame mode. */
   onGesture?: (g: PhoneGesture) => void
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture }, ref) {
+  /** REAL-FRAME mode only: the FIRST latest-frame read for this device is still in flight. While
+   *  true (and there is no frame yet on an online device) the glass shows a neutral skeleton instead
+   *  of the resolved "Waiting for frame" placeholder, so we never flash a premature empty state. */
+  resolving?: boolean
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture, resolving = false }, ref) {
   const f = width / 260
   // REAL-frame mode: size the glass to the captured frame's aspect ratio so object-fit: cover
   // fills it with NO black side bars, and pointer→device mapping stays a clean linear scale.
@@ -511,6 +536,10 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
           style={{ objectFit: 'cover', display: 'block' }}
         />
       )
+    } else if (resolving) {
+      // Online device, latest-frame read still in flight → polished skeleton (same glass dimensions),
+      // NOT the resolved "Waiting for frame" — that would be a premature empty state.
+      screen = <ScreenSkeleton f={f} />
     } else {
       screen = <CenterScreen icon={<Camera size={18 * f} className="text-fg-muted" />} label="Waiting for frame" sub="Press Screenshot to capture" />
     }

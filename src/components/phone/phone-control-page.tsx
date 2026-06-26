@@ -30,7 +30,7 @@ import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScree
 import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
-import { AppRow } from '@/components/phone/app-row'
+import { AppRow, AppRowsSkeleton } from '@/components/phone/app-row'
 import type { AgentCommandAction } from '@/shared/types'
 import type { ControlCommand, DeviceSessionRecord } from '@/shared/types'
 
@@ -327,6 +327,10 @@ export function PhoneControlPage() {
   // legacy simulated screen is unchanged (mock/demo/me-mode + device-drawer).
   const [frame, setFrame] = useState<LiveFrame | null>(null)
   const [frameLatency, setFrameLatency] = useState<number | null>(null)
+  // True while the FIRST latest-frame read for the current device is in flight (and after each device
+  // switch). Gates the "hardware control pending" banner + the in-glass placeholder so the first visible
+  // state is a skeleton, never a premature "no frame yet" / pending state. Starts true (read not done).
+  const [frameResolving, setFrameResolving] = useState(true)
   const [liveView, setLiveView] = useState(false)
   const [manageAppsOpen, setManageAppsOpen] = useState(false)
   // Phone width sized so the full phone + bottom action bar fit the center column without scrolling.
@@ -341,10 +345,18 @@ export function PhoneControlPage() {
     if (!c) return
     const sb = statusBarRef.current?.offsetHeight ?? 0
     const ab = actionsRef.current?.offsetHeight ?? 0
-    const banner = useSupabaseCommands && !hasFrame ? 34 : 0 // the "pending" banner only shows before the first frame
+    // The "pending" banner only renders once the frame read has RESOLVED with no frame (not while
+    // resolving — the glass shows a skeleton then), so reserve its height on the same condition. This keeps
+    // the COMMON path jump-free: skeleton (no banner) → real frame (no banner) is the same phone size, and
+    // the final has-frame UI is byte-identical to before. Deliberate tradeoff: the RARE path (online device
+    // that has genuinely never captured a frame) settles by ~34px when the banner appears on resolve. The
+    // alternatives are worse — reserving the banner while resolving reintroduces a grow on the common
+    // has-frame path, and a constant reservation would shrink the phone for every device (changing the
+    // final has-frame UI). So we keep the common path smooth and accept the one-time settle on the empty path.
+    const banner = useSupabaseCommands && !hasFrame && !frameResolving ? 34 : 0
     const avail = c.clientHeight - sb - ab - PHONE_STAGE_CHROME - banner - 8 // 8px breathing room
     setPhoneWidth(Math.max(PHONE_W_MIN, Math.min(PHONE_W_MAX, Math.floor(avail / frameAspect))))
-  }, [useSupabaseCommands, hasFrame, frameAspect])
+  }, [useSupabaseCommands, hasFrame, frameResolving, frameAspect])
   useLayoutEffect(() => {
     measureFit()
     const ro = new ResizeObserver(() => measureFit()) // re-fit when the column resizes or the status bar re-wraps
@@ -353,6 +365,10 @@ export function PhoneControlPage() {
     return () => { ro.disconnect(); window.removeEventListener('resize', measureFit) }
   }, [measureFit])
   const deviceIdRef = useRef<string | undefined>(undefined)
+  // Monotonic generation token for the latest-frame read: bumped on every device switch so ONLY the
+  // current read can clear frameResolving. Device ids repeat (A→B→A), so an id-equality guard alone is
+  // unsound — a still-in-flight read for the earlier visit to A would otherwise drop the new A's gate.
+  const frameReqRef = useRef(0)
   // Live command-status watchers (watchCommand cancels). Tracked so they can be torn
   // down on device-switch/unmount — otherwise an orphaned poller would keep writing a
   // previous device's lifecycle logs/latency into the current view (and keep polling).
@@ -554,8 +570,12 @@ export function PhoneControlPage() {
   // scheduleFrameRefresh + liveView, so a trailing post-command refresh re-fires correctly and only when off.
   useEffect(() => { scheduleFrameRefreshRef.current = scheduleFrameRefresh; liveViewRef.current = liveView })
 
-  // Reset + load the latest existing frame when the device changes (no new capture).
-  useEffect(() => {
+  // Reset + load the latest existing frame when the device changes (no new capture). useLayoutEffect (not
+  // useEffect) so the reset COMMITS BEFORE the browser paints the new device — the in-place device switch
+  // (nav arrows / command palette) changes `device` without remounting, so a post-paint reset would let the
+  // PREVIOUS device's frame paint for one frame under the new device. Running before paint shows a skeleton
+  // immediately instead.
+  useLayoutEffect(() => {
     cancelAllWatchers() // tear down the previous device's in-flight command watchers
     pendingRefreshRef.current = false // drop a queued trailing refresh BEFORE releasing the capture (no re-fire for the old device)
     liveCaptureFinishRef.current() // release any in-flight forced/gesture capture, else captureBusyRef stays stuck → new device's captures all drop
@@ -563,9 +583,13 @@ export function PhoneControlPage() {
     deviceIdRef.current = deviceId
     frameTimesRef.current = []; lastCountedCapRef.current = 0 // reset the effective-FPS window for the new device
     if (!useSupabaseCommands || !deviceId) return
+    const myReq = ++frameReqRef.current // claim this read's generation; only it may clear the gate
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFrame(null); setFrameLatency(null); setMeasuredFps(0)
-    void refreshFrame(deviceId)
+    setFrame(null); setFrameLatency(null); setMeasuredFps(0); setFrameResolving(true)
+    // Clear the resolving gate once THIS read lands (success OR confirmed-no-frame). Guard on the generation
+    // token, not the device id — a stale read from an earlier visit to the same device id must NOT drop the
+    // current gate (ids repeat; tokens don't).
+    void refreshFrame(deviceId).finally(() => { if (frameReqRef.current === myReq) setFrameResolving(false) })
   }, [deviceId, useSupabaseCommands, refreshFrame, cancelAllWatchers])
 
   // Stop every in-flight watcher when the page unmounts (no detached polling / state writes). Null the
@@ -1110,7 +1134,7 @@ export function PhoneControlPage() {
                   arrives — once LivePhone renders the captured device_screenshots frame,
                   a "hardware control pending" line above it would be untruthful, so it's
                   gated on `!frame` (the captured screen itself becomes the truthful state). */}
-              {useSupabaseCommands && !frame && (
+              {useSupabaseCommands && !frame && !frameResolving && (
                 <div className="mb-3 rounded-control border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-center">
                   <span className="mono text-[9px] uppercase tracking-wider text-amber-300/90">No live phone session yet · hardware control pending</span>
                 </div>
@@ -1126,6 +1150,7 @@ export function PhoneControlPage() {
                 onTap={(x, y) => sendControl({ type: 'tap', deviceId: device.id, x, y })}
                 frame={useSupabaseCommands ? frame : undefined}
                 onGesture={useSupabaseCommands ? handleGesture : undefined}
+                resolving={useSupabaseCommands && frameResolving}
               />
             </div>
           </PhoneStage>
@@ -1256,16 +1281,17 @@ export function PhoneControlPage() {
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] uppercase tracking-wider text-white/35">
-                        {deviceApps.visibleApps.length} visible app{deviceApps.visibleApps.length === 1 ? '' : 's'}
+                        {deviceApps.ready
+                          ? `${deviceApps.visibleApps.length} visible app${deviceApps.visibleApps.length === 1 ? '' : 's'}`
+                          : 'Loading apps…'}
                       </span>
                       <button onClick={() => setManageAppsOpen(true)} className="flex items-center gap-1 text-[10px] text-[#2dd4bf] transition-colors hover:text-[#5eead4]">
                         <Grid2x2 size={11} /> Manage Apps
                       </button>
                     </div>
-                    {deviceApps.loading && deviceApps.installed.length === 0 ? (
-                      <div className="flex items-center justify-center py-6">
-                        <span className="text-[11px] text-white/30">Loading installed apps…</span>
-                      </div>
+                    {!deviceApps.ready ? (
+                      // First inventory read still resolving → neutral skeleton (NOT "No apps").
+                      <AppRowsSkeleton rows={5} />
                     ) : deviceApps.visibleApps.length === 0 ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-6">
                         <span className="text-[11px] text-white/30">No visible apps selected</span>

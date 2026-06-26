@@ -47,3 +47,23 @@ export function AppRow({ app, canControl, launching, stopping, onLaunch, onStop 
     </div>
   )
 }
+
+/**
+ * Neutral skeleton for the installed-app list, shown while the FIRST inventory read is still
+ * resolving so we never flash "No apps" / "No visible apps" before the data has actually landed.
+ * Mirrors AppRow's dimensions EXACTLY (h-10 rows, h-7 w-7 icon, same dividers/padding) so the panel
+ * keeps its final height and nothing jumps when the real rows replace it.
+ */
+export function AppRowsSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col" aria-hidden>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex h-10 items-center gap-2.5 border-b border-white/[0.06] px-1 last:border-b-0">
+          <div className="shimmer h-7 w-7 shrink-0 rounded-lg" />
+          <div className="shimmer h-3 min-w-0 flex-1 rounded" style={{ maxWidth: `${58 - i * 7}%` }} />
+          <div className="shimmer h-4 w-12 shrink-0 rounded" />
+        </div>
+      ))}
+    </div>
+  )
+}

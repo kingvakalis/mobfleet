@@ -11,7 +11,7 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { GRID_APPS } from '@/components/phone/app-catalog'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
-import { AppRow } from '@/components/phone/app-row'
+import { AppRow, AppRowsSkeleton } from '@/components/phone/app-row'
 import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
 import { useDeviceLog, type LogLevel, type LogLine } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
@@ -61,6 +61,17 @@ function Tele({ label, value, color }: { label: string; value: string; color?: s
       <span className="mono text-[12px] font-semibold tabular-nums" style={{ color: color ?? 'rgba(255,255,255,0.75)' }}>
         {value}
       </span>
+      <span className="mono text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
+    </div>
+  )
+}
+
+/** Telemetry cell while its source read is still resolving — a neutral shimmer in place of the value
+ *  (same wrapper/dimensions as Tele) so we never flash a premature "—" / "Idle" before data lands. */
+function TeleLoading({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1 px-3 py-2">
+      <div className="shimmer rounded" style={{ width: 28, height: 12 }} />
       <span className="mono text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
     </div>
   )
@@ -134,6 +145,11 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
   const addr = device.ipAddress ? `${device.ipAddress}${device.wdaPort ? `:${device.wdaPort}` : ''}` : '—'
 
   const [frame, setFrame] = useState<LiveFrame | null>(null)
+  // First-read resolving gates: while true, the glass shows a skeleton and the frame/session-derived
+  // metric cells shimmer instead of flashing a premature "Waiting for frame" / "Idle" / "—". The body
+  // remounts per device (DrawerContent is keyed by deviceId), so these start fresh on every selection.
+  const [frameResolving, setFrameResolving] = useState(true)
+  const [sessionLoaded, setSessionLoaded] = useState(false)
   const [session, setSession] = useState<DeviceSessionInfo | null>(null)
   const [lastLatency, setLastLatency] = useState<number | null>(null)
   const [logs, setLogs] = useState<LogLine[]>([])
@@ -311,8 +327,11 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
     mountedRef.current = true
     const watchers = watchersRef.current
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async reads; setState lands in their .then, not synchronously
-    void refreshFrame()
-    getLatestSession(device.id).then((s) => { if (mountedRef.current) setSession(s) }).catch(() => {})
+    void refreshFrame().finally(() => { if (mountedRef.current) setFrameResolving(false) })
+    getLatestSession(device.id)
+      .then((s) => { if (mountedRef.current) setSession(s) })
+      .catch(() => {})
+      .finally(() => { if (mountedRef.current) setSessionLoaded(true) })
     listCommands(device.id, 6).then((rows) => {
       if (!mountedRef.current || rows.length === 0) return
       const seed = [...rows].reverse().map((r): LogLine => ({
@@ -348,20 +367,26 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
 
   return (
     <>
-      {/* metric strip — real command round-trip + real battery/uptime, else "—" (no fabrication) */}
+      {/* metric strip — real command round-trip + real battery/uptime, else "—" (no fabrication). While
+          the first session/frame reads are in flight the source-dependent cells shimmer instead of
+          flashing a premature "—" / "Idle" that would only correct itself a moment later. */}
       <div className="flex items-center justify-around border-b border-line bg-black/40">
         <Tele label="Latency" value={lastLatency == null ? '—' : `${Math.round(lastLatency)}ms`} color={latColor} />
         <Tele label="FPS" value="—" />
-        <Tele label="Battery" value={battery == null ? '—' : `${battery}%`} color={battery == null ? undefined : battery > 30 ? 'var(--status-online)' : 'var(--status-error)'} />
-        <Tele label="Stream" value={frame ? 'Snapshot' : 'Idle'} color={frame ? 'var(--status-online)' : undefined} />
-        <Tele label="Uptime" value={uptime} />
+        {sessionLoaded
+          ? <Tele label="Battery" value={battery == null ? '—' : `${battery}%`} color={battery == null ? undefined : battery > 30 ? 'var(--status-online)' : 'var(--status-error)'} />
+          : <TeleLoading label="Battery" />}
+        {frameResolving
+          ? <TeleLoading label="Stream" />
+          : <Tele label="Stream" value={frame ? 'Snapshot' : 'Idle'} color={frame ? 'var(--status-online)' : undefined} />}
+        {sessionLoaded ? <Tele label="Uptime" value={uptime} /> : <TeleLoading label="Uptime" />}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* phone preview (REAL frame or honest waiting) + controls */}
         <div className="flex gap-4 border-b border-line px-5 py-5">
           <div className="hud-corners shrink-0 p-3" style={{ ['--hud-c' as string]: `${meta.color}55` }}>
-            <LivePhone ref={phoneRef} device={device} job={job} width={192} readOnly={readOnly} onLog={addLog} frame={frame} onGesture={handleGesture} />
+            <LivePhone ref={phoneRef} device={device} job={job} width={192} readOnly={readOnly} onLog={addLog} frame={frame} onGesture={handleGesture} resolving={frameResolving} />
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -405,8 +430,9 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
                   <Grid2x2 size={11} /> Manage
                 </button>
               </div>
-              {deviceApps.loading && deviceApps.installed.length === 0 ? (
-                <div className="mt-2"><span className="mono text-[10px] text-fg-muted">Loading installed apps…</span></div>
+              {!deviceApps.ready ? (
+                // First inventory read still resolving → neutral skeleton (NOT "No apps"); same row height.
+                <div className="mt-2"><AppRowsSkeleton rows={3} /></div>
               ) : deviceApps.visibleApps.length === 0 ? (
                 <div className="mt-2 flex flex-col items-start gap-1.5">
                   <span className="mono text-[10px] text-fg-muted">No visible apps selected</span>

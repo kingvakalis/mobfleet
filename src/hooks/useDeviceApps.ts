@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   listDeviceApps, getAppPreferences, setAppVisibility, subscribeDeviceApps,
   enqueueCommand, watchCommand, type DeviceApp,
@@ -24,6 +24,11 @@ export function useDeviceApps(deviceId: string | null, teamId: string | null, us
   const [installed, setInstalled] = useState<DeviceApp[]>([])
   const [prefs, setPrefs] = useState<Map<string, boolean>>(new Map())
   const [loading, setLoading] = useState(false)
+  // `ready` = the FIRST inventory read for the current device has resolved (success, empty, or error).
+  // Distinct from `loading` (which also flips on every silent re-detect/refresh): callers gate their
+  // skeleton on `!ready` so they NEVER flash "No apps" before the very first load lands, yet keep the
+  // existing list visible during later refreshes. Reset to false on every device switch.
+  const [ready, setReady] = useState(false)
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>('idle')
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const mountedRef = useRef(true)
@@ -46,7 +51,7 @@ export function useDeviceApps(deviceId: string | null, teamId: string | null, us
 
   const load = useCallback(async () => {
     const token = ++reqRef.current
-    if (!enabled || !deviceId) { setInstalled([]); setPrefs(new Map()); setLoading(false); return }
+    if (!enabled || !deviceId) { setInstalled([]); setPrefs(new Map()); setLoading(false); setReady(true); return }
     setLoading(true)
     try {
       const [apps, p] = await Promise.all([listDeviceApps(deviceId), getAppPreferences(deviceId)])
@@ -58,7 +63,8 @@ export function useDeviceApps(deviceId: string | null, teamId: string | null, us
     } catch {
       /* keep the prior lists; never crash the surface */
     } finally {
-      if (mountedRef.current && token === reqRef.current) setLoading(false)
+      // The first read for this device has now resolved (even on error) — let callers drop the skeleton.
+      if (mountedRef.current && token === reqRef.current) { setLoading(false); setReady(true) }
     }
   }, [enabled, deviceId])
 
@@ -95,13 +101,15 @@ export function useDeviceApps(deviceId: string | null, teamId: string | null, us
   }, [enabled, deviceId, teamId, userId, load, setRefresh, clearRefreshTimers])
 
   // Reset EVERYTHING immediately when the device changes: clear inventory + cancel any in-flight refresh so
-  // a previous device's apps/lifecycle can never show for the new device. Realtime reloads keep deviceId,
-  // so they don't reset here (no flicker).
-  useEffect(() => {
+  // a previous device's apps/lifecycle can never show for the new device. useLayoutEffect (not useEffect) so
+  // the reset COMMITS BEFORE paint — on an in-place device switch (Phone Control nav arrows, no remount) a
+  // post-paint reset would flash the PREVIOUS device's app rows for one frame before the skeleton appears.
+  // Realtime reloads keep deviceId, so they don't reset here (no flicker).
+  useLayoutEffect(() => {
     refreshTokenRef.current++ // invalidate any in-flight refresh watcher for the old device
     clearRefreshTimers()
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on device change
-    setInstalled([]); setPrefs(new Map()); setRefreshStatus('idle'); setRefreshError(null)
+    setInstalled([]); setPrefs(new Map()); setRefreshStatus('idle'); setRefreshError(null); setReady(false)
     refreshStateRef.current = 'idle'
   }, [deviceId, clearRefreshTimers])
 
@@ -126,5 +134,5 @@ export function useDeviceApps(deviceId: string | null, teamId: string | null, us
     if (r.error) void load() // failed to persist → re-sync from the source of truth
   }, [teamId, userId, deviceId, load])
 
-  return { installed, visibleApps, isVisible, setVisible, loading, refresh: load, refreshApps, refreshStatus, refreshError }
+  return { installed, visibleApps, isVisible, setVisible, loading, ready, refresh: load, refreshApps, refreshStatus, refreshError }
 }
