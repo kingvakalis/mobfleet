@@ -4,6 +4,7 @@ import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Check, Rocket } from 'lucide-react'
 import { EXPO_OUT } from '@/lib/motion'
 import { Spinner } from '@/components/ui/spinner'
+import { BrandLogo } from '@/components/brand/brand-logo'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAuthz } from '@/contexts/AuthzContext'
@@ -326,9 +327,7 @@ export function OnboardingPage() {
           <div className="relative z-10 px-6 pt-6 sm:px-10">
             <div className="mx-auto flex max-w-[680px] items-center gap-4">
               <div className="mono flex items-center gap-2 text-[11px] uppercase tracking-[0.28em] text-[var(--accent-text)]">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-                </span>
+                <BrandLogo className="h-5 w-5" />
                 <span className="font-bold" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</span>
               </div>
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.08]">

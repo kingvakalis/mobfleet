@@ -2,6 +2,7 @@ import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'r
 import { MotionConfig, motion, type Variants } from 'framer-motion'
 import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
+import { BrandLogo } from '@/components/brand/brand-logo'
 import { EXPO_OUT } from '@/lib/motion'
 
 /**
@@ -59,7 +60,7 @@ export function AuthShell({ title, subtitle, children, footer }: {
           >
             <motion.div variants={rise} className="mb-7">
               <div className="mono mb-5 flex items-center gap-2.5 text-[11px] uppercase tracking-[0.32em] text-[var(--accent-text)] lg:hidden">
-                <CoreMark className="h-5 w-5" />
+                <BrandLogo className="h-5 w-5" />
                 <span className="font-bold" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</span>
               </div>
               <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-white">{title}</h1>
@@ -106,7 +107,7 @@ function BrandPanel() {
   return (
     <>
       <motion.div variants={rise} className="relative flex items-center gap-3">
-        <CoreMark className="h-9 w-9" />
+        <BrandLogo className="h-9 w-9" />
         <div>
           <div className="text-[15px] font-bold tracking-tight text-white" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</div>
           <div className="mono text-[10px] uppercase tracking-[0.28em] text-white/40">Fleet Control Plane</div>
@@ -143,19 +144,6 @@ function BrandPanel() {
         </ul>
       </motion.div>
     </>
-  )
-}
-
-/** Brand glyph — a luminous core ring, echoing the orchestrator node. */
-function CoreMark({ className }: { className?: string }) {
-  return (
-    <span
-      className={`relative inline-flex items-center justify-center rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] ${className ?? ''}`}
-      style={{ boxShadow: 'inset 0 0 12px rgba(45,212,191,0.25)' }}
-      aria-hidden
-    >
-      <span className="h-1/3 w-1/3 rounded-full bg-[var(--accent)]" style={{ boxShadow: '0 0 8px rgba(45,212,191,0.8)' }} />
-    </span>
   )
 }
 

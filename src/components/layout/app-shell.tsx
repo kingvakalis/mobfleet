@@ -2,11 +2,12 @@ import { type ReactNode, useState, useEffect, useCallback, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
-  Briefcase, Terminal, Database, Settings, Grid2x2,
+  Briefcase, Terminal, Database, Settings,
   Globe, Gauge,
   PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
+import { BrandLogo } from '@/components/brand/brand-logo'
 import { VIEWS, type ViewId } from '@/lib/views'
 import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
@@ -63,9 +64,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
     <>
       {/* Logo */}
       <div className={`flex items-center gap-3 border-b border-line py-5 ${collapsed ? 'justify-center px-0' : 'px-4'}`}>
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center border border-white/20">
-          <Grid2x2 size={12} className="text-white/70" />
-        </div>
+        <BrandLogo className="h-7 w-7 shrink-0" />
         {!collapsed && (
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-[13px] font-bold leading-tight tracking-widest text-white" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>{workspaceName.toUpperCase()}</span>
