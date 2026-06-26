@@ -209,7 +209,7 @@ function Constellation() {
 /** Restrained trust line — truthful, no fake "operational" status. */
 function AuthStatus() {
   return (
-    <div className="mt-8 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/30">
+    <div className="mt-8 flex items-center justify-center gap-2 text-[10px] uppercase tracking-wide text-white/30">
       <ShieldCheck size={12} className="text-[var(--accent-text)]/70" aria-hidden />
       Encrypted session · role-based access
     </div>
@@ -318,7 +318,7 @@ export function AuthSubmit({ busy, busyLabel, children }: { busy: boolean; busyL
       type="submit"
       disabled={busy}
       aria-busy={busy}
-      className="btn-accent flex h-11 w-full items-center justify-center gap-2 rounded-control text-[11px] uppercase tracking-widest"
+      className="btn-accent flex h-11 w-full items-center justify-center gap-2 rounded-control text-[11px] uppercase tracking-wide"
     >
       {busy ? (
         <>

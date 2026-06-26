@@ -19,7 +19,9 @@ import {
   Activity,
   ChevronDown, ChevronUp,
 } from 'lucide-react'
-import monoFont from '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff'
+// 3D scene text labels (node names, status, ORCHESTRATOR) use the UI font (self-hosted Arimo =
+// Helvetica) — they're normal labels, not technical IDs, so they shouldn't render monospace.
+import labelFont from '@fontsource/arimo/files/arimo-latin-400-normal.woff'
 import { useFleet } from '@/hooks/use-fleet'
 import { useScopedDevices, useScopedFleetStats } from '@/lib/authorization/use-access'
 import { useUIStore, fleetFiltersActive, type FleetFilters } from '@/state/ui-store'
@@ -580,7 +582,7 @@ function PhoneNode({
       {/* Label */}
       <Billboard position={[0, 0.44, 0]}>
         <Text
-          font={monoFont}
+          font={labelFont}
           fontSize={hovered || selected ? 0.105 : 0.085}
           letterSpacing={0.1}
           color={selected ? '#ffffff' : hovered ? '#e6ecff' : data.dimmed ? '#2e3542' : '#8a93a6'}
@@ -592,7 +594,7 @@ function PhoneNode({
         </Text>
         {(hovered || selected) && !data.dimmed && (
           <Text
-            font={monoFont}
+            font={labelFont}
             fontSize={0.075}
             letterSpacing={0.12}
             color={statusColor}
@@ -758,10 +760,10 @@ function OrchestratorCore({
       <pointLight color={CORE_COLOR} intensity={hovered ? 4 : 2.2} distance={9} decay={2} />
 
       <Billboard position={[0, -1.05, 0]}>
-        <Text font={monoFont} fontSize={0.16} letterSpacing={0.25} color="#dce7f5" anchorX="center" anchorY="middle">
+        <Text font={labelFont} fontSize={0.16} letterSpacing={0.25} color="#dce7f5" anchorX="center" anchorY="middle">
           ORCHESTRATOR
         </Text>
-        <Text font={monoFont} fontSize={0.095} letterSpacing={0.18} color="#5b6675" anchorX="center" anchorY="middle" position={[0, -0.21, 0]}>
+        <Text font={labelFont} fontSize={0.095} letterSpacing={0.18} color="#5b6675" anchorX="center" anchorY="middle" position={[0, -0.21, 0]}>
           {totalActive}/{totalDevices} ACTIVE
         </Text>
       </Billboard>
@@ -1068,7 +1070,7 @@ function FleetHealthBar({ collapsed, onToggle }: {
           aria-label={collapsed ? 'Expand fleet status' : 'Collapse fleet status'}
           className="w-full flex items-center justify-between gap-6 px-4 py-2"
         >
-          <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-white/40">
+          <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/40">
             <Activity size={10} /> Fleet Status
           </span>
           {collapsed

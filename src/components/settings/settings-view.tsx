@@ -207,8 +207,8 @@ export function SettingsView() {
       {/* header */}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div>
-          <p className="mb-1 text-[9px] uppercase tracking-[0.2em] text-white/30">Workspace</p>
-          <h1 className="text-lg font-bold uppercase tracking-widest text-white">Settings</h1>
+          <p className="mb-1 text-[9px] uppercase tracking-wide text-white/30">Workspace</p>
+          <h1 className="text-lg font-bold uppercase tracking-wide text-white">Settings</h1>
         </div>
         <div className="flex items-center gap-2">
           {/* Sub-navigation. The Email tab only renders for Owner/Admin. */}
@@ -227,7 +227,7 @@ export function SettingsView() {
                   tabIndex={active ? 0 : -1}
                   onClick={() => setTab(id)}
                   className={[
-                    'flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors',
+                    'flex items-center gap-1.5 rounded px-3 py-1.5 text-[9px] uppercase tracking-wide transition-colors',
                     active ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]' : 'text-white/40 hover:text-white/70',
                   ].join(' ')}
                 >
@@ -254,7 +254,7 @@ export function SettingsView() {
                 onClick={() => setDraft({ ...DEFAULT_SETTINGS })}
                 disabled={!canEditAny}
                 title={canEditAny ? undefined : 'You do not have permission to edit settings'}
-                className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-ghost flex h-8 items-center gap-1.5 px-3 text-[10px] uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <RotateCcw size={11} /> Defaults
               </button>
@@ -262,7 +262,7 @@ export function SettingsView() {
                 onClick={save}
                 disabled={!dirty || !valid || !canEditAny}
                 title={!canEditAny ? 'You do not have permission to edit settings' : !valid ? 'Fix validation errors first' : undefined}
-                className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn-accent flex h-8 items-center gap-1.5 px-4 text-[10px] uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {saved ? <Check size={12} /> : <Save size={12} />} {saved ? 'Saved' : 'Save'}
               </button>

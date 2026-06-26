@@ -39,12 +39,15 @@ import { useNow } from '@/hooks/use-now'
 import type { Device, Job } from '@/lib/provider/types'
 import { LogStream } from './log-stream'
 
-function Cell({ label, value, color }: { label: string; value: string; color?: string }) {
+// `mono` opts a value into monospace — use it ONLY for genuinely technical fields (IDs, UDIDs,
+// IP:port, timestamps). Normal detail values (Status / Model / Region / Operator / Job) default to
+// the UI font (Helvetica) so the detail grid doesn't read as a terminal readout.
+function Cell({ label, value, color, mono }: { label: string; value: string; color?: string; mono?: boolean }) {
   return (
     <div className="py-1">
       <div className="label text-fg-muted">{label}</div>
       <div
-        className="mono mt-1 truncate text-[12px] text-fg-secondary"
+        className={`mt-1 truncate text-[12px] text-fg-secondary${mono ? ' mono' : ''}`}
         style={color ? { color } : undefined}
         title={value}
       >
@@ -61,7 +64,7 @@ function Tele({ label, value, color }: { label: string; value: string; color?: s
       <span className="mono text-[12px] font-semibold tabular-nums" style={{ color: color ?? 'rgba(255,255,255,0.75)' }}>
         {value}
       </span>
-      <span className="text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
+      <span className="text-[8px] uppercase tracking-wide text-fg-muted">{label}</span>
     </div>
   )
 }
@@ -72,7 +75,7 @@ function TeleLoading({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center gap-1 px-3 py-2">
       <div className="shimmer rounded" style={{ width: 28, height: 12 }} />
-      <span className="text-[8px] uppercase tracking-[0.18em] text-fg-muted">{label}</span>
+      <span className="text-[8px] uppercase tracking-wide text-fg-muted">{label}</span>
     </div>
   )
 }
@@ -502,9 +505,9 @@ function SupabaseDeviceBody({ device, job, onClose }: { device: Device; job: Job
         <div className="grid grid-cols-3 gap-x-4 border-b border-line px-5 py-3">
           <Cell label="Status" value={meta.label} color={meta.color} />
           <Cell label="Model" value={`${device.model} · ${device.osVersion || '—'}`} />
-          <Cell label="Address" value={addr} />
-          <Cell label="UDID" value={device.udid ?? '—'} />
-          <Cell label="Heartbeat" value={relAgo(device.lastHeartbeat, now)} color={stale ? 'var(--status-error)' : 'var(--status-online)'} />
+          <Cell label="Address" value={addr} mono />
+          <Cell label="UDID" value={device.udid ?? '—'} mono />
+          <Cell label="Heartbeat" value={relAgo(device.lastHeartbeat, now)} color={stale ? 'var(--status-error)' : 'var(--status-online)'} mono />
           <Cell label="Job" value={job ? `${job.type.toUpperCase()} · ${Math.round(job.progress * 100)}%` : '—'} />
         </div>
 
@@ -661,7 +664,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
             <button
               type="button"
               onClick={() => { onClose(); openPhoneControl(device.id) }}
-              className="flex h-8 items-center gap-1.5 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 text-[10px] uppercase tracking-widest text-[var(--accent-text)] transition-colors hover:brightness-125"
+              className="flex h-8 items-center gap-1.5 border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 text-[10px] uppercase tracking-wide text-[var(--accent-text)] transition-colors hover:brightness-125"
             >
               <Cpu size={12} /> Full Control <ArrowUpRight size={11} />
             </button>
@@ -819,7 +822,7 @@ function DrawerContent({ deviceId, onClose }: { deviceId: string; onClose: () =>
               <Cell label="Status" value={meta.label} color={meta.color} />
               <Cell label="Model" value={`${device.model} · ${device.osVersion}`} />
               <Cell label="Region" value={regionLabel(device.region)} />
-              <Cell label="Device ID" value={device.id} />
+              <Cell label="Device ID" value={device.id} mono />
               <Cell label="Operator" value={device.assignedUser ?? 'Unassigned'} />
               <Cell
                 label="Job"

@@ -42,7 +42,7 @@ export function ManageAppsModal({
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-[12px] font-semibold uppercase tracking-widest text-white/60">Manage Apps</span>
+              <span className="text-[12px] font-semibold uppercase tracking-wide text-white/60">Manage Apps</span>
               <div className="flex items-center gap-3">
                 <button
                   type="button"

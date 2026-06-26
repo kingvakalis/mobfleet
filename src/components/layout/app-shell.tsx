@@ -125,13 +125,13 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         <div className="flex items-center gap-2.5">
           <span className="status-dot-pulse h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: '#34d399' }} />
           {!collapsed && (
-            <span className="text-[9px] uppercase tracking-widest" style={{ color: '#34d399' }}>
+            <span className="text-[9px] uppercase tracking-wide" style={{ color: '#34d399' }}>
               SYSTEMS NOMINAL
             </span>
           )}
         </div>
         {!collapsed && (
-          <div className="text-[8px] uppercase tracking-wider text-white/15">
+          <div className="text-[8px] uppercase tracking-wide text-white/15">
             {stats.total} DEVICES · {online} ONLINE
           </div>
         )}

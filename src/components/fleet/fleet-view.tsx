@@ -74,12 +74,12 @@ function FleetStatusStrip() {
       >
         <div className="flex items-center gap-1.5 border-r border-line px-3">
           <Activity size={10} className="text-fg-muted" />
-          <span className="text-[9px] uppercase tracking-[0.18em] text-fg-muted">Fleet Status</span>
+          <span className="text-[9px] uppercase tracking-wide text-fg-muted">Fleet Status</span>
         </div>
         {segments.map((s) => (
           <div key={s.label} className="flex min-w-[52px] flex-col items-center justify-center gap-0.5 border-l border-line/60 px-3 py-1.5 first:border-l-0">
             <span className="mono text-[13px] font-bold leading-none tabular-nums" style={{ color: s.color }}>{s.value}</span>
-            <span className="flex items-center gap-1 text-[7.5px] uppercase tracking-[0.16em] text-white/30">
+            <span className="flex items-center gap-1 text-[7.5px] uppercase tracking-wide text-white/30">
               {s.dot && <span className="h-1 w-1 rounded-full" style={{ background: s.color }} />}
               {s.label}
             </span>
@@ -159,13 +159,13 @@ export function FleetView() {
               <div className="flex items-center gap-1 rounded-lg bg-black/40 border border-line p-1 backdrop-blur-sm">
                 <button
                   onClick={() => setMode('3d')}
-                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-wide transition-colors', mode === '3d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
                 >
                   <Box size={12} /> 3D
                 </button>
                 <button
                   onClick={() => setMode('2d')}
-                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-widest transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
+                  className={['flex items-center gap-1.5 px-3 py-1.5 text-[9px] uppercase tracking-wide transition-colors', mode === '2d' ? 'bg-white text-black' : 'text-white/40 hover:text-white/70'].join(' ')}
                 >
                   <Network size={12} /> Graph
                 </button>
@@ -174,7 +174,7 @@ export function FleetView() {
                 onClick={() => setActivityOpen(o => !o)}
                 title="Live activity & fleet health"
                 className={[
-                  'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] uppercase tracking-widest backdrop-blur-sm transition-colors',
+                  'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] uppercase tracking-wide backdrop-blur-sm transition-colors',
                   activityOpen
                     ? 'border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]'
                     : 'border-line bg-black/40 text-white/40 hover:text-white/70',

@@ -160,7 +160,7 @@ function Card({ title, children, className = '', collapsible = false, defaultOpe
       <div className={`rounded-xl border border-white/[0.08] bg-[#111318] ${className}`}>
         {title && (
           <div className="px-4 py-3 border-b border-white/[0.06]">
-            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
           </div>
         )}
         <div className="p-4">{children}</div>
@@ -178,7 +178,7 @@ function Card({ title, children, className = '', collapsible = false, defaultOpe
         aria-expanded={open}
         className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors ${open ? 'border-b border-white/[0.06]' : ''}`}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{title}</span>
         <ChevronDown
           size={14}
           color="rgba(255,255,255,0.45)"
@@ -664,7 +664,7 @@ export function PhoneControlPage() {
 
   if (!device) return (
     <div className="flex h-full items-center justify-center bg-[#0a0b0e]">
-      <span className="text-[11px] text-white/20 uppercase tracking-widest">NO DEVICE IN YOUR SCOPE</span>
+      <span className="text-[11px] text-white/20 uppercase tracking-wide">NO DEVICE IN YOUR SCOPE</span>
     </div>
   )
 
