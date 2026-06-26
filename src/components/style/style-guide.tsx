@@ -98,7 +98,7 @@ export function StyleGuide() {
         <header className="flex items-baseline justify-between border-b border-line py-8">
           <div>
             <Label className="text-fg-muted">Design System · V0</Label>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight text-fg" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight text-fg" style={{ fontFamily: 'Arimo, "Helvetica Neue", Helvetica, Arial, sans-serif' }}>
               MobFleet
             </h1>
             <p className="mt-1 text-sm text-fg-secondary">

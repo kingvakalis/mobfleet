@@ -25,6 +25,9 @@ import '@fontsource/geist-sans/600.css'
 import '@fontsource/geist-mono/400.css'
 import '@fontsource/geist-mono/500.css'
 import '@fontsource/jetbrains-mono/400.css'
+// Self-hosted Arimo (metrically identical to Helvetica) — the brand wordmark/logo font, so it renders
+// the same Helvetica look on every device (Windows/Android lack real Helvetica and fall back to Arial).
+import '@fontsource/arimo/700.css'
 
 import './index.css'
 

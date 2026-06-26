@@ -20,6 +20,7 @@
     "secret-scan": "node scripts/secret-scan.mjs"
   },
   "dependencies": {
+    "@fontsource/arimo": "^5.2.8",
     "@fontsource/geist-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
     "@fontsource/jetbrains-mono": "^5.2.8",
