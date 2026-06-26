@@ -60,7 +60,7 @@ export function AuthShell({ title, subtitle, children, footer }: {
             <motion.div variants={rise} className="mb-7">
               <div className="mono mb-5 flex items-center gap-2.5 text-[11px] uppercase tracking-[0.32em] text-[var(--accent-text)] lg:hidden">
                 <CoreMark className="h-5 w-5" />
-                MobFleet
+                <span className="font-bold" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</span>
               </div>
               <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-white">{title}</h1>
               {subtitle && <p className="mt-1.5 text-[13.5px] leading-relaxed text-white/55">{subtitle}</p>}
@@ -108,7 +108,7 @@ function BrandPanel() {
       <motion.div variants={rise} className="relative flex items-center gap-3">
         <CoreMark className="h-9 w-9" />
         <div>
-          <div className="text-[15px] font-semibold tracking-tight text-white">MobFleet</div>
+          <div className="text-[15px] font-bold tracking-tight text-white" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</div>
           <div className="mono text-[10px] uppercase tracking-[0.28em] text-white/40">Fleet Control Plane</div>
         </div>
       </motion.div>

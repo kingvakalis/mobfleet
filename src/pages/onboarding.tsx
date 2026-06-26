@@ -329,7 +329,7 @@ export function OnboardingPage() {
                 <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                 </span>
-                MobFleet
+                <span className="font-bold" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}>MobFleet</span>
               </div>
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
                 <motion.div
