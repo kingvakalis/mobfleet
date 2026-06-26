@@ -150,7 +150,7 @@ export function StyleGuide() {
         <Section index="04" title="Typography">
           <div className="grid gap-8 md:grid-cols-2">
             <Card ticks className="p-6">
-              <Label className="text-fg-muted">Geist Sans · UI</Label>
+              <Label className="text-fg-muted">Helvetica · UI</Label>
               <div className="mt-4 space-y-2">
                 <p className="text-3xl font-medium tracking-tight text-fg">
                   Fleet at a glance

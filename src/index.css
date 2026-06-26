@@ -65,8 +65,11 @@
     margin: 0;
     background-color: var(--bg-base);
     color: var(--text);
-    font-family: 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
-    font-feature-settings: 'cv11', 'ss01', 'tnum';
+    /* Global UI font: Helvetica everywhere. macOS uses real Helvetica; other platforms fall to the
+       self-hosted, metrically-identical Arimo (then Arial) so it looks the same on every device.
+       Bold/semibold/medium map to native Helvetica weights (Arimo 700/600/500 off-Mac). Mono is separate. */
+    font-family: Helvetica, 'Helvetica Neue', Arimo, Arial, sans-serif;
+    font-feature-settings: 'tnum';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

@@ -38,7 +38,9 @@ export default {
         control: '6px',
       },
       fontFamily: {
-        sans: ['"Geist Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // Global UI font: Helvetica everywhere (self-hosted Arimo is the metric-identical off-Mac fallback).
+        sans: ['Helvetica', '"Helvetica Neue"', 'Arimo', 'Arial', 'sans-serif'],
+        // Monospace stays Geist/JetBrains — intentional for IDs / logs / telemetry / technical labels.
         mono: ['"Geist Mono"', '"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       letterSpacing: {
