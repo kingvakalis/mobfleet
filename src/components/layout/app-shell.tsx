@@ -68,7 +68,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
         </div>
         {!collapsed && (
           <div className="flex min-w-0 flex-col">
-            <span className="mono truncate text-[13px] font-bold leading-tight tracking-widest text-white">{workspaceName.toUpperCase()}</span>
+            <span className="truncate text-[13px] font-bold leading-tight tracking-widest text-white" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}>{workspaceName.toUpperCase()}</span>
             <span className="mono text-[8px] uppercase tracking-wider text-white/30">CONTROL PLANE V2.1</span>
           </div>
         )}
