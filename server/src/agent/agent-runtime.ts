@@ -129,27 +129,38 @@ export interface AgentRuntimeOptions {
   commandPollIntervalMs?: number
   /** Live-frame compression (width/quality/format); defaults from env. */
   frameCompression?: FrameCompressionConfig
+  /** STAGE 2A: build a per-device MJPEG publisher (null = streaming off). Provided by the entrypoint,
+   *  which holds the device-key + relay config (PFA_MJPEG). Started in bringUp, stopped in tearDown —
+   *  no second agent. Returns null when streaming is disabled. */
+  createMjpegPublisher?: (udid: string) => MjpegPublisherHandle | null
   log?: (event: string, fields?: Record<string, unknown>) => void
 }
+
+/** Minimal lifecycle handle for a per-device MJPEG publisher (see mjpeg-publisher.ts). */
+export interface MjpegPublisherHandle { start(): void; stop(): void }
 
 interface Slot {
   managed: ManagedDevice
   transport: AgentTransport
   executor: CommandExecutor
+  /** STAGE 2A: the device's MJPEG publisher, when streaming is enabled. Stopped on tearDown. */
+  mjpeg?: MjpegPublisherHandle
 }
 
 export class AgentRuntime {
   private readonly adapter: DeviceControlAdapter
   private readonly ports = new WdaPortAllocator()
   private readonly slots = new Map<string, Slot>() // keyed by UDID (stable identity)
-  private readonly opts: Required<Omit<AgentRuntimeOptions, 'adapter' | 'transportFor' | 'log'>>
+  private readonly opts: Required<Omit<AgentRuntimeOptions, 'adapter' | 'transportFor' | 'log' | 'createMjpegPublisher'>>
   private readonly transportFor: AgentRuntimeOptions['transportFor']
+  private readonly createMjpegPublisher: AgentRuntimeOptions['createMjpegPublisher']
   private readonly log: NonNullable<AgentRuntimeOptions['log']>
   private timers: Array<ReturnType<typeof setInterval>> = []
 
   constructor(o: AgentRuntimeOptions) {
     this.adapter = o.adapter
     this.transportFor = o.transportFor
+    this.createMjpegPublisher = o.createMjpegPublisher
     this.log = o.log ?? (() => {})
     this.opts = {
       discoveryIntervalMs: o.discoveryIntervalMs ?? 5_000,
@@ -219,13 +230,21 @@ export class AgentRuntime {
     } catch (err) {
       this.log('agent.wda.start_error', { udid, port, error: errMsg(err) })
     }
-    this.slots.set(udid, {
+    const slot: Slot = {
       managed: { identity, wdaPort: port, wdaReady },
       transport,
       executor: new CommandExecutor(this.adapter),
-    })
+    }
+    this.slots.set(udid, slot)
     // Wire push delivery for this device's transport (if supported).
     transport.onPushedCommand?.((frame) => void this.handleCommand(udid, frame))
+    // STAGE 2A: start this device's MJPEG publisher (null when PFA_MJPEG is off). Lifecycle is tied to
+    // the slot — stopped in tearDown — so the single managed runtime stays authoritative (no 2nd agent).
+    const pub = this.createMjpegPublisher?.(udid) ?? null
+    if (pub) {
+      try { pub.start(); slot.mjpeg = pub; this.log('agent.mjpeg.up', { udid }) }
+      catch (err) { this.log('agent.mjpeg.start_error', { udid, error: errMsg(err) }) }
+    }
     this.log('agent.device.up', { udid, deviceId: transport.deviceId, port, wdaReady, agentVersion: this.version })
     // Detect the installed-app inventory once the device is up (best-effort, async).
     if (wdaReady) void this.refreshApps(udid)
@@ -255,6 +274,8 @@ export class AgentRuntime {
   }
 
   private async tearDown(udid: string): Promise<void> {
+    const slot0 = this.slots.get(udid)
+    try { slot0?.mjpeg?.stop() } catch { /* best-effort stop of the MJPEG publisher */ }
     await this.adapter.stopWda(udid).catch(() => {})
     this.ports.release(udid)
     const slot = this.slots.get(udid)
