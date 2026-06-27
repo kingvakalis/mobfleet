@@ -28,6 +28,7 @@ import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
 import { fpsToIntervalMs, clampQualityLevel, qualityLevelToEncoder, SCREENSHOT_DOWNLOAD_QUALITY } from '@/shared/stream-quality'
 import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
+import { resolveDeviceStream } from '@/services/stream'
 import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
@@ -337,6 +338,14 @@ export function PhoneControlPage() {
   // state is a skeleton, never a premature "no frame yet" / pending state. Starts true (read not done).
   const [frameResolving, setFrameResolving] = useState(true)
   const [liveView, setLiveView] = useState(false)
+  // STAGE 2A live MJPEG. streamUrl = the resolved relay URL (null → screenshot-row fallback);
+  // streamAlive = the <img> has produced a frame (→ stop the screenshot loop); streamErrored = it
+  // failed (→ fall back). streamCanControl = the relay accepts live quality/fps changes (else the
+  // sliders stay snapshot-only). All null/false in production until the relay exists → strict no-op.
+  const [streamUrl, setStreamUrl] = useState<string | null>(null)
+  const [streamAlive, setStreamAlive] = useState(false)
+  const [streamErrored, setStreamErrored] = useState(false)
+  const [streamCanControl, setStreamCanControl] = useState(false)
   const [manageAppsOpen, setManageAppsOpen] = useState(false)
   // Phone width sized so the full phone + bottom action bar fit the center column without scrolling.
   const centerRef = useRef<HTMLDivElement>(null)
@@ -601,6 +610,41 @@ export function PhoneControlPage() {
   // device ref so any in-flight refreshFrame short-circuits (no setState after unmount).
   useEffect(() => () => { cancelAllWatchers(); pendingRefreshRef.current = false; liveCaptureFinishRef.current(); deviceIdRef.current = undefined; if (frameRefreshTimerRef.current) clearTimeout(frameRefreshTimerRef.current) }, [cancelAllWatchers])
 
+  // ── STAGE 2A live MJPEG source selection ──────────────────────────────────────
+  // showStream = render the MJPEG <img>; streamShowing = it is actually producing frames, so the
+  // screenshot capture + display loops below stand down. Both false in production (no relay yet) →
+  // the screenshot-row path runs UNCHANGED.
+  const showStream = liveView && !!streamUrl && !streamErrored
+  const streamShowing = showStream && streamAlive
+
+  // Acquire / clear the live stream as GO LIVE toggles. Resolves a relay URL when GO LIVE turns on for
+  // an online device; clears it (→ screenshot fallback) when GO LIVE is off, the device changes, or the
+  // device goes unreachable. resolveDeviceStream never throws + returns null until the relay exists,
+  // so this is a NO-OP in production. Video never touches Postgres — this only resolves a URL.
+  useEffect(() => {
+    const teamId = teamCtx.team?.id
+    const online = device?.status === 'online' || device?.status === 'busy'
+    if (!useSupabaseCommands || !deviceId || !teamId || !liveView || !online) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStreamUrl(null); setStreamAlive(false); setStreamErrored(false); setStreamCanControl(false)
+      return
+    }
+    let cancelled = false
+    void resolveDeviceStream({ deviceId, teamId }).then((s) => {
+      if (cancelled || deviceIdRef.current !== deviceId) return
+      setStreamAlive(false); setStreamErrored(false)
+      setStreamUrl(s?.url ?? null); setStreamCanControl(s?.canControlSettings ?? false)
+    })
+    return () => { cancelled = true }
+  }, [liveView, useSupabaseCommands, deviceId, teamCtx.team?.id, device?.status])
+
+  // While streaming, ensure ONE frame exists so the gesture layer has the device LOGICAL size (the
+  // MJPEG <img> carries no dims). Usually the device-open capture already populated it; this covers
+  // enabling GO LIVE before any frame landed. One guarded capture — the busy guard prevents storms.
+  useEffect(() => {
+    if (showStream && !frame) void captureOnce(true)
+  }, [showStream, frame, captureOnce])
+
   // Show the device's CURRENT screen as soon as Phone Control opens it — even with GO LIVE OFF — so the
   // on-screen tap/swipe gestures (which need the device's LOGICAL size, carried on a frame) and the preview
   // work WITHOUT streaming. GO LIVE only governs CONTINUOUS frames. A single guarded capture: the busy guard
@@ -619,7 +663,8 @@ export function PhoneControlPage() {
   // hammers Supabase. Stops the instant GO LIVE is off / device changes / device offline / unmount.
   useEffect(() => {
     const online = device?.status === 'online' || device?.status === 'busy'
-    if (!liveView || !useSupabaseCommands || !canScreenshot || !deviceId || !online) return
+    // Stand down while a live MJPEG stream is actually showing frames — no screenshot commands then.
+    if (!liveView || !useSupabaseCommands || !canScreenshot || !deviceId || !online || streamShowing) return
     let active = true
     const run = async () => {
       while (active) {
@@ -636,7 +681,7 @@ export function PhoneControlPage() {
     // Cleanup STOPS immediately: break the loop AND finish the in-flight capture (cancel its watcher),
     // so nothing keeps polling / writes a frame after GO LIVE off / device change / offline / unmount.
     return () => { active = false; liveCaptureFinishRef.current() }
-  }, [liveView, useSupabaseCommands, canScreenshot, deviceId, device?.status, captureOnce])
+  }, [liveView, useSupabaseCommands, canScreenshot, deviceId, device?.status, captureOnce, streamShowing])
 
   // GO LIVE — display refresh: show the latest frame as soon as the agent uploads it. Supabase
   // Realtime (instant) on device_screenshots PLUS a fallback poll every LIVE_POLL_INTERVAL_MS that
@@ -645,7 +690,8 @@ export function PhoneControlPage() {
   // runs while GO LIVE — no constant frame reads when off.
   useEffect(() => {
     const online = device?.status === 'online' || device?.status === 'busy'
-    if (!liveView || !useSupabaseCommands || !deviceId || !online) return
+    // The MJPEG <img> drives pixels while streaming — skip the screenshot subscribe/poll then.
+    if (!liveView || !useSupabaseCommands || !deviceId || !online || streamShowing) return
     const apply = (sc: DeviceScreenshot) => {
       if (deviceIdRef.current !== deviceId) return
       lastRealtimeFrameRef.current = nowMs()
@@ -661,7 +707,7 @@ export function PhoneControlPage() {
       void refreshFrame(deviceId)
     }, LIVE_POLL_INTERVAL_MS)
     return () => { unsub(); clearInterval(poll) }
-  }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame, markFrame])
+  }, [liveView, useSupabaseCommands, deviceId, device?.status, refreshFrame, markFrame, streamShowing])
 
   // If the device becomes unreachable while GO LIVE, turn GO LIVE OFF so the STREAM badge is truthful
   // (the loops already stop via their `online` guard; this keeps liveView state in sync, not 'Live').
@@ -979,7 +1025,7 @@ export function PhoneControlPage() {
               </div>
               <TealSlider value={quality} min={0} max={30} onChange={v => updateSettings({ defaultStreamQuality: v })} />
               {useSupabaseCommands && (() => { const enc = qualityLevelToEncoder(quality); return (
-                <p className="mt-1 text-[10px] text-white/30">≈ {enc.width}px · q{enc.quality} jpeg</p>
+                <p className="mt-1 text-[10px] text-white/30">≈ {enc.width}px · q{enc.quality} jpeg{streamShowing && !streamCanControl ? ' · snapshot fallback only' : ''}</p>
               ) })()}
             </div>
             <div>
@@ -990,7 +1036,9 @@ export function PhoneControlPage() {
               <TealSlider value={fps} min={5} max={30} onChange={v => updateSettings({ defaultStreamFps: v })} />
               {useSupabaseCommands && (
                 <p className="mt-1 text-[10px] text-white/30">
-                  requested {fps}/s · effective {liveView ? `~${measuredFps || '…'}/s` : 'off'} — Supabase preview caps at ~1–2 fps (30 fps needs WebRTC)
+                  {streamShowing
+                    ? `live MJPEG stream${streamCanControl ? '' : ' · Quality/FPS apply to snapshot fallback only'}`
+                    : `requested ${fps}/s · effective ${liveView ? `~${measuredFps || '…'}/s` : 'off'} — Supabase snapshot caps at ~1–2 fps (MJPEG live stream is the fast path)`}
                 </p>
               )}
             </div>
@@ -1097,14 +1145,23 @@ export function PhoneControlPage() {
               <Gauge size={11} className="text-white/35" />
               <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short={useSupabaseCommands ? 'FRM' : 'FPS'} full={useSupabaseCommands ? 'FRAME' : 'FPS'} /></span>
               {useSupabaseCommands
-                ? <span className="font-mono text-[11px] font-bold text-white tabular-nums">{frame ? fmt(new Date(frame.capturedAt)) : '—'}</span>
+                ? <span className="font-mono text-[11px] font-bold text-white tabular-nums">{streamShowing ? 'live' : frame ? fmt(new Date(frame.capturedAt)) : '—'}</span>
                 : <span className="font-mono text-[11px] font-bold text-white tabular-nums">{liveFps}</span>}
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <Shield size={11} className="text-white/35" />
               <span className="text-[10px] text-white/40 uppercase tracking-wider"><RLabel short="STR" full="STREAM" /></span>
               {useSupabaseCommands
-                ? <span className="text-[11px]" style={{ color: liveView ? '#4ade80' : frame ? '#fbbf24' : '#6b7280' }}>{liveView ? 'Live' : frame ? 'Snap' : 'Idle'}</span>
+                ? (() => {
+                    // Live MJPEG (green) · Snapshot fallback (amber, GO LIVE on but no live stream) ·
+                    // Snap (gray, a frame but GO LIVE off) · Idle (gray). Truthful — never claims 'Live' video
+                    // while the screenshot path is driving.
+                    const s = streamShowing ? { t: 'Live MJPEG', c: '#4ade80' }
+                      : liveView ? { t: 'Snapshot', c: '#fbbf24' }
+                      : frame ? { t: 'Snap', c: '#6b7280' }
+                      : { t: 'Idle', c: '#6b7280' }
+                    return <span className="text-[11px]" style={{ color: s.c }}>{s.t}</span>
+                  })()
                 : <span className="text-[11px] text-green-400">Stable</span>}
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -1195,6 +1252,9 @@ export function PhoneControlPage() {
                 frame={useSupabaseCommands ? frame : undefined}
                 onGesture={useSupabaseCommands ? handleGesture : undefined}
                 resolving={useSupabaseCommands && frameResolving}
+                streamUrl={useSupabaseCommands && showStream ? streamUrl : null}
+                onStreamLoad={() => { setStreamAlive(true); setStreamErrored(false) }}
+                onStreamError={() => { setStreamAlive(false); setStreamErrored(true) }}
               />
             </div>
           </PhoneStage>
