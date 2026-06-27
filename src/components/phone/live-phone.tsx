@@ -336,7 +336,17 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
    *  true (and there is no frame yet on an online device) the glass shows a neutral skeleton instead
    *  of the resolved "Waiting for frame" placeholder, so we never flash a premature empty state. */
   resolving?: boolean
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture, resolving = false }, ref) {
+  /** STAGE 2A live MJPEG. When set (and a `frame` already provides device LOGICAL dims), the glass
+   *  renders this multipart/x-mixed-replace stream INSTEAD of the base64 screenshot — a true live
+   *  video, decoded natively by the browser. Pointer→device mapping is UNCHANGED (it uses the glass
+   *  rect + frame.width/height, not the pixels). Null/undefined → the base64 screenshot path. */
+  streamUrl?: string | null
+  /** Fired when the MJPEG stream produces its first frame (alive) — the parent stops the screenshot
+   *  loop. */
+  onStreamLoad?: () => void
+  /** Fired when the MJPEG stream fails to load — the parent falls back to the screenshot path. */
+  onStreamError?: () => void
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture, resolving = false, streamUrl = null, onStreamLoad, onStreamError }, ref) {
   const f = width / 260
   // REAL-frame mode: size the glass to the captured frame's aspect ratio so object-fit: cover
   // fills it with NO black side bars, and pointer→device mapping stays a clean linear scale.
@@ -533,7 +543,21 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         </div>
       )
     } else if (frame) {
-      screen = (
+      // STAGE 2A: a live MJPEG stream renders in the SAME glass <img> as the base64 frame (the browser
+      // decodes multipart/x-mixed-replace natively). frame.width/height still drive the glass aspect +
+      // tap mapping, so gestures are identical to the screenshot path. onLoad/onError let the parent
+      // stop the screenshot loop (alive) or fall back (failed). No stream → the base64 screenshot.
+      screen = streamUrl ? (
+        <img
+          src={streamUrl}
+          alt={`${device.name} live stream`}
+          draggable={false}
+          onLoad={onStreamLoad}
+          onError={onStreamError}
+          className="pointer-events-none h-full w-full select-none"
+          style={{ objectFit: 'cover', display: 'block' }}
+        />
+      ) : (
         <img
           src={frame.src}
           alt={`${device.name} live screen`}
