@@ -1,5 +1,5 @@
 import { type ReactNode, useState, useEffect, useCallback, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings,
@@ -149,11 +149,13 @@ export function AppShell({ children }: AppShellProps) {
   // Older persisted values ('autohide') coerce to the rail.
   const sidebarMode = sidebarModeRaw === 'expanded' ? 'expanded' : 'collapsed'
   const update = useSettings((s) => s.update)
-  // Rail hover-expand: the docked rail keeps the layout, a full-width overlay
-  // slides over it while the pointer (or keyboard focus) is on the sidebar.
+  // Rail hover/focus peek: while in rail mode, pointing at (or keyboard-focusing)
+  // the rail temporarily widens it. The rail is a normal flex child, so widening
+  // it RESIZES the layout and pushes/compresses the content beside it — it never
+  // floats over the page (that overlay was what hid Fleet / Phone Control panels).
   const [hoverExpand, setHoverExpand] = useState(false)
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
 
   const setMode = useCallback((m: 'expanded' | 'collapsed') => {
     update({ sidebarMode: m })
@@ -174,33 +176,44 @@ export function AppShell({ children }: AppShellProps) {
   }, [setMode])
 
   const collapsed = sidebarMode === 'collapsed'
+  // Full-width labels when pinned open OR while peeking the rail; the rail's
+  // width drives the layout, so the content always gets `100% - railWidth`.
+  const showLabels = !collapsed || hoverExpand
+  const railWidth = showLabels ? EXPANDED_W : RAIL_W
 
-  const openHover = () => {
+  const openHover = useCallback(() => {
     if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
     setHoverExpand(true)
-  }
-  const closeHoverSoon = () => {
+  }, [])
+  const closeHoverSoon = useCallback(() => {
     if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
     hoverCloseTimer.current = setTimeout(() => {
-      const el = overlayRef.current
+      // Keep the peek open while keyboard focus is still inside the rail.
+      const el = asideRef.current
       if (el && el.contains(document.activeElement)) return
       setHoverExpand(false)
     }, 180)
-  }
+  }, [])
 
   return (
     <div className="flex h-full">
-      {/* Docked sidebar — full width or icon rail */}
+      {/* Docked sidebar — a real flex child: collapsing/expanding (pinned OR the
+          rail hover-peek) RESIZES the layout and reflows the content beside it,
+          it never overlays the page. */}
       <motion.aside
+        ref={asideRef}
         initial={false}
-        animate={{ width: collapsed ? RAIL_W : EXPANDED_W }}
+        animate={{ width: railWidth }}
         transition={{ duration: 0.2, ease: EXPO_OUT }}
         className="relative flex shrink-0 flex-col overflow-hidden border-r border-line bg-black"
         onPointerEnter={collapsed ? openHover : undefined}
+        onPointerLeave={collapsed ? closeHoverSoon : undefined}
+        onFocusCapture={collapsed ? openHover : undefined}
+        onBlurCapture={collapsed ? closeHoverSoon : undefined}
       >
-        <SidebarContent collapsed={collapsed} />
-        {/* Mode toggle */}
-        <div className={`flex border-t border-line ${collapsed ? 'justify-center py-2' : 'items-center px-3 py-2'}`}>
+        <SidebarContent collapsed={!showLabels} onNavigate={collapsed ? () => setHoverExpand(false) : undefined} />
+        {/* Mode toggle (pin open ↔ collapse to rail) */}
+        <div className={`flex border-t border-line ${showLabels ? 'items-center px-3 py-2' : 'justify-center py-2'}`}>
           <button
             type="button"
             onClick={() => setMode(collapsed ? 'expanded' : 'collapsed')}
@@ -213,38 +226,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </motion.aside>
 
-      {/* Rail hover overlay — fully expanded sidebar above the content */}
-      <AnimatePresence>
-        {collapsed && hoverExpand && (
-          <motion.div
-            ref={overlayRef}
-            initial={{ x: -(EXPANDED_W - RAIL_W), opacity: 0.6 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -(EXPANDED_W - RAIL_W), opacity: 0 }}
-            transition={{ duration: 0.18, ease: EXPO_OUT }}
-            className="fixed left-0 top-0 z-50 flex h-full flex-col border-r border-line bg-black shadow-[24px_0_60px_-30px_rgba(0,0,0,0.8)]"
-            style={{ width: EXPANDED_W }}
-            onPointerEnter={openHover}
-            onPointerLeave={closeHoverSoon}
-            onBlur={closeHoverSoon}
-          >
-            <SidebarContent collapsed={false} onNavigate={() => setHoverExpand(false)} />
-            <div className="flex items-center px-3 py-2 border-t border-line">
-              <button
-                type="button"
-                onClick={() => setMode('expanded')}
-                title="Pin sidebar open (Ctrl+B)"
-                aria-label="Pin sidebar open"
-                className="flex h-7 w-7 items-center justify-center rounded-control text-white/30 transition-colors hover:bg-hover hover:text-white/70"
-              >
-                <PanelLeftOpen size={14} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <main className="relative flex-1 overflow-hidden">
+      <main className="relative min-w-0 flex-1 overflow-hidden">
         <div className="app-bg-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />
         <div className="relative h-full">{children}</div>
       </main>
