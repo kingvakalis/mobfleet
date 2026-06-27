@@ -26,6 +26,7 @@
  * the agent refuses to start the real adapter with a clear message.
  */
 import { AgentRuntime, type AgentTransport } from '../agent/agent-runtime'
+import { MjpegPublisher } from '../agent/mjpeg-publisher'
 import { SimulatedDeviceControlAdapter } from '../agent/simulated-device-adapter'
 import { HttpWsAgentTransport } from '../agent/agent-transport'
 import { SupabaseAgentTransport } from '../agent/supabase-agent-transport'
@@ -151,8 +152,29 @@ async function main(): Promise<void> {
     const v = Number(process.env[name])
     return Number.isFinite(v) && v > 0 ? v : undefined
   }
+  // STAGE 2A — per-device MJPEG publisher (env-gated, supabase-mode + real device only). Reads WDA's
+  // LOCAL http://127.0.0.1:<port> MJPEG and pushes frames OUTBOUND to the relay using this device's key.
+  // PFA_MJPEG=1 to enable; PFA_MJPEG_RELAY_URL=wss://<relay>/publish; PFA_MJPEG_PORT (default 9100) or a
+  // per-device PFA_MJPEG_PORTS={"<udid>":9100} map (multi-device). Off → null → screenshot path unchanged.
+  const MJPEG_ENABLED = (process.env.PFA_MJPEG === '1' || process.env.PFA_MJPEG === 'true') && SUPABASE_TRANSPORT && !SIMULATE
+  const MJPEG_RELAY_URL = process.env.PFA_MJPEG_RELAY_URL ?? ''
+  const MJPEG_PORT = Number(process.env.PFA_MJPEG_PORT) || 9100
+  const MJPEG_PORTS = parseJsonEnv('PFA_MJPEG_PORTS') as Record<string, number> | undefined
+  const portFor = (udid: string): number => (MJPEG_PORTS && typeof MJPEG_PORTS[udid] === 'number' ? MJPEG_PORTS[udid] : MJPEG_PORT)
+  const createMjpegPublisher = MJPEG_ENABLED && MJPEG_RELAY_URL
+    ? (udid: string) => {
+        const creds = deviceMap.get(udid)
+        if (!creds) return null
+        return new MjpegPublisher(
+          { udid, deviceKey: creds.deviceKey, relayUrl: MJPEG_RELAY_URL, mjpegUrl: `http://127.0.0.1:${portFor(udid)}` },
+          { log },
+        )
+      }
+    : undefined
+  if (MJPEG_ENABLED && !MJPEG_RELAY_URL) log('agent.mjpeg.misconfigured', { reason: 'PFA_MJPEG=1 but PFA_MJPEG_RELAY_URL unset' })
+
   const runtime = new AgentRuntime({
-    adapter, transportFor, log,
+    adapter, transportFor, log, createMjpegPublisher,
     discoveryIntervalMs: intervalMs('DISCOVERY_INTERVAL_MS'),
     heartbeatIntervalMs: intervalMs('HEARTBEAT_INTERVAL_MS'),
     wdaCheckIntervalMs: intervalMs('WDA_CHECK_INTERVAL_MS'),

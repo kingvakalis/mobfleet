@@ -1,0 +1,23 @@
+{
+  "name": "mobfleet-stream-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MobFleet MJPEG stream relay — agent outbound WSS publisher → authenticated multipart/x-mixed-replace to browser viewers. No video in Postgres; anon key only.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node --import tsx src/index.ts",
+    "dev": "node --import tsx --watch src/index.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}
