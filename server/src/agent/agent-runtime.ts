@@ -25,6 +25,15 @@ import { AGENT_VERSION } from './types'
 import type { AgentCommandFrame, DeviceIdentity, ExecResult, ManagedDevice } from './types'
 import { SUPPORTED_APPS, SUPPORTED_BUNDLE_IDS, appSource } from '../../../src/shared/supported-apps'
 import { compressFrame, compressionConfigFromEnv, compressionForQualityLevel, type FrameCompressionConfig } from './frame-compress'
+import { orderDrainedCommands } from './command-ordering'
+
+// Stage-1 latency: lower default command pickup cadence (was 1000ms) so taps/swipes are
+// claimed ~2.5x sooner, with a hard floor so a misconfigured env can't storm Supabase.
+const DEFAULT_COMMAND_POLL_MS = 400
+const MIN_COMMAND_POLL_MS = 150
+// Opt-in per-command timing (claim age / exec / upload), behind an env flag so it is OFF in
+// production. Set PFA_DEBUG_LATENCY=1 on the Mac agent to emit `agent.command.timing` events.
+const DEBUG_LATENCY = process.env.PFA_DEBUG_LATENCY === '1' || process.env.PFA_DEBUG_LATENCY === 'true'
 
 /** The control-plane transport the agent talks to, for ONE device (one API key).
  *  A multi-device Mac Mini holds one transport per managed device (one key each). */
@@ -114,8 +123,9 @@ export interface AgentRuntimeOptions {
   heartbeatIntervalMs?: number
   /** How often to re-check WDA health + recover it. */
   wdaCheckIntervalMs?: number
-  /** How often to drain the command queue. Default 1000ms — taps/Home/swipes/screenshots reach WDA
-   *  promptly WITHOUT hammering Supabase. Configurable via COMMAND_POLL_INTERVAL_MS. */
+  /** How often to drain the command queue. Default 400ms — taps/Home/swipes reach WDA promptly
+   *  WITHOUT hammering Supabase (one cheap claim RPC per device per tick). Configurable via
+   *  COMMAND_POLL_INTERVAL_MS; floored at 150ms so a bad value can't storm Supabase. */
   commandPollIntervalMs?: number
   /** Live-frame compression (width/quality/format); defaults from env. */
   frameCompression?: FrameCompressionConfig
@@ -145,7 +155,7 @@ export class AgentRuntime {
       discoveryIntervalMs: o.discoveryIntervalMs ?? 5_000,
       heartbeatIntervalMs: o.heartbeatIntervalMs ?? 10_000,
       wdaCheckIntervalMs: o.wdaCheckIntervalMs ?? 15_000,
-      commandPollIntervalMs: o.commandPollIntervalMs ?? 1_000,
+      commandPollIntervalMs: Math.max(MIN_COMMAND_POLL_MS, o.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_MS),
       frameCompression: o.frameCompression ?? compressionConfigFromEnv(process.env),
     }
   }
@@ -306,7 +316,19 @@ export class AgentRuntime {
         this.log('agent.poll.error', { udid, error: errMsg(err) })
         continue
       }
-      for (const frame of frames) await this.handleCommand(udid, frame)
+      // Stage-1 dispatch: control gestures BEFORE frame requests, and coalesce stale screenshot
+      // commands down to the newest (one frame capture per batch). A tap never waits behind a
+      // backlog of old frame requests, and there is no screenshot storm.
+      const { toRun, superseded } = orderDrainedCommands(frames)
+      for (const stale of superseded) {
+        // No-op ack (delivered → acked): the kept screenshot delivers the current frame, so we
+        // skip a redundant WDA capture but still resolve the client's watcher truthfully.
+        this.log('agent.command.superseded', { udid, commandId: stale.commandId, action: stale.action })
+        await slot.transport
+          .ackCommand(stale.commandId, { success: true })
+          .catch((err) => this.log('agent.ack.error', { udid, commandId: stale.commandId, error: errMsg(err) }))
+      }
+      for (const frame of toRun) await this.handleCommand(udid, frame)
     }
   }
 
@@ -342,6 +364,7 @@ export class AgentRuntime {
       return
     }
     // Ack-start (optional): surface the command as running before we execute it.
+    const t0 = DEBUG_LATENCY ? Date.now() : 0 // ageMs (issue→dispatch) baseline
     await slot.transport.markRunning?.(frame.commandId).catch((err) => this.log('agent.markrunning.error', { udid, commandId: frame.commandId, error: errMsg(err) }))
     let result: ExecResult
     try {
@@ -351,6 +374,7 @@ export class AgentRuntime {
       // throw escape the loop. Treat as a generic, retryable failure.
       result = { success: false, error: { code: 'AGENT_ERROR', message: errMsg(err), retryable: true } }
     }
+    const tExec = DEBUG_LATENCY ? Date.now() : 0 // WDA execute (incl. screenshot capture) done
     // Live-frame transport (supabase-mode): upload captured screenshot BYTES, then ACK
     // a copy with the bytes stripped so the ack stays small. Best-effort — an upload
     // failure never blocks the ack (the command still completed on the device).
@@ -364,6 +388,17 @@ export class AgentRuntime {
       await slot.transport
         .putScreenshot(frame.commandId, small)
         .catch((err) => this.log('agent.screenshot.upload_error', { udid, commandId: frame.commandId, error: errMsg(err) }))
+    }
+    if (DEBUG_LATENCY) {
+      const tDone = Date.now()
+      this.log('agent.command.timing', {
+        udid,
+        commandId: frame.commandId,
+        action: frame.action,
+        ageMs: t0 - frame.issuedAt,   // issued → agent started (claim cadence + queue position)
+        execMs: tExec - t0,           // WDA execute (gesture, or screenshot capture)
+        frameMs: tDone - tExec,       // screenshot compress + upload (0 for non-frame commands)
+      })
     }
     await slot.transport
       .ackCommand(frame.commandId, shot ? stripScreenshotBytes(result) : result)

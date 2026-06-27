@@ -180,26 +180,67 @@ export async function createPairingToken(o: { teamId: string; userId: string }):
 
 const TERMINAL = new Set<CommandStatus>(['acked', 'failed', 'expired'])
 
-/** Poll a command until it reaches a terminal state (or times out), calling `onStatus`
- *  on every CHANGE. Truthful: it reports the real row status, never a fabricated success.
- *  Returns a cancel() to stop early (e.g. on unmount). */
+// Realtime topics must be unique per watcher (a fixed topic collides across concurrent commands).
+let commandSeq = 0
+// Opt-in command round-trip logging in the browser: localStorage 'pfa:debugLatency' = '1'. OFF by default.
+const debugLatency = (): boolean => {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem('pfa:debugLatency') === '1' } catch { return false }
+}
+
+/** Track a command until it reaches a terminal state (or times out), calling `onStatus` on every
+ *  CHANGE. PRIMARY path is Supabase Realtime (postgres_changes on agent_commands, id-filtered) →
+ *  near-instant UI feedback the moment the agent acks. A slower poll runs ALONGSIDE as a fallback:
+ *  it catches a status reached before the channel subscribes, and fully covers the case where
+ *  agent_commands isn't in the realtime publication (the channel just tears itself down). Truthful:
+ *  reports the real row status, never a fabricated success. Returns cancel() to stop early. */
 export function watchCommand(id: string, onStatus: (status: CommandStatus, error: string | null) => void, opts: { intervalMs?: number; timeoutMs?: number } = {}): () => void {
-  const interval = opts.intervalMs ?? 1500
+  const interval = opts.intervalMs ?? 1500 // fallback cadence — unchanged, so no regression if Realtime is absent
   const timeout = opts.timeoutMs ?? 30_000
   const start = Date.now()
+  const debug = debugLatency()
   let last: CommandStatus | '' = ''
   let cancelled = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let channel: ReturnType<SupabaseClient['channel']> | undefined
+
+  const cancel = () => {
+    if (cancelled) return
+    cancelled = true
+    if (timer) clearTimeout(timer)
+    if (channel && supabase) { void sb().removeChannel(channel); channel = undefined }
+  }
+
+  const emit = (status: CommandStatus, error: string | null) => {
+    if (cancelled || status === last) return
+    last = status
+    if (debug) console.debug(`[pfa:latency] cmd ${id} → ${status} @+${Date.now() - start}ms`)
+    onStatus(status, error)
+    if (TERMINAL.has(status)) cancel()
+  }
+
+  // PRIMARY: Realtime push (instant). Self-tears-down on channel error → the poll carries it.
+  if (supabase) {
+    const client = sb()
+    channel = client
+      .channel(`agentcmd:${id}:${++commandSeq}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'agent_commands', filter: `id=eq.${id}` }, (payload) => {
+        const r = payload.new as { status?: CommandStatus; error?: string | null } | null
+        if (r && typeof r.status === 'string') emit(r.status, r.error ?? null)
+      })
+    channel.subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { if (channel) void client.removeChannel(channel); channel = undefined }
+    })
+  }
+
+  // FALLBACK poll: immediate first read (catches an already-terminal / pre-subscribe status), then
+  // every `interval` until terminal or timeout. Dedupes against Realtime via `last`.
   const tick = async () => {
     if (cancelled) return
     const row = await getCommand(id).catch(() => null)
-    if (!cancelled && row && row.status !== last) {
-      last = row.status
-      onStatus(row.status, row.error)
-      if (TERMINAL.has(row.status)) return
-    }
+    if (row) emit(row.status, row.error)
     if (!cancelled && Date.now() - start < timeout) timer = setTimeout(() => void tick(), interval)
   }
   void tick()
-  return () => { cancelled = true; if (timer) clearTimeout(timer) }
+
+  return cancel
 }
