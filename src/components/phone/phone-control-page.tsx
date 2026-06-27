@@ -9,7 +9,7 @@ import {
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair,
 } from 'lucide-react'
 import type { AppDef } from '@/components/phone/app-catalog'
-import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture } from '@/components/phone/live-phone'
+import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture, type SwipeDir } from '@/components/phone/live-phone'
 import type { LogLevel } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
@@ -600,6 +600,19 @@ export function PhoneControlPage() {
   // device ref so any in-flight refreshFrame short-circuits (no setState after unmount).
   useEffect(() => () => { cancelAllWatchers(); pendingRefreshRef.current = false; liveCaptureFinishRef.current(); deviceIdRef.current = undefined; if (frameRefreshTimerRef.current) clearTimeout(frameRefreshTimerRef.current) }, [cancelAllWatchers])
 
+  // Show the device's CURRENT screen as soon as Phone Control opens it — even with GO LIVE OFF — so the
+  // on-screen tap/swipe gestures (which need the device's LOGICAL size, carried on a frame) and the preview
+  // work WITHOUT streaming. GO LIVE only governs CONTINUOUS frames. A single guarded capture: the busy guard
+  // + the per-device timeout cleanup prevent overlap/storms on rapid device switching; skipped while GO LIVE
+  // is on (the live loop already captures). The device-change reset still reads any stored frame first.
+  useEffect(() => {
+    if (!useSupabaseCommands || !deviceId || liveView) return
+    const online = device?.status === 'online' || device?.status === 'busy'
+    if (!online || !canScreenshot) return
+    const t = setTimeout(() => void captureOnce(true), 200) // let the stored-frame read paint first
+    return () => clearTimeout(t)
+  }, [deviceId, useSupabaseCommands, liveView, canScreenshot, device?.status, captureOnce])
+
   // GO LIVE — capture loop: client-driven, strictly SEQUENTIAL. Enqueue one screenshot, await its
   // terminal state, then pace to ~LIVE_CAPTURE_INTERVAL_MS before the next. Never overlapping; never
   // hammers Supabase. Stops the instant GO LIVE is off / device changes / device offline / unmount.
@@ -748,6 +761,30 @@ export function PhoneControlPage() {
       await client.sendControlCommand(command).catch((e) =>
         addLog(`✗ ${label ?? command.type} failed: ${e instanceof Error ? e.message : 'error'}`, 'error'))
     })
+
+  // D-pad swipe: send a real coordinate DRAG across the screen centre (not a coords-less directional
+  // swipe). A directional-only `swipe {dir}` makes the agent run `mobile: swipe`, which iOS hijacks into
+  // the home-indicator gesture so it misfires (esp. UP); carrying x1/y1/x2/y2 routes it through the agent's
+  // exact `mobile: dragFromToForDuration`, which works reliably. Coords need the device LOGICAL size — use
+  // the current frame's dims; if no frame is loaded yet, fall back to the directional swipe (best effort).
+  const dpadSwipe = (dir: SwipeDir) => {
+    phoneRef.current?.swipe(dir) // on-glass viz
+    if (!device) return
+    const w = frame?.width, h = frame?.height
+    if (w && h) {
+      const cx = Math.round(w / 2), cy = Math.round(h / 2)
+      const ax = Math.round(w * 0.2), ay = Math.round(h * 0.2) // ~40% span across centre
+      const seg = {
+        up:    { x1: cx, y1: cy + ay, x2: cx, y2: cy - ay },
+        down:  { x1: cx, y1: cy - ay, x2: cx, y2: cy + ay },
+        left:  { x1: cx + ax, y1: cy, x2: cx - ax, y2: cy },
+        right: { x1: cx - ax, y1: cy, x2: cx + ax, y2: cy },
+      }[dir]
+      sendControl({ type: 'swipe', deviceId: device.id, dir, ...seg, durationMs: 250 }, undefined, `Swipe ${dir}`)
+    } else {
+      sendControl({ type: 'swipe', deviceId: device.id, dir }, undefined, `Swipe ${dir}`)
+    }
+  }
 
   const launchAppCmd = (name: string) => {
     if (!canControl) { denyAction('phone control'); return }
@@ -989,8 +1026,8 @@ export function PhoneControlPage() {
           {/* Directional Control — D-pad drives the live phone */}
           <Card title="Directional Control">
             <div className="mx-auto grid w-[132px] grid-cols-3 grid-rows-3 gap-1.5">
-              <DPadButton disabled={readOnly} className="col-start-2" icon={<ArrowUp size={15} />} label="Swipe up" onClick={() => { phoneRef.current?.swipe('up'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'up' }) }} />
-              <DPadButton disabled={readOnly} className="col-start-1 row-start-2" icon={<ArrowLeft size={15} />} label="Swipe left" onClick={() => { phoneRef.current?.swipe('left'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'left' }) }} />
+              <DPadButton disabled={readOnly} className="col-start-2" icon={<ArrowUp size={15} />} label="Swipe up" onClick={() => dpadSwipe('up')} />
+              <DPadButton disabled={readOnly} className="col-start-1 row-start-2" icon={<ArrowLeft size={15} />} label="Swipe left" onClick={() => dpadSwipe('left')} />
               <DPadButton
                 disabled={readOnly}
                 className="col-start-2 row-start-2"
@@ -999,8 +1036,8 @@ export function PhoneControlPage() {
                 center
                 onClick={() => phoneRef.current?.tapCenter()}
               />
-              <DPadButton disabled={readOnly} className="col-start-3 row-start-2" icon={<ArrowRight size={15} />} label="Swipe right" onClick={() => { phoneRef.current?.swipe('right'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'right' }) }} />
-              <DPadButton disabled={readOnly} className="col-start-2 row-start-3" icon={<ArrowDown size={15} />} label="Swipe down" onClick={() => { phoneRef.current?.swipe('down'); sendControl({ type: 'swipe', deviceId: device.id, dir: 'down' }) }} />
+              <DPadButton disabled={readOnly} className="col-start-3 row-start-2" icon={<ArrowRight size={15} />} label="Swipe right" onClick={() => dpadSwipe('right')} />
+              <DPadButton disabled={readOnly} className="col-start-2 row-start-3" icon={<ArrowDown size={15} />} label="Swipe down" onClick={() => dpadSwipe('down')} />
             </div>
             <p className="mt-2.5 text-center text-[10px] text-white/30">{readOnly ? 'Control permission required' : 'Arrows swipe · center taps'}</p>
           </Card>
