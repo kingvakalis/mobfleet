@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { AppDef } from '@/components/phone/app-catalog'
 import { LivePhone, type LivePhoneHandle, type LiveFrame, type PhoneGesture, type SwipeDir } from '@/components/phone/live-phone'
+import { dpadSwipeSeg } from '@/components/phone/swipe-safety'
 import type { LogLevel } from '@/hooks/use-device-log'
 import { useFleet } from '@/hooks/use-fleet'
 import { STATUS } from '@/lib/status'
@@ -772,14 +773,9 @@ export function PhoneControlPage() {
     if (!device) return
     const w = frame?.width, h = frame?.height
     if (w && h) {
-      const cx = Math.round(w / 2), cy = Math.round(h / 2)
-      const ax = Math.round(w * 0.2), ay = Math.round(h * 0.2) // ~40% span across centre
-      const seg = {
-        up:    { x1: cx, y1: cy + ay, x2: cx, y2: cy - ay },
-        down:  { x1: cx, y1: cy - ay, x2: cx, y2: cy + ay },
-        left:  { x1: cx + ax, y1: cy, x2: cx - ax, y2: cy },
-        right: { x1: cx - ax, y1: cy, x2: cx + ax, y2: cy },
-      }[dir]
+      // Centre-anchored coords clamped OFF the iOS system-gesture edges (never start/end on the
+      // home-indicator/status edges), so the directional swipe reliably scrolls instead of misfiring.
+      const seg = dpadSwipeSeg(dir, w, h)
       sendControl({ type: 'swipe', deviceId: device.id, dir, ...seg, durationMs: 250 }, undefined, `Swipe ${dir}`)
     } else {
       sendControl({ type: 'swipe', deviceId: device.id, dir }, undefined, `Swipe ${dir}`)

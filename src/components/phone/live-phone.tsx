@@ -9,6 +9,7 @@ import type { LogLevel } from '@/hooks/use-device-log'
 import { EXPO_OUT } from '@/lib/motion'
 
 import { GRID_APPS, DOCK_APPS, ALL_APPS, type AppDef } from './app-catalog'
+import { clampSwipeSeg } from './swipe-safety'
 
 // ─── Imperative control surface ──────────────────────────────────────────────
 
@@ -480,8 +481,13 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
       else onGesture?.({ type: 'tap', x: p.dx, y: p.dy })
       return
     }
+    // Direction from the RAW delta (preserves the user's intent). Then clamp the start/end OFF the
+    // iOS system-gesture edges — esp. the bottom home-indicator zone — so an up-swipe begun near the
+    // bottom (y≈824 on an 844pt screen) isn't hijacked by iOS and actually scrolls the app. Taps
+    // (handled above) are NEVER clamped, so bottom dock/app icons stay tappable.
     const dir = dragDir(end.x - p.dx, end.y - p.dy)
-    onGesture?.({ type: gesture === 'scroll' ? 'scroll' : 'swipe', x1: p.dx, y1: p.dy, x2: end.x, y2: end.y, dir, durationMs: dur })
+    const safe = clampSwipeSeg({ x1: p.dx, y1: p.dy, x2: end.x, y2: end.y }, p.dw, p.dh)
+    onGesture?.({ type: gesture === 'scroll' ? 'scroll' : 'swipe', x1: safe.x1, y1: safe.y1, x2: safe.x2, y2: safe.y2, dir, durationMs: dur })
   }
   const onScreenPointerCancel = () => { ptrRef.current = null }
 
