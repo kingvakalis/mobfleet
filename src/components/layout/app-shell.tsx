@@ -1,5 +1,5 @@
-import { type ReactNode, useState, useEffect, useCallback, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { type ReactNode, type FocusEvent, useState, useEffect, useCallback, useRef } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   Network, Smartphone, Layers, Users, Zap,
   Briefcase, Terminal, Database, Settings,
@@ -154,20 +154,49 @@ export function AppShell({ children }: AppShellProps) {
   // Older persisted values ('autohide') coerce to the rail.
   const sidebarMode = sidebarModeRaw === 'expanded' ? 'expanded' : 'collapsed'
   const update = useSettings((s) => s.update)
-  // Rail hover/focus peek: while in rail mode, pointing at (or keyboard-focusing)
-  // the rail temporarily widens it. The rail is a normal flex child, so widening
-  // it RESIZES the layout and pushes/compresses the content beside it — it never
-  // floats over the page (that overlay was what hid Fleet / Phone Control panels).
-  const [hoverExpand, setHoverExpand] = useState(false)
-  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const view = useUIStore((s) => s.view)
+  const reduceMotion = useReducedMotion() ?? false
+
+  // Deterministic expand model. The rail is expanded when intentionally PINNED, or
+  // transiently while the pointer HOVERS it, or while keyboard FOCUS is inside it.
+  // These three are INDEPENDENT: closing one never depends on (or is blocked by)
+  // another — conflating hover with focus is what previously left it stuck open
+  // (a focused nav button kept pointer-leave from ever collapsing the peek).
+  //   isExpanded = isPinned || isHovered || isFocusWithin
+  // The rail is a normal flex child, so its width drives the layout and
+  // pushes/compresses the content beside it — it never overlays the page.
+  const isPinned = sidebarMode === 'expanded'
+  const [isHovered, setIsHovered] = useState(false)
+  const [isFocusWithin, setIsFocusWithin] = useState(false)
+  const isExpanded = isPinned || isHovered || isFocusWithin
+
   const asideRef = useRef<HTMLElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+  }, [])
+
+  // Drop BOTH transient peeks and release any focus lingering inside the rail, so it
+  // collapses cleanly and can't immediately re-expand from a stale focus. Used on
+  // route change and on a pointer-down in the main content.
+  const resetPeek = useCallback(() => {
+    clearCloseTimer()
+    setIsHovered(false)
+    setIsFocusWithin(false)
+    const el = asideRef.current
+    if (el && document.activeElement instanceof HTMLElement && el.contains(document.activeElement)) {
+      document.activeElement.blur()
+    }
+  }, [clearCloseTimer])
 
   const setMode = useCallback((m: 'expanded' | 'collapsed') => {
     update({ sidebarMode: m })
-    setHoverExpand(false)
-  }, [update])
+    clearCloseTimer()
+    setIsHovered(false)
+    setIsFocusWithin(false)
+  }, [update, clearCloseTimer])
 
-  // Ctrl/Cmd+B toggles expanded ↔ rail.
+  // Ctrl/Cmd+B toggles pinned-open ↔ rail.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
@@ -180,43 +209,52 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [setMode])
 
-  const collapsed = sidebarMode === 'collapsed'
-  // Full-width labels when pinned open OR while peeking the rail; the rail's
-  // width drives the layout, so the content always gets `100% - railWidth`.
-  const showLabels = !collapsed || hoverExpand
-  const railWidth = showLabels ? EXPANDED_W : RAIL_W
+  // Route/view change always collapses the peek (it must never survive navigation),
+  // including programmatic view changes the rail's own handlers can't observe.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: drop the transient peek on navigation
+    resetPeek()
+  }, [view, resetPeek])
+  // Drop a pending timer on unmount (no setState after teardown).
+  useEffect(() => () => clearCloseTimer(), [clearCloseTimer])
 
-  const openHover = useCallback(() => {
-    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
-    setHoverExpand(true)
+  // Hover (pointer): open immediately; close after a small grace so brushing the
+  // rail edge / a sub-pixel exit doesn't flicker — re-entering cancels the close.
+  const onPointerEnter = useCallback(() => { clearCloseTimer(); setIsHovered(true) }, [clearCloseTimer])
+  const onPointerLeave = useCallback(() => {
+    clearCloseTimer()
+    closeTimer.current = setTimeout(() => { closeTimer.current = null; setIsHovered(false) }, 100)
+  }, [clearCloseTimer])
+  // Focus-within: bubbling focus/blur. Stay open while focus moves BETWEEN rail
+  // items; collapse only when focus leaves the rail entirely (relatedTarget outside
+  // or null). Independent of hover, so it never blocks the pointer-leave collapse.
+  const onFocus = useCallback(() => setIsFocusWithin(true), [])
+  const onBlur = useCallback((e: FocusEvent<HTMLElement>) => {
+    const next = e.relatedTarget as Node | null
+    if (!asideRef.current || !next || !asideRef.current.contains(next)) setIsFocusWithin(false)
   }, [])
-  const closeHoverSoon = useCallback(() => {
-    if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current)
-    hoverCloseTimer.current = setTimeout(() => {
-      // Keep the peek open while keyboard focus is still inside the rail.
-      const el = asideRef.current
-      if (el && el.contains(document.activeElement)) return
-      setHoverExpand(false)
-    }, 180)
-  }, [])
+
+  const collapsed = !isPinned // rail (vs pinned-open) — drives the toggle icon/label
+  const showLabels = isExpanded
+  const railWidth = showLabels ? EXPANDED_W : RAIL_W
 
   return (
     <div className="flex h-full">
-      {/* Docked sidebar — a real flex child: collapsing/expanding (pinned OR the
-          rail hover-peek) RESIZES the layout and reflows the content beside it,
-          it never overlays the page. */}
+      {/* Docked sidebar — a real flex child: expanding (pinned OR the rail hover/
+          focus peek) RESIZES the layout and reflows the content beside it; never an
+          overlay. The <aside> is the single width authority. */}
       <motion.aside
         ref={asideRef}
         initial={false}
         animate={{ width: railWidth }}
-        transition={{ duration: 0.2, ease: EXPO_OUT }}
+        transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: EXPO_OUT }}
         className="relative flex shrink-0 flex-col overflow-hidden border-r border-line bg-black"
-        onPointerEnter={collapsed ? openHover : undefined}
-        onPointerLeave={collapsed ? closeHoverSoon : undefined}
-        onFocusCapture={collapsed ? openHover : undefined}
-        onBlurCapture={collapsed ? closeHoverSoon : undefined}
+        onPointerEnter={isPinned ? undefined : onPointerEnter}
+        onPointerLeave={isPinned ? undefined : onPointerLeave}
+        onFocus={isPinned ? undefined : onFocus}
+        onBlur={isPinned ? undefined : onBlur}
       >
-        <SidebarContent collapsed={!showLabels} onNavigate={collapsed ? () => setHoverExpand(false) : undefined} />
+        <SidebarContent collapsed={!showLabels} onNavigate={isPinned ? undefined : resetPeek} />
         {/* Mode toggle (pin open ↔ collapse to rail) */}
         <div className={`flex border-t border-line ${showLabels ? 'items-center px-3 py-2' : 'justify-center py-2'}`}>
           <button
@@ -231,7 +269,12 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </motion.aside>
 
-      <main className="relative min-w-0 flex-1 overflow-hidden">
+      {/* min-w-0 lets the content compress as the rail widens; a pointer-down here
+          collapses an unpinned hover/focus peek. */}
+      <main
+        className="relative min-w-0 flex-1 overflow-hidden"
+        onPointerDown={isPinned ? undefined : resetPeek}
+      >
         <div className="app-bg-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />
         <div className="relative h-full">{children}</div>
       </main>
