@@ -1253,6 +1253,7 @@ export function PhoneControlPage() {
                 onGesture={useSupabaseCommands ? handleGesture : undefined}
                 resolving={useSupabaseCommands && frameResolving}
                 streamUrl={useSupabaseCommands && showStream ? streamUrl : null}
+                streamLive={streamShowing}
                 onStreamLoad={() => { setStreamAlive(true); setStreamErrored(false) }}
                 onStreamError={() => { setStreamAlive(false); setStreamErrored(true) }}
               />

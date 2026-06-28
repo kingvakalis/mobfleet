@@ -346,7 +346,11 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
   onStreamLoad?: () => void
   /** Fired when the MJPEG stream fails to load — the parent falls back to the screenshot path. */
   onStreamError?: () => void
-}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture, resolving = false, streamUrl = null, onStreamLoad, onStreamError }, ref) {
+  /** True once the stream is actually producing frames. While false (connecting / no publisher yet) the
+   *  base64 screenshot stays visible UNDERNEATH the (loading) stream <img>, so GO LIVE never shows a
+   *  blank — it shows the screenshot and seamlessly upgrades to the live stream when frames arrive. */
+  streamLive?: boolean
+}>(function LivePhone({ device, job, width = 260, gesture = 'tap', readOnly = false, onLog, onTap, frame, onGesture, resolving = false, streamUrl = null, onStreamLoad, onStreamError, streamLive = false }, ref) {
   const f = width / 260
   // REAL-frame mode: size the glass to the captured frame's aspect ratio so object-fit: cover
   // fills it with NO black side bars, and pointer→device mapping stays a clean linear scale.
@@ -543,28 +547,32 @@ export const LivePhone = forwardRef<LivePhoneHandle, {
         </div>
       )
     } else if (frame) {
-      // STAGE 2A: a live MJPEG stream renders in the SAME glass <img> as the base64 frame (the browser
-      // decodes multipart/x-mixed-replace natively). frame.width/height still drive the glass aspect +
-      // tap mapping, so gestures are identical to the screenshot path. onLoad/onError let the parent
-      // stop the screenshot loop (alive) or fall back (failed). No stream → the base64 screenshot.
-      screen = streamUrl ? (
-        <img
-          src={streamUrl}
-          alt={`${device.name} live stream`}
-          draggable={false}
-          onLoad={onStreamLoad}
-          onError={onStreamError}
-          className="pointer-events-none h-full w-full select-none"
-          style={{ objectFit: 'cover', display: 'block' }}
-        />
-      ) : (
-        <img
-          src={frame.src}
-          alt={`${device.name} live screen`}
-          draggable={false}
-          className="pointer-events-none h-full w-full select-none"
-          style={{ objectFit: 'cover', display: 'block' }}
-        />
+      // STAGE 2A: the base64 screenshot is the base layer; the live MJPEG stream (browser-native
+      // multipart/x-mixed-replace) overlays it and is only made VISIBLE once it is producing frames
+      // (`streamLive`). So a connecting / no-publisher stream shows the SCREENSHOT (never blank) and
+      // upgrades to live the instant frames arrive — and onError falls the parent back to screenshots.
+      // frame.width/height still drive the glass aspect + tap mapping, so gestures are identical.
+      screen = (
+        <>
+          <img
+            src={frame.src}
+            alt={`${device.name} live screen`}
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full select-none transition-opacity duration-300"
+            style={{ objectFit: 'cover', display: 'block', opacity: streamLive ? 0 : 1 }}
+          />
+          {streamUrl && (
+            <img
+              src={streamUrl}
+              alt={`${device.name} live stream`}
+              draggable={false}
+              onLoad={onStreamLoad}
+              onError={onStreamError}
+              className="pointer-events-none absolute inset-0 h-full w-full select-none transition-opacity duration-300"
+              style={{ objectFit: 'cover', display: 'block', opacity: streamLive ? 1 : 0 }}
+            />
+          )}
+        </>
       )
     } else if (resolving) {
       // Online device, latest-frame read still in flight → polished skeleton (same glass dimensions),
