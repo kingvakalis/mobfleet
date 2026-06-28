@@ -28,7 +28,7 @@ import { useTeamContext } from '@/contexts/TeamContext'
 import { controlCommandToWire } from '@/shared/control-command'
 import { fpsToIntervalMs, clampQualityLevel, qualityLevelToEncoder, SCREENSHOT_DOWNLOAD_QUALITY } from '@/shared/stream-quality'
 import { enqueueCommand, watchCommand, getLatestScreenshot, subscribeDeviceScreenshots, type DeviceScreenshot } from '@/services/device-commands'
-import { resolveDeviceStream } from '@/services/stream'
+import { resolveDeviceStream, streamDebug } from '@/services/stream'
 import { downloadScreenshot } from '@/lib/download-screenshot'
 import { useDeviceApps } from '@/hooks/useDeviceApps'
 import { ManageAppsModal } from '@/components/phone/manage-apps-modal'
@@ -645,6 +645,12 @@ export function PhoneControlPage() {
     if (showStream && !frame) void captureOnce(true)
   }, [showStream, frame, captureOnce])
 
+  // Gated stream-state trace (localStorage 'pfa:debugStream'='1') so the Live-MJPEG vs Snapshot path is
+  // observable in the browser console without a rebuild.
+  useEffect(() => {
+    streamDebug('state', { liveView, hasStreamUrl: !!streamUrl, showStream, streamShowing, streamErrored })
+  }, [liveView, streamUrl, showStream, streamShowing, streamErrored])
+
   // Show the device's CURRENT screen as soon as Phone Control opens it — even with GO LIVE OFF — so the
   // on-screen tap/swipe gestures (which need the device's LOGICAL size, carried on a frame) and the preview
   // work WITHOUT streaming. GO LIVE only governs CONTINUOUS frames. A single guarded capture: the busy guard
@@ -1254,8 +1260,8 @@ export function PhoneControlPage() {
                 resolving={useSupabaseCommands && frameResolving}
                 streamUrl={useSupabaseCommands && showStream ? streamUrl : null}
                 streamLive={streamShowing}
-                onStreamLoad={() => { setStreamAlive(true); setStreamErrored(false) }}
-                onStreamError={() => { setStreamAlive(false); setStreamErrored(true) }}
+                onStreamLoad={() => { streamDebug('img onLoad → MJPEG alive'); setStreamAlive(true); setStreamErrored(false) }}
+                onStreamError={() => { streamDebug('img onError → fall back to screenshots'); setStreamAlive(false); setStreamErrored(true) }}
               />
             </div>
           </PhoneStage>

@@ -36,6 +36,12 @@ function readOverride(deviceId: string): string | null {
   } catch { return null }
 }
 
+/** Opt-in stream debug: localStorage 'pfa:debugStream' = '1'. OFF by default. */
+export function streamDebug(...a: unknown[]): void {
+  try { if (typeof localStorage !== 'undefined' && localStorage.getItem('pfa:debugStream') === '1') console.debug('[pfa:stream]', ...a) } catch { /* ignore */ }
+}
+const maskTok = (u: string) => u.replace(/([?&]t=)[^&]+/, '$1…')
+
 /**
  * Resolve a live MJPEG stream for a device, or null when none is available (→ screenshot fallback).
  * Never throws — a failure to acquire a stream must degrade to the fallback, not break GO LIVE.
@@ -44,18 +50,20 @@ export async function resolveDeviceStream(o: { deviceId: string; teamId: string 
   // Spike / local-test override: an explicit (possibly tunnelled) MJPEG URL. Settings are not live-
   // controllable over a raw stream, so the sliders stay snapshot-only here.
   const override = readOverride(o.deviceId)
-  if (override) return { url: override, canControlSettings: false }
+  if (override) { streamDebug('using override URL', maskTok(override)); return { url: override, canControlSettings: false } }
 
-  if (!RELAY_BASE || !supabase) return null
+  if (!RELAY_BASE || !supabase) { streamDebug('fallback: relay base unset or supabase missing', { relayBase: !!RELAY_BASE }); return null }
   try {
     // Mint a short-lived, device-scoped token under the operator's JWT (RLS: team member). A token for
     // one device cannot view another (the relay's redeem checks device_id). Video never touches PG.
     const client = supabase as unknown as SupabaseClient
     const { data, error } = await client.rpc('mint_stream_token', { p_device_id: o.deviceId })
-    if (error) return null
+    if (error) { streamDebug('fallback: mint_stream_token error', error.message); return null }
     const row = (Array.isArray(data) ? data[0] : data) as { token?: string } | null
     const token = row?.token
-    if (!token) return null
-    return { url: `${RELAY_BASE}/stream/${encodeURIComponent(o.deviceId)}?t=${encodeURIComponent(token)}`, canControlSettings: false }
-  } catch { return null }
+    if (!token) { streamDebug('fallback: mint returned no token'); return null }
+    const url = `${RELAY_BASE}/stream/${encodeURIComponent(o.deviceId)}?t=${encodeURIComponent(token)}`
+    streamDebug('resolved streamUrl', maskTok(url))
+    return { url, canControlSettings: false }
+  } catch (e) { streamDebug('fallback: mint threw', String(e)); return null }
 }
