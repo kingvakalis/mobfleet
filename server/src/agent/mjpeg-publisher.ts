@@ -23,12 +23,20 @@ export interface MjpegPublisherDeps {
   log?: (event: string, fields?: Record<string, unknown>) => void
 }
 
+// Opt-in publisher metrics (frames read/forwarded/deduped, reconnects) — OFF unless PFA_MJPEG_DEBUG=1,
+// so logs are never spammed by default. Emits an `mjpeg.metrics` line every 5s while streaming.
+const MJPEG_DEBUG = process.env.PFA_MJPEG_DEBUG === '1' || process.env.PFA_MJPEG_DEBUG === 'true'
+
 export class MjpegPublisher {
   private stopped = false
   private ws: WebSocket | null = null
   private abort: AbortController | null = null
   private lastHash = ''
   private timer: ReturnType<typeof setTimeout> | undefined
+  private metricsTimer: ReturnType<typeof setInterval> | undefined
+  private backoffResolve: (() => void) | null = null
+  private readonly m = { read: 0, forwarded: 0, deduped: 0, reconnects: 0, errors: 0 }
+  private lastForwarded = 0
   private readonly fetchImpl: typeof fetch
   private readonly WS: typeof WebSocket
   private readonly log: (e: string, f?: Record<string, unknown>) => void
@@ -39,21 +47,39 @@ export class MjpegPublisher {
     this.log = deps.log ?? (() => {})
   }
 
-  start(): void { if (!this.stopped) void this.loop() }
+  start(): void {
+    if (this.stopped) return
+    if (MJPEG_DEBUG && !this.metricsTimer) {
+      this.metricsTimer = setInterval(() => {
+        const fwd = this.m.forwarded - this.lastForwarded
+        this.lastForwarded = this.m.forwarded
+        this.log('mjpeg.metrics', { udid: this.cfg.udid, ...this.m, fwdFps: Math.round((fwd / 5) * 10) / 10 })
+      }, 5000)
+      if (typeof this.metricsTimer.unref === 'function') this.metricsTimer.unref()
+    }
+    void this.loop()
+  }
 
   stop(): void {
     this.stopped = true
     if (this.timer) clearTimeout(this.timer)
+    if (this.metricsTimer) clearInterval(this.metricsTimer)
+    if (this.backoffResolve) { this.backoffResolve(); this.backoffResolve = null } // unblock a pending backoff
     try { this.abort?.abort() } catch { /* noop */ }
     try { this.ws?.close() } catch { /* noop */ }
   }
 
   private async loop(): Promise<void> {
+    let first = true
     while (!this.stopped) {
+      if (!first) this.m.reconnects++
+      first = false
       try { await this.runOnce() }
-      catch (err) { this.log('mjpeg.publish.error', { udid: this.cfg.udid, error: (err as { message?: string })?.message }) }
+      catch (err) { this.m.errors++; this.log('mjpeg.publish.error', { udid: this.cfg.udid, error: (err as { message?: string })?.message }) }
       if (this.stopped) break
-      await new Promise<void>((r) => { this.timer = setTimeout(r, this.cfg.reconnectMs ?? 2000) })
+      // Fixed reconnect backoff — never a tight loop, even if the relay/source fails fast. Resolvable by
+      // stop() so teardown never leaves this loop suspended.
+      await new Promise<void>((r) => { this.backoffResolve = r; this.timer = setTimeout(() => { this.backoffResolve = null; r() }, this.cfg.reconnectMs ?? 2000) })
     }
   }
 
@@ -74,11 +100,17 @@ export class MjpegPublisher {
     const res = await this.fetchImpl(this.cfg.mjpegUrl, { signal: this.abort.signal })
     if (!res.ok || !res.body) throw new Error(`mjpeg HTTP ${res.status}`)
 
+    // Reset the de-dupe baseline per CONNECTION: a reconnect must re-send the current frame even if it
+    // is byte-identical to the previous connection's last frame, or a new relay/viewer sees a frozen
+    // screen until the content changes.
+    this.lastHash = ''
     const demux = new MjpegDemux((jpeg) => {
+      this.m.read++
       const hash = createHash('sha1').update(jpeg).digest('hex')
-      if (hash === this.lastHash) return // de-dupe identical frames (static screen → no re-send)
-      this.lastHash = hash
-      if (ws.readyState === this.WS.OPEN) ws.send(jpeg)
+      if (hash === this.lastHash) { this.m.deduped++; return } // de-dupe identical frames (static screen)
+      // Advance the baseline ONLY on a successful send — a frame dropped because the ws isn't OPEN must
+      // not poison the de-dupe (else the same content is never re-sent once the ws reopens).
+      if (ws.readyState === this.WS.OPEN) { ws.send(jpeg); this.lastHash = hash; this.m.forwarded++ }
     })
 
     const reader = (res.body as ReadableStream<Uint8Array>).getReader()

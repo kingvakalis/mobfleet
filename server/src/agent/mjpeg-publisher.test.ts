@@ -35,6 +35,22 @@ test('publisher forwards NEW frames over WSS and de-dupes identical ones', async
   assert.deepEqual(ws.sent.map((b) => b.subarray(2, b.length - 2).toString()), ['A', 'B'])
 })
 
+test('a reconnect re-sends the current frame (dedup baseline reset per connection)', async () => {
+  FakeWS.instances = []
+  // fresh stream each connect; the SAME static frame both times.
+  const fetchImpl = (async () => ({ ok: true, body: streamOf(frame('STATIC')) })) as unknown as typeof fetch
+  const pub = new MjpegPublisher(
+    { udid: 'u', deviceKey: 'k', relayUrl: 'wss://relay/publish', mjpegUrl: 'http://127.0.0.1:9100' },
+    { fetchImpl, WebSocketImpl: FakeWS as unknown as typeof WebSocket },
+  )
+  await pub.runOnce() // connection 1 → sends STATIC
+  await pub.runOnce() // connection 2 (reconnect) → must RE-SEND STATIC, not dedupe across the boundary
+  assert.equal(FakeWS.instances.length, 2)
+  assert.equal(FakeWS.instances[0].sent.length, 1)
+  assert.equal(FakeWS.instances[1].sent.length, 1, 'first frame of the reconnect is forwarded, not deduped')
+  assert.equal(FakeWS.instances[1].sent[0].subarray(2, FakeWS.instances[1].sent[0].length - 2).toString(), 'STATIC')
+})
+
 test('publisher passes the device-key to the relay publish URL', async () => {
   FakeWS.instances = []
   const fetchImpl = (async () => ({ ok: true, body: streamOf(frame('x')) })) as unknown as typeof fetch

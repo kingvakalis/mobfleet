@@ -616,17 +616,22 @@ export function PhoneControlPage() {
   // the screenshot-row path runs UNCHANGED.
   const showStream = liveView && !!streamUrl && !streamErrored
   const streamShowing = showStream && streamAlive
+  // Derived reachability boolean (NOT raw status) — a benign online<->busy flip keeps this true, so the
+  // stream is not re-minted/restarted on a job start/stop.
+  const deviceOnline = device?.status === 'online' || device?.status === 'busy'
+  const streamRetryRef = useRef(0)
+  const [streamRetryNonce, setStreamRetryNonce] = useState(0)
 
-  // Acquire / clear the live stream as GO LIVE toggles. Resolves a relay URL when GO LIVE turns on for
-  // an online device; clears it (→ screenshot fallback) when GO LIVE is off, the device changes, or the
-  // device goes unreachable. resolveDeviceStream never throws + returns null until the relay exists,
-  // so this is a NO-OP in production. Video never touches Postgres — this only resolves a URL.
+  // Acquire / clear the live stream as GO LIVE toggles. Keyed on `deviceOnline` (not raw status) so it
+  // does NOT re-mint the token + tear down the live <img> on an online<->busy transition; streamRetryNonce
+  // re-acquires after a transient error (bounded retry below). resolveDeviceStream never throws + returns
+  // null until the relay exists → NO-OP in production. Video never touches Postgres — this only resolves a URL.
   useEffect(() => {
     const teamId = teamCtx.team?.id
-    const online = device?.status === 'online' || device?.status === 'busy'
-    if (!useSupabaseCommands || !deviceId || !teamId || !liveView || !online) {
+    if (!useSupabaseCommands || !deviceId || !teamId || !liveView || !deviceOnline) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStreamUrl(null); setStreamAlive(false); setStreamErrored(false); setStreamCanControl(false)
+      streamRetryRef.current = 0
       return
     }
     let cancelled = false
@@ -636,7 +641,16 @@ export function PhoneControlPage() {
       setStreamUrl(s?.url ?? null); setStreamCanControl(s?.canControlSettings ?? false)
     })
     return () => { cancelled = true }
-  }, [liveView, useSupabaseCommands, deviceId, teamCtx.team?.id, device?.status])
+  }, [liveView, useSupabaseCommands, deviceId, teamCtx.team?.id, deviceOnline, streamRetryNonce])
+
+  // Bounded auto-retry: a transient stream error re-acquires a fresh token after a short delay instead of
+  // sticking on the slow screenshot fallback for the whole session. Capped so a dead relay isn't hammered;
+  // the counter resets on success (onStreamLoad) and when GO LIVE/device changes (acquire effect above).
+  useEffect(() => {
+    if (!streamErrored || !liveView || !deviceOnline || streamRetryRef.current >= 5) return
+    const t = setTimeout(() => { streamRetryRef.current += 1; setStreamRetryNonce((n) => n + 1) }, 3000)
+    return () => clearTimeout(t)
+  }, [streamErrored, liveView, deviceOnline])
 
   // While streaming, ensure ONE frame exists so the gesture layer has the device LOGICAL size (the
   // MJPEG <img> carries no dims). Usually the device-open capture already populated it; this covers
@@ -1260,7 +1274,7 @@ export function PhoneControlPage() {
                 resolving={useSupabaseCommands && frameResolving}
                 streamUrl={useSupabaseCommands && showStream ? streamUrl : null}
                 streamLive={streamShowing}
-                onStreamLoad={() => { streamDebug('img onLoad → MJPEG alive'); setStreamAlive(true); setStreamErrored(false) }}
+                onStreamLoad={() => { if (!streamAlive) { streamRetryRef.current = 0; streamDebug('img onLoad → MJPEG alive'); setStreamAlive(true); setStreamErrored(false) } }}
                 onStreamError={() => { streamDebug('img onError → fall back to screenshots'); setStreamAlive(false); setStreamErrored(true) }}
               />
             </div>

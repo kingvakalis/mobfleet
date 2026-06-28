@@ -53,7 +53,7 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { supabase = `UNREACHABLE (${(e as { name?: string })?.name ?? 'error'})` }
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true, supabase, supabaseHost, anonKeySet: !!ANON, anonKeyLen: ANON.length }))
+    res.end(JSON.stringify({ ok: true, supabase, supabaseHost, anonKeySet: !!ANON, anonKeyLen: ANON.length, streams: hub.stats() }))
     return
   }
 
@@ -69,7 +69,9 @@ const server = http.createServer(async (req, res) => {
       Pragma: 'no-cache',
       Connection: 'close',
     })
-    const sink: Sink = { write: (c: Buffer) => res.write(c) }
+    // Backpressure-aware sink: write() reports when the socket is full; onDrain() lets the hub flush the
+    // newest pending frame when it clears — so a slow browser gets fresh frames, never a stale backlog.
+    const sink: Sink = { write: (c: Buffer) => res.write(c), onDrain: (cb: () => void) => res.once('drain', cb) }
     hub.addViewer(deviceId, sink, frameChunk)
     req.on('close', () => hub.removeViewer(deviceId, sink))
     return
