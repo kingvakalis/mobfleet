@@ -30,6 +30,22 @@ Point the frontend at it with `VITE_STREAM_RELAY_URL=https://<relay-host>`.
 This service is **NOT** the Railway `/v1/devices` backend and shares nothing with it. It holds only the
 **anon** key (no service-role). Video is in memory only — nothing persisted.
 
+## Deploy (Docker / fly.io)
+A `Dockerfile` + `fly.toml` are included. fly terminates TLS and proxies **both** the HTTP `/stream`
+multipart and the `wss` `/publish` upgrade over one port (`force_https`), so the browser gets
+`https://` + `wss://` (required — `mobfleet.co` is HTTPS).
+
+```bash
+cd relay
+fly launch --no-deploy --name mobfleet-stream-relay     # first time (or reuse the committed fly.toml)
+fly secrets set SUPABASE_URL=https://<ref>.supabase.co SUPABASE_ANON_KEY=<anon-key>
+fly deploy
+```
+The relay is then at `https://mobfleet-stream-relay.fly.dev`. Point the frontend's
+`VITE_STREAM_RELAY_URL` at it and hand the Mac `wss://mobfleet-stream-relay.fly.dev/publish`. Any host
+works (Render / a VM + Caddy / Docker anywhere) as long as it serves **HTTPS + WSS** and sets the two
+secrets. **No service-role key** — only the anon key. Health check: `GET /health` → `200 ok`.
+
 ## Env
 | var | default | meaning |
 |---|---|---|

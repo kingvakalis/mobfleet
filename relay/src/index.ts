@@ -64,4 +64,4 @@ wss.on('connection', async (ws, req) => {
   ws.on('close', () => hub.clearPublisher(deviceId))
 })
 
-server.listen(PORT, () => console.log(`[relay] listening on :${PORT}`))
+server.listen(PORT, '0.0.0.0', () => console.log(`[relay] listening on 0.0.0.0:${PORT}`))
