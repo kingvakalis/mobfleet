@@ -4,7 +4,7 @@
 #
 
 app = 'mobfleet-stream-relay'
-primary_region = 'iad'
+primary_region = 'fra'
 
 [build]
   dockerfile = 'Dockerfile'
