@@ -11,7 +11,6 @@ import { BrandLogo } from '@/components/brand/brand-logo'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 import { useAuth } from '@/contexts/AuthContext'
 import { VIEWS, type ViewId } from '@/lib/views'
-import { EXPO_OUT } from '@/lib/motion'
 import { useUIStore } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
 import { useFleetStats } from '@/hooks/use-fleet'
@@ -43,6 +42,14 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 const EXPANDED_W = 210
 const RAIL_W = 56
+// Hover INTENT: the rail must not pop open on a quick fly-by — only after the pointer
+// dwells on it. Open after a dwell; close after a short grace (cancels flicker); both
+// cancel each other. Keyboard focus still expands instantly (no dwell — accessibility).
+const HOVER_OPEN_DELAY_MS = 200   // dwell before expanding; a fly-by leaves first and never opens
+const HOVER_CLOSE_DELAY_MS = 150  // grace before collapsing; re-entering cancels it (no flicker)
+// Calm, intentional expand/collapse — a gentle ease-in-out, NOT a snappy expo pop.
+const RAIL_ANIM_DURATION = 0.35
+const RAIL_EASE: [number, number, number, number] = [0.4, 0, 0.2, 1]
 
 function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const view    = useUIStore((s) => s.view)
@@ -171,7 +178,11 @@ export function AppShell({ children }: AppShellProps) {
   const isExpanded = isPinned || isHovered || isFocusWithin
 
   const asideRef = useRef<HTMLElement>(null)
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearOpenTimer = useCallback(() => {
+    if (openTimer.current) { clearTimeout(openTimer.current); openTimer.current = null }
+  }, [])
   const clearCloseTimer = useCallback(() => {
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
   }, [])
@@ -180,6 +191,7 @@ export function AppShell({ children }: AppShellProps) {
   // collapses cleanly and can't immediately re-expand from a stale focus. Used on
   // route change and on a pointer-down in the main content.
   const resetPeek = useCallback(() => {
+    clearOpenTimer()
     clearCloseTimer()
     setIsHovered(false)
     setIsFocusWithin(false)
@@ -187,14 +199,15 @@ export function AppShell({ children }: AppShellProps) {
     if (el && document.activeElement instanceof HTMLElement && el.contains(document.activeElement)) {
       document.activeElement.blur()
     }
-  }, [clearCloseTimer])
+  }, [clearOpenTimer, clearCloseTimer])
 
   const setMode = useCallback((m: 'expanded' | 'collapsed') => {
     update({ sidebarMode: m })
+    clearOpenTimer()
     clearCloseTimer()
     setIsHovered(false)
     setIsFocusWithin(false)
-  }, [update, clearCloseTimer])
+  }, [update, clearOpenTimer, clearCloseTimer])
 
   // Ctrl/Cmd+B toggles pinned-open ↔ rail.
   useEffect(() => {
@@ -215,16 +228,22 @@ export function AppShell({ children }: AppShellProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: drop the transient peek on navigation
     resetPeek()
   }, [view, resetPeek])
-  // Drop a pending timer on unmount (no setState after teardown).
-  useEffect(() => () => clearCloseTimer(), [clearCloseTimer])
+  // Drop pending timers on unmount (no setState after teardown).
+  useEffect(() => () => { clearOpenTimer(); clearCloseTimer() }, [clearOpenTimer, clearCloseTimer])
 
-  // Hover (pointer): open immediately; close after a small grace so brushing the
-  // rail edge / a sub-pixel exit doesn't flicker — re-entering cancels the close.
-  const onPointerEnter = useCallback(() => { clearCloseTimer(); setIsHovered(true) }, [clearCloseTimer])
+  // Hover (pointer): open only after a DWELL (hover intent) so a quick fly-by never
+  // pops the rail; close after a short grace so a slight leave/re-enter doesn't
+  // flicker. Each timer cancels the other.
+  const onPointerEnter = useCallback(() => {
+    clearCloseTimer()                              // cancel a pending collapse
+    if (isHovered || openTimer.current) return     // already open, or an open is already pending
+    openTimer.current = setTimeout(() => { openTimer.current = null; setIsHovered(true) }, HOVER_OPEN_DELAY_MS)
+  }, [clearCloseTimer, isHovered])
   const onPointerLeave = useCallback(() => {
+    clearOpenTimer()                               // left before the dwell finished → never opens (fly-by)
     clearCloseTimer()
-    closeTimer.current = setTimeout(() => { closeTimer.current = null; setIsHovered(false) }, 100)
-  }, [clearCloseTimer])
+    closeTimer.current = setTimeout(() => { closeTimer.current = null; setIsHovered(false) }, HOVER_CLOSE_DELAY_MS)
+  }, [clearOpenTimer, clearCloseTimer])
   // Focus-within: bubbling focus/blur. Stay open while focus moves BETWEEN rail
   // items; collapse only when focus leaves the rail entirely (relatedTarget outside
   // or null). Independent of hover, so it never blocks the pointer-leave collapse.
@@ -247,7 +266,7 @@ export function AppShell({ children }: AppShellProps) {
         ref={asideRef}
         initial={false}
         animate={{ width: railWidth }}
-        transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: EXPO_OUT }}
+        transition={reduceMotion ? { duration: 0 } : { duration: RAIL_ANIM_DURATION, ease: RAIL_EASE }}
         className="relative flex shrink-0 flex-col overflow-hidden border-r border-line bg-black"
         onPointerEnter={isPinned ? undefined : onPointerEnter}
         onPointerLeave={isPinned ? undefined : onPointerLeave}
