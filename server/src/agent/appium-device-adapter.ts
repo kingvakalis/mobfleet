@@ -115,6 +115,52 @@ export function toAppiumAction(command: AdapterCommand, bundleMap: Record<string
   }
 }
 
+/** A coarse mid-screen swipe vector (device points) when a gesture carries no explicit coords. */
+function directSwipeVector(dir: 'up' | 'down' | 'left' | 'right'): { fromX: number; fromY: number; toX: number; toY: number } {
+  switch (dir) {
+    case 'up': return { fromX: 200, fromY: 600, toX: 200, toY: 200 }
+    case 'down': return { fromX: 200, fromY: 200, toX: 200, toY: 600 }
+    case 'left': return { fromX: 600, fromY: 400, toX: 100, toY: 400 }
+    case 'right': return { fromX: 100, fromY: 400, toX: 600, toY: 400 }
+  }
+}
+
+/**
+ * Stage 2B-B: map a hot-path gesture to WebDriverAgent's UNSESSIONED /wda/* endpoint, hit directly on
+ * the device's local WDA port — skipping the Appium HTTP + XCUITest routing hop. Returns null for any
+ * command that must stay on Appium (launch/terminate/type/screenshot/install + a malformed gesture), so
+ * the caller falls back. PURE + exported for unit testing — no network, no port, no session.
+ */
+export function toDirectWdaRequest(command: AdapterCommand): { path: string; body?: unknown } | null {
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  switch (command.kind) {
+    case 'tap': {
+      const x = num(command.x), y = num(command.y)
+      return x !== null && y !== null ? { path: '/wda/tap/0', body: { x, y } } : null
+    }
+    case 'swipe': {
+      const duration = Math.min(2, Math.max(0.1, (command.durationMs ?? 250) / 1000))
+      const x1 = num(command.x1), y1 = num(command.y1), x2 = num(command.x2), y2 = num(command.y2)
+      // Prefer the EXACT start/end coords (already clamped off the iOS edges by swipe-safety on the
+      // client); fall back to a coarse directional vector only when coords are missing.
+      const seg = x1 !== null && y1 !== null && x2 !== null && y2 !== null
+        ? { fromX: x1, fromY: y1, toX: x2, toY: y2 }
+        : directSwipeVector(command.dir)
+      return { path: '/wda/dragfromtoforduration', body: { ...seg, duration } }
+    }
+    case 'home':
+    case 'switcher': return { path: '/wda/homescreen' }
+    case 'back': return { path: '/wda/dragfromtoforduration', body: { fromX: 2, fromY: 400, toX: 250, toY: 400, duration: 0.2 } }
+    case 'lock': return { path: '/wda/lock' }
+    case 'unlock': return { path: '/wda/unlock' }
+    default: return null // tap/swipe/home/switcher/back/lock/unlock only — everything else stays on Appium
+  }
+}
+
+// Stage 2B-B: env-gated direct-WDA fast path for hot-path gestures (Appium remains the fallback).
+const DIRECT_WDA = process.env.PFA_DIRECT_WDA === '1' || process.env.PFA_DIRECT_WDA === 'true'
+const DIRECT_WDA_DEBUG = process.env.PFA_DEBUG_LATENCY === '1' || process.env.PFA_DEBUG_LATENCY === 'true'
+
 export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
   readonly isReal = true
   private readonly appiumUrl: string
@@ -122,6 +168,10 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
   private readonly extraCaps: Record<string, unknown>
   /** udid → active Appium W3C sessionId. */
   private readonly sessions = new Map<string, string>()
+  /** udid → the device's local WDA port (for the 2B-B direct-WDA fast path). */
+  private readonly wdaPort = new Map<string, number>()
+  /** udid → cached device LOGICAL window rect (points). Stable per session → fetched once, not per frame. */
+  private readonly windowRect = new Map<string, { width: number | null; height: number | null }>()
 
   constructor(opts: AppiumAdapterOptions = {}) {
     if (process.platform !== 'darwin') {
@@ -165,9 +215,11 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
 
   // ── Appium session lifecycle (Appium owns WDA) ──
   async startWda(udid: string, port: number): Promise<void> {
+    this.wdaPort.set(udid, port) // always current → the 2B-B direct path hits the right WDA port
     const existing = this.sessions.get(udid)
     if (existing && (await this.sessionAlive(existing))) return // idempotent — healthy session already up
     if (existing) { await this.deleteSession(existing).catch(() => {}); this.sessions.delete(udid) }
+    this.windowRect.delete(udid) // a fresh session may have a new rect → re-fetch + re-cache lazily
 
     const capabilities = {
       alwaysMatch: {
@@ -196,7 +248,20 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
   async stopWda(udid: string): Promise<void> {
     const sid = this.sessions.get(udid)
     this.sessions.delete(udid)
+    this.wdaPort.delete(udid)
+    this.windowRect.delete(udid)
     if (sid) await this.deleteSession(sid).catch(() => {})
+  }
+
+  /** 2B-B: hit a WDA UNSESSIONED /wda/* endpoint directly on the device port — no Appium hop. */
+  private async directWda(base: string, path: string, body?: unknown): Promise<void> {
+    const res = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) throw Object.assign(new Error(`direct WDA ${path} → HTTP ${res.status}`), { code: 'WDA_DIRECT_ERROR' })
   }
 
   async execute(udid: string, command: AdapterCommand): Promise<AdapterExecOutcome> {
@@ -205,6 +270,25 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
       await run('idevicediagnostics', ['-u', udid, 'restart'])
       return {}
     }
+    // 2B-B: env-gated DIRECT-WDA fast path for hot gestures (tap/swipe/home/back/lock/unlock). Skips the
+    // Appium HTTP + XCUITest hop. On ANY failure it falls THROUGH to the authoritative Appium path below,
+    // so direct-WDA can only make commands faster, never less reliable. App launch/terminate/type/
+    // screenshot/inventory always stay on Appium (toDirectWdaRequest returns null for them).
+    if (DIRECT_WDA) {
+      const req = toDirectWdaRequest(command)
+      const port = this.wdaPort.get(udid)
+      if (req && port) {
+        const t0 = DIRECT_WDA_DEBUG ? Date.now() : 0
+        try {
+          await this.directWda(`http://127.0.0.1:${port}`, req.path, req.body)
+          if (DIRECT_WDA_DEBUG) console.error(JSON.stringify({ ev: 'wda.direct', udid, kind: command.kind, ms: Date.now() - t0 }))
+          return {}
+        } catch (err) {
+          if (DIRECT_WDA_DEBUG) console.error(JSON.stringify({ ev: 'wda.direct.fallback', udid, kind: command.kind, error: (err as { message?: string })?.message }))
+          // fall through to the Appium path
+        }
+      }
+    }
     const sid = this.sessions.get(udid)
     if (!sid) throw Object.assign(new Error(`no Appium session for ${udid}`), { code: 'NO_SESSION', retryable: true })
     const action = toAppiumAction(command, this.bundleMap)
@@ -212,13 +296,17 @@ export class AppiumDeviceControlAdapter implements DeviceControlAdapter {
     switch (action.via) {
       case 'screenshot': {
         const res = await this.appium('GET', `/session/${sid}/screenshot`) as { value?: unknown }
-        // Best-effort device logical size (points) so the dashboard can map taps on the
-        // displayed frame to device coordinates — never fail the capture if it's missing.
-        let rect: { width?: unknown; height?: unknown } | null = null
-        try {
-          const wr = await this.appium('GET', `/session/${sid}/window/rect`) as { value?: { width?: unknown; height?: unknown } }
-          rect = wr?.value ?? null
-        } catch { rect = null }
+        // Device LOGICAL size (points) for tap mapping — CACHED per session (stable except rotation), so
+        // the Snapshot fallback no longer pays a /window/rect round-trip every frame.
+        let rect = this.windowRect.get(udid) ?? null
+        if (!rect) {
+          try {
+            const wr = await this.appium('GET', `/session/${sid}/window/rect`) as { value?: { width?: number; height?: number } }
+            const v = wr?.value
+            rect = { width: typeof v?.width === 'number' ? v.width : null, height: typeof v?.height === 'number' ? v.height : null }
+            if (rect.width !== null || rect.height !== null) this.windowRect.set(udid, rect)
+          } catch { rect = null }
+        }
         return screenshotOutcome(res?.value, rect)
       }
       case 'type': {

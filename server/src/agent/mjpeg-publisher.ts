@@ -35,8 +35,9 @@ export class MjpegPublisher {
   private timer: ReturnType<typeof setTimeout> | undefined
   private metricsTimer: ReturnType<typeof setInterval> | undefined
   private backoffResolve: (() => void) | null = null
-  private readonly m = { read: 0, forwarded: 0, deduped: 0, reconnects: 0, errors: 0 }
+  private readonly m = { read: 0, forwarded: 0, deduped: 0, reconnects: 0, errors: 0, forwardedBytes: 0 }
   private lastForwarded = 0
+  private lastBytes = 0
   private readonly fetchImpl: typeof fetch
   private readonly WS: typeof WebSocket
   private readonly log: (e: string, f?: Record<string, unknown>) => void
@@ -53,7 +54,12 @@ export class MjpegPublisher {
       this.metricsTimer = setInterval(() => {
         const fwd = this.m.forwarded - this.lastForwarded
         this.lastForwarded = this.m.forwarded
-        this.log('mjpeg.metrics', { udid: this.cfg.udid, ...this.m, fwdFps: Math.round((fwd / 5) * 10) / 10 })
+        const bytes = this.m.forwardedBytes - this.lastBytes
+        this.lastBytes = this.m.forwardedBytes
+        // bufferedAmount = bytes queued but not yet flushed to the relay socket = publisher→relay backup
+        // (the key ingestion-latency signal; a rising value means the relay/link can't keep up).
+        const buffered = (this.ws as { bufferedAmount?: number } | null)?.bufferedAmount ?? 0
+        this.log('mjpeg.metrics', { udid: this.cfg.udid, ...this.m, fwdFps: Math.round((fwd / 5) * 10) / 10, kbps: Math.round((bytes * 8) / 5 / 1024), bufferedAmount: buffered })
       }, 5000)
       if (typeof this.metricsTimer.unref === 'function') this.metricsTimer.unref()
     }
@@ -110,7 +116,7 @@ export class MjpegPublisher {
       if (hash === this.lastHash) { this.m.deduped++; return } // de-dupe identical frames (static screen)
       // Advance the baseline ONLY on a successful send — a frame dropped because the ws isn't OPEN must
       // not poison the de-dupe (else the same content is never re-sent once the ws reopens).
-      if (ws.readyState === this.WS.OPEN) { ws.send(jpeg); this.lastHash = hash; this.m.forwarded++ }
+      if (ws.readyState === this.WS.OPEN) { ws.send(jpeg); this.lastHash = hash; this.m.forwarded++; this.m.forwardedBytes += jpeg.length }
     })
 
     const reader = (res.body as ReadableStream<Uint8Array>).getReader()

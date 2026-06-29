@@ -1,6 +1,34 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { toAppiumAction, resolveBundleId, screenshotOutcome } from './appium-device-adapter'
+import { toAppiumAction, resolveBundleId, screenshotOutcome, toDirectWdaRequest } from './appium-device-adapter'
+
+test('toDirectWdaRequest maps hot gestures to UNSESSIONED /wda/* endpoints (2B-B)', () => {
+  assert.deepEqual(toDirectWdaRequest({ kind: 'tap', x: 100, y: 200 }), { path: '/wda/tap/0', body: { x: 100, y: 200 } })
+  assert.deepEqual(toDirectWdaRequest({ kind: 'home' }), { path: '/wda/homescreen' })
+  assert.deepEqual(toDirectWdaRequest({ kind: 'switcher' }), { path: '/wda/homescreen' })
+  assert.deepEqual(toDirectWdaRequest({ kind: 'lock' }), { path: '/wda/lock' })
+  assert.deepEqual(toDirectWdaRequest({ kind: 'unlock' }), { path: '/wda/unlock' })
+})
+
+test('toDirectWdaRequest swipe uses EXACT clamped coords when present', () => {
+  const r = toDirectWdaRequest({ kind: 'swipe', dir: 'up', x1: 195, y1: 764, x2: 195, y2: 300, durationMs: 250 })
+  assert.deepEqual(r, { path: '/wda/dragfromtoforduration', body: { fromX: 195, fromY: 764, toX: 195, toY: 300, duration: 0.25 } })
+})
+
+test('toDirectWdaRequest swipe falls back to a coarse vector when coords are missing', () => {
+  const r = toDirectWdaRequest({ kind: 'swipe', dir: 'up' }) as { path: string; body: { fromY: number; toY: number; duration: number } }
+  assert.equal(r.path, '/wda/dragfromtoforduration')
+  assert.ok(r.body.fromY > r.body.toY, 'up = finger moves up')
+})
+
+test('toDirectWdaRequest returns null for commands that must stay on Appium', () => {
+  const stay: Array<Parameters<typeof toDirectWdaRequest>[0]> = [
+    { kind: 'screenshot' }, { kind: 'type', text: 'x' }, { kind: 'launch', bundleId: 'com.x' },
+    { kind: 'terminate', bundleId: 'com.x' }, { kind: 'install', appName: 'x' }, { kind: 'reboot' },
+    { kind: 'tap', x: 1 } as Parameters<typeof toDirectWdaRequest>[0], // malformed (no y)
+  ]
+  for (const c of stay) assert.equal(toDirectWdaRequest(c), null)
+})
 
 test('toAppiumAction maps gestures to XCUITest mobile: scripts', () => {
   assert.deepEqual(toAppiumAction({ kind: 'screenshot' }), { via: 'screenshot' })
