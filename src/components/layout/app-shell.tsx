@@ -11,6 +11,7 @@ import { BrandLogo } from '@/components/brand/brand-logo'
 import { SignOutButton } from '@/components/auth/sign-out-button'
 import { useAuth } from '@/contexts/AuthContext'
 import { VIEWS, type ViewId } from '@/lib/views'
+import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/ui-store'
 import { useSettings } from '@/state/settings-store'
 import { useFleetStats } from '@/hooks/use-fleet'
@@ -42,6 +43,9 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 const EXPANDED_W = 210
 const RAIL_W = 56
+// Keep the parent sidebar item highlighted while inside a sub-view that has no nav entry
+// of its own. Phone Control is its own view but lives under Phones → Phones stays active.
+const PARENT_NAV: Partial<Record<ViewId, ViewId>> = { 'phone-control': 'phones' }
 // Hover INTENT: the rail must not pop open on a quick fly-by — only after the pointer
 // dwells on it. Open after a dwell; close after a short grace (cancels flicker); both
 // cancel each other. Keyboard focus still expands instantly (no dwell — accessibility).
@@ -69,6 +73,8 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
   // Permission-aware nav: only sections the acting user may open — and, in
   // supabase-mode, excluding pages gated as hideInSupabaseMode (mock/unreachable).
   const visibleViews = VIEWS.filter((v) => canAny(member, v.requiredAny) && !(SUPABASE_MODE && v.hideInSupabaseMode))
+  // The sidebar item that owns the current view (sub-views like phone-control map to their parent).
+  const activeNavId = PARENT_NAV[view] ?? view
 
   return (
     <>
@@ -101,7 +107,7 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
       <nav className="flex flex-1 flex-col gap-0 overflow-y-auto py-2" aria-label="Primary">
         {visibleViews.map((v) => {
           const Icon    = ICON_MAP[v.icon] ?? Network
-          const isActive = view === v.id
+          const isActive = activeNavId === v.id
           return (
             <button
               key={v.id}
@@ -109,20 +115,30 @@ function SidebarContent({ collapsed, onNavigate }: { collapsed: boolean; onNavig
               title={collapsed ? v.label : undefined}
               aria-label={v.label}
               aria-current={isActive ? 'page' : undefined}
-              className={`group relative flex w-full items-center gap-3 py-2.5 text-left text-xs transition-all duration-150 ${collapsed ? 'justify-center px-0' : 'px-4'}`}
-              style={{
-                // Inactive labels at 0.55 (not 0.35) so the 10px nav text clears
-                // WCAG AA 4.5:1 on the dark rail, while staying clearly dimmer
-                // than the bright-white active item.
-                color: isActive ? '#ffffff' : 'rgba(255,255,255,0.55)',
-                borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                background: isActive ? 'var(--accent-soft)' : 'transparent',
-              }}
+              className={cn(
+                // border-l-2 is ALWAYS present (transparent when inactive) so toggling the
+                // accent edge never shifts the row. transition-colors only → no layout anim.
+                'group relative flex w-full items-center gap-3 border-l-2 py-2.5 text-left text-xs outline-none transition-colors duration-150',
+                collapsed ? 'justify-center px-0' : 'px-4',
+                // Keyboard focus: a clearly visible inset accent ring + soft surface, on ANY state.
+                'focus-visible:bg-[rgba(45,212,191,0.10)] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent-border)]',
+                isActive
+                  // ACTIVE (current section): strongest — accent surface, solid accent edge,
+                  // high-contrast white text. Dominant over hover (no hover override applied).
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-white'
+                  // INACTIVE: readable-dim (AA on the dark rail); HOVER lifts to a soft cyan
+                  // surface + brighter text — a gentle active-surface, not a loud button.
+                  : 'border-transparent text-white/55 hover:bg-[rgba(45,212,191,0.06)] hover:text-white/90',
+              )}
+              // Restrained left-edge glow on the active row only (no glow = no hover/idle cost).
+              style={isActive ? { boxShadow: 'inset 2px 0 14px -10px var(--accent)' } : undefined}
             >
               <Icon
                 size={collapsed ? 15 : 13}
-                className="shrink-0 transition-colors"
-                style={{ color: isActive ? 'var(--accent-text)' : 'rgba(255,255,255,0.25)' }}
+                className={cn(
+                  'shrink-0 transition-colors',
+                  isActive ? 'text-[var(--accent-text)]' : 'text-white/25 group-hover:text-white/70',
+                )}
               />
               {!collapsed && <span className="relative z-10 truncate text-[10px] uppercase tracking-wider">{v.label}</span>}
             </button>
