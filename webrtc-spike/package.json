@@ -1,0 +1,21 @@
+{
+  "name": "mobfleet-webrtc-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stage 2C WebRTC SPIKE — WDA MJPEG -> H.264 (ffmpeg) -> WebRTC -> one browser <video>. Standalone; touches no production code. Run on the Mac to MEASURE whether WebRTC beats MJPEG.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "sender": "node --import tsx src/sender.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "werift": "^0.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

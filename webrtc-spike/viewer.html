@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MobFleet WebRTC spike viewer</title>
+<style>
+  body { font: 13px/1.5 system-ui, sans-serif; background:#0b0b0e; color:#e8e8ea; margin:0; padding:16px; }
+  h1 { font-size:15px; margin:0 0 12px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+  input { background:#16161c; color:#e8e8ea; border:1px solid #2a2a33; border-radius:6px; padding:6px 8px; width:340px; }
+  label { display:block; font-size:11px; color:#9a9aa6; margin:8px 0 2px; }
+  button { background:#2563eb; color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; margin-top:12px; }
+  video { width:360px; background:#000; border-radius:12px; display:block; }
+  #stats { font-family:ui-monospace,monospace; white-space:pre; background:#16161c; border:1px solid #2a2a33; border-radius:8px; padding:12px; min-width:300px; }
+  .k { color:#9a9aa6; }
+</style>
+</head>
+<body>
+<h1>MobFleet WebRTC spike — viewer</h1>
+<div class="row">
+  <div>
+    <label>SUPABASE_URL</label><input id="url" placeholder="https://&lt;ref&gt;.supabase.co" />
+    <label>SUPABASE_ANON_KEY</label><input id="anon" placeholder="eyJ…" />
+    <label>DEVICE_ID</label><input id="device" placeholder="device uuid" />
+    <button id="go">Connect &amp; measure</button>
+  </div>
+  <video id="v" autoplay playsinline muted></video>
+  <div id="stats">idle</div>
+</div>
+
+<!-- supabase-js for the signaling channel (SDP only; no media here) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id)
+const statsEl = $('stats'), video = $('v')
+let lastBytes = 0, lastTs = 0
+
+async function waitIce(pc) {
+  if (pc.iceGatheringState === 'complete') return
+  await new Promise((res) => {
+    const check = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', check); res() } }
+    pc.addEventListener('icegatheringstatechange', check)
+  })
+}
+
+async function poll(pc) {
+  const stats = await pc.getStats()
+  let line = ''
+  stats.forEach((r) => {
+    if (r.type === 'inbound-rtp' && r.kind === 'video') {
+      const now = r.timestamp
+      const kbps = lastTs ? Math.round(((r.bytesReceived - lastBytes) * 8) / (now - lastTs)) : 0 // bytes*8 / ms = kbps
+      lastBytes = r.bytesReceived; lastTs = now
+      line =
+        `visible fps : ${r.framesPerSecond ?? '—'}\n` +
+        `bitrate     : ${kbps} kbps\n` +
+        `frames dec. : ${r.framesDecoded ?? '—'}\n` +
+        `resolution  : ${r.frameWidth ?? '—'}x${r.frameHeight ?? '—'}\n` +
+        `packetsLost : ${r.packetsLost ?? 0}\n` +
+        `jitter      : ${(r.jitter ?? 0).toFixed?.(4) ?? r.jitter} s\n` +
+        `nackCount   : ${r.nackCount ?? 0}  pliCount: ${r.pliCount ?? 0}`
+    }
+  })
+  if (line) statsEl.textContent = line
+}
+
+$('go').onclick = async () => {
+  const sb = supabase.createClient($('url').value.trim(), $('anon').value.trim())
+  const deviceId = $('device').value.trim()
+  const channel = sb.channel(`webrtc:${deviceId}`, { config: { broadcast: { ack: false } } })
+
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+  pc.addTransceiver('video', { direction: 'recvonly' })
+  pc.ontrack = (e) => { video.srcObject = e.streams[0]; statsEl.textContent = 'track received — measuring…' }
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'connected') setInterval(() => poll(pc), 1000) }
+
+  channel.on('broadcast', { event: 'answer' }, async ({ payload }) => {
+    await pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp })
+  })
+  await channel.subscribe()
+
+  const offer = await pc.createOffer()
+  await pc.setLocalDescription(offer)
+  await waitIce(pc) // non-trickle: candidates in the SDP
+  await channel.send({ type: 'broadcast', event: 'offer', payload: { sdp: pc.localDescription.sdp } })
+  statsEl.textContent = 'offer sent — waiting for the agent sender…'
+}
+</script>
+</body>
+</html>
